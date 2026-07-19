@@ -47,14 +47,17 @@ const PLAYER_SPRITE_FOOT_OFFSET = 49;
 
 /**
  * The entrance. He starts this far below the play area -- clear of the bottom
- * edge, since his sprite reaches 122 px above his feet -- and runs up to the
- * usual starting spot, about a second at PLAYER_SPEED.
+ * edge, since his sprite reaches 122 px above his feet.
  */
 const INTRO_START_BELOW = 140;
+/** Where he stops, measured up from the bottom of the play area. */
+const INTRO_STOP_ABOVE_BOTTOM = 160;
+/** He walks in rather than running, so the entrance moves at a walk's pace. */
+const INTRO_WALK_SPEED = 115; // px/sec, against PLAYER_SPEED's 220
 /** How long he stands and looks around before reaching for the sword. */
-const INTRO_SETTLE = 0.8; // seconds
+const INTRO_SETTLE = 0.7; // seconds
 
-type AnimName = 'idle' | 'run' | 'attack' | 'hurt' | 'spawn';
+type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn';
 
 type AnimDef = {
   sheet: ImageSourcePropType;
@@ -91,6 +94,8 @@ const ATTACK_STRIKE_FRAME = 8;
 
 const ANIMS: Record<AnimName, AnimDef> = {
   idle: { sheet: require('./assets/sprites/knight/idle.png'), fps: 10, loop: true },
+  // Only the entrance walks. Ordinary movement is a run, and always has been.
+  walk: { sheet: require('./assets/sprites/knight/walk.png'), fps: 12, loop: true },
   run: { sheet: require('./assets/sprites/knight/run.png'), fps: 16, loop: true },
   attack: { sheet: require('./assets/sprites/knight/melee.png'), fps: 24, loop: false, from: ATTACK_FROM },
   hurt: { sheet: require('./assets/sprites/knight/takedamage.png'), fps: 22, loop: false },
@@ -708,7 +713,7 @@ function makePlayer(): PlayerState {
     // him north on the way -- so he is already looking up the screen when he
     // stops, and draws his sword facing that way.
     pos: { x: SCREEN_W / 2, y: PLAY_H + INTRO_START_BELOW },
-    target: { x: SCREEN_W / 2, y: PLAY_H - 80 },
+    target: { x: SCREEN_W / 2, y: PLAY_H - INTRO_STOP_ABOVE_BOTTOM },
     hp: 100,
     maxHp: 100,
     mana: MANA_MAX,
@@ -719,7 +724,7 @@ function makePlayer(): PlayerState {
     abilityPoints: 1,
     hasteTimer: 0,
     facing: 6, // north, the way he is about to run
-    anim: 'run',
+    anim: 'walk',
     animTime: 0,
     animSpeed: 1,
     // Every way into a run rebuilds the player from here, so each one opens
@@ -1439,7 +1444,9 @@ export default function App() {
         } else {
           const dx = p.target.x - p.pos.x;
           const dy = p.target.y - p.pos.y;
-          const step = PLAYER_SPEED * dt;
+          // He walks in and runs everywhere after.
+          const speed = p.introPhase === 'enter' ? INTRO_WALK_SPEED : PLAYER_SPEED;
+          const step = speed * dt;
           const ratio = Math.min(1, step / d);
           p.pos = { x: p.pos.x + dx * ratio, y: p.pos.y + dy * ratio };
           p.facing = facingFromDelta(dx, dy);
@@ -1783,7 +1790,8 @@ export default function App() {
         const pool = hurtSoundsRef.current;
         playSfx(pool[Math.floor(Math.random() * pool.length)]);
       } else if (!oneShotBusy) {
-        nextAnim = playerAttacked ? 'attack' : moving ? 'run' : 'idle';
+        const travelling = p.introPhase === 'enter' ? 'walk' : 'run';
+        nextAnim = playerAttacked ? 'attack' : moving ? travelling : 'idle';
         // Any freshly triggered one-shot restarts, including a second swing
         // straight after the first -- without this it would stay parked on the
         // last frame, since the name alone has not changed.

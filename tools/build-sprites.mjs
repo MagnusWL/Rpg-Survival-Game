@@ -37,10 +37,12 @@ const OUT_CELL = 128; // must match SPRITE_CELL in App.tsx
 const COLS = 15;
 const ROWS = 8;
 
-// Only what the game actually renders today. 'Walk' stays out because
-// PLAYER_SPEED is a constant 220 px/s with no slow-walk state; 'Die' stays out
-// because the game loop stops simulating on death, so it would freeze on frame 0.
-const SHEETS = ['Idle', 'Run', 'Melee', 'TakeDamage', 'UnSheathSword'];
+// Only what the game actually renders today. 'Die' stays out because the game
+// loop stops simulating on death, so it would freeze on frame 0.
+//
+// 'Walk' was left out for a long time -- movement was a single speed and there
+// was nothing to distinguish it from a run. The entrance gave it a job.
+const SHEETS = ['Idle', 'Walk', 'Run', 'Melee', 'TakeDamage', 'UnSheathSword'];
 
 mkdirSync(OUT_DIR, { recursive: true });
 
