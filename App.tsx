@@ -94,6 +94,12 @@ const BLOOD_DURATION = SPRITE_COLS / BLOOD_ANIM.fps; // seconds
 const BLOOD_SIZE = 128;
 
 /**
+ * The ground the whole play area stands on. Drawn to cover rather than stretch,
+ * so it crops instead of distorting when the screen is not its 4:3 shape.
+ */
+const BACKGROUND = require('./assets/sprites/background.jpg');
+
+/**
  * Every sheet the game can draw, for loading up front.
  *
  * Nothing that draws them exists until a run starts, so without this the first
@@ -105,6 +111,7 @@ const ALL_SHEETS: number[] = [
   ...Object.values(ANIMS).map((a) => a.sheet),
   ...Object.values(MOB_ANIMS).map((a) => a.sheet),
   BLOOD_ANIM.sheet,
+  BACKGROUND,
 ] as number[];
 
 // Drawn the same size as the knight, both being human-sized. The foot offset is
@@ -2059,6 +2066,9 @@ export default function App() {
         onResponderMove={handlePlayAreaMove}
         onResponderRelease={handlePlayAreaRelease}
       >
+        {/* The ground, behind everything else in the play area. */}
+        <Image source={BACKGROUND} style={styles.background} resizeMode="cover" />
+
         <View
           pointerEvents="none"
           style={[
@@ -2451,8 +2461,17 @@ const styles = StyleSheet.create({
   playArea: {
     width: SCREEN_W,
     height: PLAY_H,
+    // Kept as the colour behind the ground texture, so a slow load or a failed
+    // one leaves the play area looking as it always did rather than blank.
     backgroundColor: '#26263f',
     overflow: 'hidden',
+  },
+  background: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: PLAY_H,
   },
   rangeRing: {
     position: 'absolute',

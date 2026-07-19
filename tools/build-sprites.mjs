@@ -189,6 +189,29 @@ if (!existsSync(ZOMBIE_SRC)) {
   console.log(`Skrevet til ${path.relative(ROOT, ZOMBIE_OUT)}`);
 }
 
+// --- Background ----------------------------------------------------------
+// A ground texture rather than a sheet, so it gets none of the grid treatment.
+// It carries no alpha, which means JPEG rather than PNG: identical to the eye at
+// an eighth of the size on disk.
+//
+// Kept at full resolution on purpose. Drawn to cover the play area, a phone in
+// portrait at 2x needs about 1108 px of height and the source has 1086, so it
+// lands near 1:1. Anything smaller gets stretched back up and turns to mush.
+const BG_SRC = path.join(ROOT, 'Grafik', 'Baggrund', 'Background.png');
+const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
+
+if (existsSync(BG_SRC)) {
+  await sharp(BG_SRC).jpeg({ quality: 88, mozjpeg: true }).toFile(BG_OUT);
+  const before = statSync(BG_SRC).size;
+  const after = statSync(BG_OUT).size;
+  const meta = await sharp(BG_OUT).metadata();
+  console.log(
+    `\nBaggrund: ${meta.width}x${meta.height}  ` +
+      `${(before / 1024).toFixed(0)} KB PNG  ->  ${(after / 1024).toFixed(0)} KB JPEG ` +
+      `(-${Math.round((1 - after / before) * 100)}%)`
+  );
+}
+
 if (existsSync(BLOOD_SRC)) {
   const outPath = path.join(ROOT, 'assets', 'sprites', 'effects', 'blood.png');
   mkdirSync(path.dirname(outPath), { recursive: true });
