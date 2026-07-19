@@ -230,7 +230,17 @@ const GLOW_SIZE = 256;
 // Kept at full resolution on purpose. Drawn to cover the play area, a phone in
 // portrait at 2x needs about 1108 px of height and the source has 1086, so it
 // lands near 1:1. Anything smaller gets stretched back up and turns to mush.
-const BG_SRC = path.join(ROOT, 'Grafik', 'Baggrund', 'Background.png');
+/**
+ * Which of the candidates in Grafik/Baggrund to use. Change the filename, run
+ * the build again, and the game picks it up -- the output name never changes,
+ * so nothing in App.tsx has to know which one is in play.
+ *
+ * Others sitting there: Background.png (the first one), A.png, B.png, C.png,
+ * D.png. Run tools/compare-backgrounds.mjs to see them side by side.
+ */
+const BG_CHOICE = 'Remaster.jpg';
+
+const BG_SRC = path.join(ROOT, 'Grafik', 'Baggrund', BG_CHOICE);
 const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
 
 /** Overall brightness. 0.85 is the 15% knock-down the ground gets. */
@@ -269,8 +279,8 @@ if (existsSync(BG_SRC)) {
   const before = statSync(BG_SRC).size;
   const after = statSync(BG_OUT).size;
   console.log(
-    `\nBaggrund: ${meta.width}x${meta.height}  ` +
-      `${(before / 1024).toFixed(0)} KB PNG  ->  ${(after / 1024).toFixed(0)} KB JPEG ` +
+    `\nBaggrund: ${BG_CHOICE}  ${meta.width}x${meta.height}  ` +
+      `${(before / 1024).toFixed(0)} KB  ->  ${(after / 1024).toFixed(0)} KB JPEG ` +
       `(-${Math.round((1 - after / before) * 100)}%)`
   );
   console.log(
