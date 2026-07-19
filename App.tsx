@@ -812,11 +812,12 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/kill-3.wav')),
   ];
 
-  // The knight taking a hit, played with the flinch animation. Empty until the
-  // clips are chosen -- the trigger is live and simply plays nothing, since
-  // playSfx ignores a missing player. Add one useAudioPlayer line per file here
-  // and the sound starts working; see the note in tools/sound-config.mjs.
-  const hurtSounds: (AudioPlayer | undefined)[] = [];
+  // The knight taking a hit, played with the flinch animation. At 0.63 s the
+  // clip runs almost exactly as long as the flinch it accompanies. Add variants
+  // here as they arrive; name them in tools/sound-config.mjs first.
+  const hurtSounds: (AudioPlayer | undefined)[] = [
+    useAudioPlayer(require('./assets/sounds/hurt-1.wav')),
+  ];
 
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);

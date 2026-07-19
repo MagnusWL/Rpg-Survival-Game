@@ -45,13 +45,10 @@ export const SOUNDS = [
   { out: 'kill-2', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_11.wav` },
   { out: 'kill-3', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_17.wav` },
 
-  // The knight taking a hit. The game already triggers this -- it just has
-  // nothing to play yet. Name the files hurt-1 .. hurt-N here, run
-  // "npm run build:sounds", then add the matching useAudioPlayer lines to
-  // hurtSounds in App.tsx. The pack's Voicelines/Damage Grunts are four
-  // candidates if nothing better turns up.
-  //
-  // { out: 'hurt-1', src: `${PACK}/../Voicelines/Damage Grunts/VOXScrm_DamageGrunt_HoveAudio_SwordCombat_01.wav` },
+  // The knight taking a hit: a blade turned by his armour. Add more variants
+  // here as hurt-2, hurt-3 and so on, then add a matching useAudioPlayer line
+  // to hurtSounds in App.tsx.
+  { out: 'hurt-1', src: 'deffend/620355__marb7e__whooshsword_hit-armor.wav' },
 ];
 
 /**
