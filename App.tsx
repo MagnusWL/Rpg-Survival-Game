@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import CoinSackView, { CoinSackHandle } from './CoinSackView';
+import CoinSackView, { CoinSackHandle, SACK_MIN_W } from './CoinSackView';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
@@ -543,6 +543,21 @@ const MOB_COINS = 1;
 const BOSS_COINS = 5;
 
 /**
+ * Where the sack sits, measured from the bottom left of the screen.
+ *
+ * Deliberately not inside one of the bars. The sack is 170 px tall and the
+ * tallest bar is 84, and the engine crops rather than squashes when the box is
+ * the wrong shape -- so it floats over them and its foot is placed by eye.
+ */
+const COINSACK_LEFT = 8;
+const COINSACK_BOTTOM = 8;
+const COINSACK_WIDTH = 96;
+
+// Temporary on-screen sliders for placing it. Set to false once the numbers are
+// settled; the panel and its state then cost nothing.
+const DEBUG_COINSACK_TUNING = true;
+
+/**
  * The shove a mob takes when it is struck.
  *
  * Speed at the instant of the blow, not a distance: it is fed into the same
@@ -989,6 +1004,52 @@ function hurtMob(m: Mob, from?: Vec) {
   }
 }
 
+/**
+ * Drag-anywhere slider for the temporary tuning panel. Built on the same
+ * responder props the play area uses, so it needs no extra dependency, and it
+ * lives outside the play area so dragging it does not also order a move.
+ */
+function DebugSlider({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  const trackWidth = useRef(0);
+  const setFromX = (x: number) => {
+    if (trackWidth.current <= 0) return;
+    const t = Math.max(0, Math.min(1, x / trackWidth.current));
+    onChange(Math.round(min + t * (max - min)));
+  };
+  const pct: `${number}%` = `${((value - min) / (max - min)) * 100}%`;
+  return (
+    <View style={styles.tuneRow}>
+      <Text style={styles.tuneLabel}>{label}</Text>
+      <View
+        style={styles.tuneTrack}
+        onLayout={(e) => {
+          trackWidth.current = e.nativeEvent.layout.width;
+        }}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={(e) => setFromX(e.nativeEvent.locationX)}
+        onResponderMove={(e) => setFromX(e.nativeEvent.locationX)}
+      >
+        <View style={[styles.tuneFill, { width: pct }]} />
+        <View style={[styles.tuneKnob, { left: pct }]} />
+      </View>
+      <Text style={styles.tuneValue}>{value}</Text>
+    </View>
+  );
+}
+
 function makePlayer(): PlayerState {
   return {
     // Below the bottom edge, out of sight, running for the spot he normally
@@ -1224,6 +1285,12 @@ export default function App() {
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
   const [bloodSplats, setBloodSplats] = useState<BloodSplat[]>([]);
+
+  // The tuning panel drives these while DEBUG_COINSACK_TUNING is on; the
+  // constants above take over the moment it is switched off.
+  const [tuneSackLeft, setTuneSackLeft] = useState(COINSACK_LEFT);
+  const [tuneSackBottom, setTuneSackBottom] = useState(COINSACK_BOTTOM);
+  const [tuneSackWidth, setTuneSackWidth] = useState(COINSACK_WIDTH);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
   const [waveActive, setWaveActive] = useState(false);
@@ -2839,8 +2906,6 @@ export default function App() {
           );
         })}
 
-        {/* The kit's own canvas, over the field and deaf to touches. */}
-        <CoinSackView sackRef={coinSackRef} />
       </View>
 
       <View style={styles.quickCastBar}>
@@ -2928,6 +2993,45 @@ export default function App() {
           )}
         </Pressable>
       </View>
+
+      {/* The kit's own canvas, sitting on the bars rather than inside one.
+          None of them is tall enough to hold it -- the sack is 170 px against
+          the tallest bar's 84 -- and the engine crops rather than squashes when
+          the box is the wrong shape, so it floats over them instead and its
+          foot is placed where it looks right. Measured from the bottom of the
+          screen, so it stays put whatever the bars do. */}
+      <CoinSackView
+        sackRef={coinSackRef}
+        left={DEBUG_COINSACK_TUNING ? tuneSackLeft : COINSACK_LEFT}
+        bottom={DEBUG_COINSACK_TUNING ? tuneSackBottom : COINSACK_BOTTOM}
+        width={DEBUG_COINSACK_TUNING ? tuneSackWidth : COINSACK_WIDTH}
+      />
+
+      {/* --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING --- */}
+      {DEBUG_COINSACK_TUNING && (
+        <View style={styles.tunePanel}>
+          <DebugSlider label="Fra venstre" value={tuneSackLeft} min={0} max={Math.round(SCREEN_W - 40)} onChange={setTuneSackLeft} />
+          <DebugSlider label="Fra bunden" value={tuneSackBottom} min={-60} max={Math.round(SCREEN_H / 2)} onChange={setTuneSackBottom} />
+          <DebugSlider label="Bredde" value={tuneSackWidth} min={48} max={260} onChange={setTuneSackWidth} />
+          <View style={styles.tuneButtons}>
+            <Pressable style={styles.tuneButton} onPress={() => coinSackRef.current?.addCoin()}>
+              <Text style={styles.tuneButtonText}>Smid en moent</Text>
+            </Pressable>
+            <Pressable
+              style={styles.tuneButton}
+              onPress={() => {
+                for (let i = 0; i < 5; i++) coinSackRef.current?.addCoin();
+              }}
+            >
+              <Text style={styles.tuneButtonText}>+5</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.tuneCode}>
+            {`left: ${tuneSackLeft}, bottom: ${tuneSackBottom}, width: ${tuneSackWidth}` +
+              (tuneSackWidth < SACK_MIN_W ? '   <- under 96: pixel-looket gaar tabt' : '')}
+          </Text>
+        </View>
+      )}
 
       {/* ---- Skills menu ---- */}
       {skillsMenuOpen && (
@@ -3656,4 +3760,39 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+
+  // --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING ---
+  tunePanel: {
+    position: 'absolute',
+    top: TOP_BAR_HEIGHT + 8,
+    left: 8,
+    right: 8,
+    zIndex: 50,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+  tuneRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  tuneLabel: { width: 74, color: '#cfd8dc', fontSize: 11 },
+  tuneTrack: {
+    flex: 1,
+    height: 22,
+    justifyContent: 'center',
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  tuneFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 4, backgroundColor: '#4fc3f7' },
+  tuneKnob: {
+    position: 'absolute',
+    width: 12,
+    height: 22,
+    marginLeft: -6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+  },
+  tuneValue: { width: 46, textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  tuneButtons: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  tuneButton: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#3949ab' },
+  tuneButtonText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  tuneCode: { marginTop: 6, color: '#ffe082', fontSize: 10 },
 });

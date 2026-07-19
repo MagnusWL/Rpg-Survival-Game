@@ -27,19 +27,20 @@ import { Platform, View } from 'react-native';
 import { CoinSack } from './vendor/coin-sack/coin-sack-engine';
 
 /**
- * The size the sack is drawn at, straight from the kit's example.
+ * The shape the sack is drawn at, straight from the kit's example.
  *
- * Not a free choice. The engine always works internally at 220x360, so with
- * pixelSize 2.4 its buffer is 92x150 whatever the box says -- and the box is
- * what decides whether that buffer is scaled up or down. The kit's own table:
- * 96 px wide lands on 1.04 buffer pixels each, which is 1:1 and the look as
- * intended. Below 96 the art is scaled down and the pixels shimmer instead of
- * reading as blocks.
+ * Width is not a free choice. The engine always works internally at 220x360, so
+ * with pixelSize 2.4 its buffer is 92x150 whatever the box says -- and the box
+ * is what decides whether that buffer is scaled up or down. The kit's own
+ * table: 96 px wide lands on 1.04 buffer pixels each, which is 1:1 and the look
+ * as intended. Below 96 the art is scaled down and the pixels shimmer rather
+ * than reading as blocks.
+ *
+ * The height follows the width, because the engine lays the art out from both
+ * and a box of the wrong shape crops the sack instead of fitting it.
  */
-const SACK_W = 96;
-const SACK_H = 170;
-const SACK_LEFT = 8;
-const SACK_BOTTOM = 8;
+export const SACK_MIN_W = 96;
+const SACK_ASPECT = 170 / 96;
 
 /** Steel. The kit ships brass (14b) and copper (14c) beside it. */
 const THEME = '14f';
@@ -75,8 +76,20 @@ const FLIP_SAMPLE = require('./assets/coinsack/coin-flip.mp3');
 
 export type CoinSackHandle = { addCoin(): void } | null;
 
-export default function CoinSackView({ sackRef }: { sackRef: { current: CoinSackHandle } }) {
+export default function CoinSackView({
+  sackRef,
+  left,
+  bottom,
+  width,
+}: {
+  sackRef: { current: CoinSackHandle };
+  left: number;
+  bottom: number;
+  width: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const engineRef = useRef<CoinSack | null>(null);
+  const height = Math.round(width * SACK_ASPECT);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -130,6 +143,7 @@ export default function CoinSackView({ sackRef }: { sackRef: { current: CoinSack
           density: 0.006,
         });
         sackRef.current = sack;
+        engineRef.current = sack;
       })
       .catch(() => {
         // A sack that fails to build must not take the game down with it.
@@ -155,23 +169,29 @@ export default function CoinSackView({ sackRef }: { sackRef: { current: CoinSack
       dropped = true;
       for (const e of events) window.removeEventListener(e, wake);
       sackRef.current = null;
+      engineRef.current = null;
       // Left running, it keeps its own animation frame alive for ever.
       if (sack) sack.destroy();
     };
   }, [sackRef]);
 
+  // The engine sizes the sack and the coins off the canvas box, and only reads
+  // it when told to -- so a box that changes has to say so, or the art keeps
+  // the shape it was born at while the element around it moves.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    engineRef.current?._resize();
+  }, [width, height]);
+
   if (Platform.OS !== 'web') return null;
 
   return (
-    <View
-      pointerEvents="none"
-      style={{ position: 'absolute', left: SACK_LEFT, bottom: SACK_BOTTOM, width: SACK_W, height: SACK_H }}
-    >
+    <View pointerEvents="none" style={{ position: 'absolute', left, bottom, width, height }}>
       <canvas
         ref={canvasRef}
         aria-hidden="true"
         data-theme={THEME}
-        style={{ width: SACK_W, height: SACK_H, display: 'block' }}
+        style={{ width, height, display: 'block' }}
       />
     </View>
   );
