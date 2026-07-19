@@ -12,7 +12,7 @@
  * Run: node tools/build-sprites.mjs
  */
 import sharp from 'sharp';
-import { mkdirSync, statSync, readdirSync, existsSync, copyFileSync } from 'node:fs';
+import { mkdirSync, statSync, readdirSync, existsSync, copyFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -205,6 +205,67 @@ if (!existsSync(ZOMBIE_SRC)) {
   console.log(`Skrevet til ${path.relative(ROOT, ZOMBIE_OUT)}`);
 }
 
+// --- Puddles --------------------------------------------------------------
+// Two layers arrive alongside the ground. One is art: the puddles themselves,
+// composited into the background so they cost nothing at runtime. The other is
+// data: the same puddles painted as flat pink, marking where water effects
+// belong. That one is never drawn -- it is read, turned into coordinates, and
+// discarded.
+//
+// Coordinates come out as fractions of the image rather than pixels, since the
+// background is drawn to cover and its scale depends on the screen.
+const PUDDLE_ART = path.join(ROOT, 'Grafik', 'Baggrund', 'effekt', 'water puddles on background.png');
+const PUDDLE_MASK = path.join(ROOT, 'Grafik', 'Baggrund', 'effekt', 'waterpuddles placement for effekt.png');
+const PUDDLE_OUT = path.join(ROOT, 'assets', 'sprites', 'effects', 'puddles.json');
+
+/** Groups the marked pixels into blobs and measures each one. */
+async function readPuddleMask(file) {
+  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const marked = (i) => data[i * channels + 3] > 40 && data[i * channels] > 90;
+
+  const seen = new Uint8Array(width * height);
+  const blobs = [];
+  const stack = [];
+
+  for (let start = 0; start < width * height; start++) {
+    if (seen[start] || !marked(start)) continue;
+    let minX = width, maxX = -1, minY = height, maxY = -1, count = 0;
+    stack.push(start);
+    seen[start] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      const x = i % width;
+      const y = (i / width) | 0;
+      count++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const n = ny * width + nx;
+        if (!seen[n] && marked(n)) {
+          seen[n] = 1;
+          stack.push(n);
+        }
+      }
+    }
+    // Ignore stray specks; a real puddle covers a decent patch of ground.
+    if (count < 400) continue;
+    blobs.push({
+      x: +(((minX + maxX) / 2) / width).toFixed(4),
+      y: +(((minY + maxY) / 2) / height).toFixed(4),
+      rx: +((maxX - minX) / 2 / width).toFixed(4),
+      ry: +((maxY - minY) / 2 / height).toFixed(4),
+      pixels: count,
+    });
+  }
+  return blobs.sort((a, b) => b.pixels - a.pixels);
+}
+
 // --- Glow ----------------------------------------------------------------
 // A soft disc drawn under a character. Generated rather than drawn by hand so
 // its falloff can be adjusted by editing a number.
@@ -278,8 +339,9 @@ if (existsSync(BG_SRC)) {
   const darkening = BG_BRIGHTNESS !== 1;
   const vignetting = BG_VIGNETTE.strength > 0;
   const alreadyJpeg = /\.jpe?g$/i.test(BG_CHOICE);
+  const puddles = existsSync(PUDDLE_ART);
 
-  if (!darkening && !vignetting && alreadyJpeg) {
+  if (!darkening && !vignetting && !puddles && alreadyJpeg) {
     // Nothing to do, and re-encoding a JPEG only throws away detail for no
     // reason. Copy it through untouched.
     copyFileSync(BG_SRC, BG_OUT);
@@ -289,6 +351,11 @@ if (existsSync(BG_SRC)) {
     );
   } else {
     let img = sharp(BG_SRC);
+    // Puddles first, so the darkening and vignette fall on them too and they
+    // sit in the ground rather than on top of it.
+    if (puddles) {
+      img = sharp(await img.composite([{ input: PUDDLE_ART, blend: 'over' }]).png().toBuffer());
+    }
     if (darkening) img = img.modulate({ brightness: BG_BRIGHTNESS });
     if (vignetting) {
       // An ellipse rather than a circle: an SVG gradient defaults to the shape's
@@ -315,10 +382,24 @@ if (existsSync(BG_SRC)) {
         `${(before / 1024).toFixed(0)} KB  ->  ${(after / 1024).toFixed(0)} KB JPEG ` +
         `(-${Math.round((1 - after / before) * 100)}%)`
     );
+    if (puddles) console.log('  vandpytter bagt ind');
     if (darkening) console.log(`  daempet ${Math.round((1 - BG_BRIGHTNESS) * 100)}%`);
     if (vignetting) {
       console.log(`  vignet fra ${Math.round(BG_VIGNETTE.start * 100)}% ud til ${BG_VIGNETTE.strength}`);
     }
+  }
+}
+
+if (existsSync(PUDDLE_MASK)) {
+  const found = await readPuddleMask(PUDDLE_MASK);
+  mkdirSync(path.dirname(PUDDLE_OUT), { recursive: true });
+  writeFileSync(PUDDLE_OUT, JSON.stringify(found.map(({ pixels, ...rest }) => rest)));
+  console.log(`\nVandpytter: ${found.length} fundet i markeringslaget`);
+  for (const b of found) {
+    console.log(
+      `  midt (${(b.x * 100).toFixed(0)}%, ${(b.y * 100).toFixed(0)}%)  ` +
+        `stoerrelse ${(b.rx * 2 * 100).toFixed(0)}% x ${(b.ry * 2 * 100).toFixed(0)}%`
+    );
   }
 }
 

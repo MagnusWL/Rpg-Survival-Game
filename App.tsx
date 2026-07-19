@@ -254,6 +254,45 @@ const RAIN_TILT_X = Math.tan((RAIN_TILT_DEG * Math.PI) / 180);
  */
 const RAIN_DRIFT = PLAY_H * RAIN_TILT_X;
 
+// --- Puddles ---------------------------------------------------------------
+// Where the ground has standing water, read off a mask by the build. Positions
+// are fractions of the background image, not pixels, because the ground is drawn
+// to cover and its scale depends on the screen.
+const PUDDLES: { x: number; y: number; rx: number; ry: number }[] = require('./assets/sprites/effects/puddles.json');
+
+/** The background's own proportions, needed to place anything on top of it. */
+const BG_ASPECT = 1448 / 1086;
+
+/**
+ * The same 'cover' the background is drawn with: scale until it fills, centre
+ * the overflow. Anything meant to sit on the ground has to repeat this, or it
+ * drifts away from the picture as the screen changes shape.
+ */
+const bgDrawnW = Math.max(SCREEN_W, PLAY_H * BG_ASPECT);
+const bgDrawnH = Math.max(PLAY_H, SCREEN_W / BG_ASPECT);
+const bgOffsetX = (SCREEN_W - bgDrawnW) / 2;
+const bgOffsetY = (PLAY_H - bgDrawnH) / 2;
+const onGroundX = (fx: number) => bgOffsetX + fx * bgDrawnW;
+const onGroundY = (fy: number) => bgOffsetY + fy * bgDrawnH;
+
+// Rings spreading where rain meets standing water. Each slot fires on its own
+// rhythm, and picks a fresh spot every time round, so nothing repeats visibly.
+const RIPPLE_SLOTS = 14;
+const RIPPLE_COLOR = 'rgba(200, 224, 245, 0.55)';
+const RIPPLE_MAX = 26; // px across at its widest
+
+/** Repeatable stand-in for randomness, so a ripple needs no state to remember. */
+const noise = (n: number) => {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+const RIPPLES = Array.from({ length: RIPPLE_SLOTS }, (_, i) => ({
+  seed: i * 37 + 11,
+  period: 1.5 + noise(i * 3.1) * 2.2, // seconds between one ring and the next
+  phase: noise(i * 7.7),
+}));
+
 /**
  * The ground the whole play area stands on. Drawn to cover rather than stretch,
  * so it crops instead of distorting when the screen is not its 4:3 shape.
@@ -2490,6 +2529,40 @@ export default function App() {
             top={b.pos.y - BLOOD_SIZE / 2}
           />
         ))}
+
+        {/* Rings where the rain lands in standing water. Before the characters,
+            since they are on the ground and anyone standing there covers them. */}
+        {RAIN_ENABLED && PUDDLES.length > 0 && (
+          <View style={styles.rain}>
+            {RIPPLES.map((r, i) => {
+              const t = Date.now() / 1000 + r.phase * r.period;
+              const cycle = Math.floor(t / r.period);
+              const life = (t % r.period) / r.period; // 0 just born, 1 gone
+              // A fresh spot each time round, inside a puddle picked the same way.
+              const p = PUDDLES[Math.floor(noise(r.seed + cycle * 1.7) * PUDDLES.length)];
+              const a = noise(r.seed + cycle * 3.3) * Math.PI * 2;
+              const d = Math.sqrt(noise(r.seed + cycle * 5.9)); // even across the area
+              const size = RIPPLE_MAX * life;
+              return (
+                <View
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    left: onGroundX(p.x + Math.cos(a) * d * p.rx) - size / 2,
+                    top: onGroundY(p.y + Math.sin(a) * d * p.ry) - size / 4,
+                    width: size,
+                    // Squashed, because the ground is seen at an angle.
+                    height: size / 2,
+                    borderRadius: size / 2,
+                    borderWidth: 1,
+                    borderColor: RIPPLE_COLOR,
+                    opacity: (1 - life) * 0.9,
+                  }}
+                />
+              );
+            })}
+          </View>
+        )}
 
         {groundActors}
 
