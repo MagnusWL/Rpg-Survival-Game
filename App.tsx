@@ -83,6 +83,13 @@ const animDuration = (a: AnimDef) => SPRITE_COLS / a.fps;
 // anything done at runtime would work on web only.
 const SFX_VOLUME = 0.6;
 
+/**
+ * How often a killing blow gets the heavier stab combo instead of the ordinary
+ * swing. Kept well below certainty on purpose: a flourish that fires on every
+ * kill stops registering as one.
+ */
+const KILL_SFX_CHANCE = 0.3;
+
 /** Fire and forget. Audio is a garnish -- it must never break the game loop. */
 function playSfx(player: AudioPlayer | undefined) {
   if (!player) return;
@@ -739,6 +746,14 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/attack-3.wav')),
   ];
 
+  // Heavier stab combos for a killing blow. These run 1.0-2.4 s against the
+  // swing's 0.6, so each variant gets its own player and can ring out.
+  const killSounds = [
+    useAudioPlayer(require('./assets/sounds/kill-1.wav')),
+    useAudioPlayer(require('./assets/sounds/kill-2.wav')),
+    useAudioPlayer(require('./assets/sounds/kill-3.wav')),
+  ];
+
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -771,6 +786,8 @@ export default function App() {
   // everything else it touches rather than closing over the first render's array.
   const attackSoundsRef = useRef(attackSounds);
   attackSoundsRef.current = attackSounds;
+  const killSoundsRef = useRef(killSounds);
+  killSoundsRef.current = killSounds;
 
   playerRef.current = player;
   mobsRef.current = mobs;
@@ -1096,7 +1113,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    for (const s of attackSoundsRef.current) {
+    for (const s of [...attackSoundsRef.current, ...killSoundsRef.current]) {
       if (s) s.volume = SFX_VOLUME;
     }
   }, []);
@@ -1405,10 +1422,12 @@ export default function App() {
       }
 
       const survivorMobs: Mob[] = [];
+      let anyMobDied = false;
       for (const m of currentMobs) {
         if (m.hp > 0) {
           survivorMobs.push(m);
         } else {
+          anyMobDied = true;
           const reward = m.type === 'boss' ? BOSS_XP_REWARD : MOB_XP_REWARD;
           xpGain += reward;
           newFloatingTexts.push(makeFloatingText(`+${reward} XP`, m.pos, XP_TEXT_COLOR, now));
@@ -1419,7 +1438,11 @@ export default function App() {
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
 
       if (playerAttacked) {
-        const pool = attackSoundsRef.current;
+        // A killing blow sometimes earns the heavier combo. It replaces the
+        // swing rather than layering over it -- both at once just muddies, and
+        // the combo already opens on a strike of its own.
+        const useKill = anyMobDied && Math.random() < KILL_SFX_CHANCE;
+        const pool = useKill ? killSoundsRef.current : attackSoundsRef.current;
         playSfx(pool[Math.floor(Math.random() * pool.length)]);
       }
 

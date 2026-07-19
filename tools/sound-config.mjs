@@ -34,10 +34,16 @@ export const PEAK_DB = -3;
  */
 export const EQ = { bass: 0.5, mid: 0, treble: -4 };
 
+const PACK = 'Sword Combat Sound Effects Pack FREE VERSION/Main Sounds';
+
 export const SOUNDS = [
   { out: 'attack-1', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_01.wav' },
   { out: 'attack-2', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_11.wav' },
   { out: 'attack-3', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_17.wav' },
+  // Heavier stab combos, saved for the blow that finishes an enemy off.
+  { out: 'kill-1', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_01.wav` },
+  { out: 'kill-2', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_11.wav` },
+  { out: 'kill-3', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_17.wav` },
 ];
 
 /**
