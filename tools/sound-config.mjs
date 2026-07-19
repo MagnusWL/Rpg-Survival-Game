@@ -45,6 +45,13 @@ export const SOUNDS = [
   { out: 'kill-2', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_11.wav` },
   { out: 'kill-3', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_17.wav` },
 
+  // The same three takes with gore layered in. Drawn from the same pool as the
+  // clips above, and whenever one of these is the one that plays, the game
+  // throws extra blood to match it.
+  { out: 'gore-1', src: `${PACK}/Sword Stabs/w_Gore/GOREStab_SwordStabGore_HoveAud_SwordCombat_01.wav` },
+  { out: 'gore-2', src: `${PACK}/Sword Stabs/w_Gore/GOREStab_SwordStabGore_HoveAud_SwordCombat_11.wav` },
+  { out: 'gore-3', src: `${PACK}/Sword Stabs/w_Gore/GOREStab_SwordStabGore_HoveAud_SwordCombat_17.wav` },
+
   // The knight taking a hit: a blade turned by his armour. Add more variants
   // here as hurt-2, hurt-3 and so on, then add a matching useAudioPlayer line
   // to hurtSounds in App.tsx.

@@ -115,6 +115,14 @@ const SFX_VOLUME = 0.6;
 const KILL_SFX_CHANCE = 0.3;
 
 /**
+ * Extra splats thrown when the gore version of a kill sound is the one that
+ * plays. The two are bound together at the moment the sound fires, so the
+ * bloodier sound never plays without the mess to go with it.
+ */
+const GORE_EXTRA_SPLATS = 3;
+const GORE_SPLATTER_SPREAD = 32; // px around where the body fell
+
+/**
  * How long after a swing begins before its sound plays.
  *
  * The melee animation spends its first five frames drawing the sword back and
@@ -812,6 +820,14 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/kill-3.wav')),
   ];
 
+  // The same takes with gore layered in. Drawn from the same pool as the three
+  // above; picking one of these is what triggers the extra blood.
+  const goreSounds = [
+    useAudioPlayer(require('./assets/sounds/gore-1.wav')),
+    useAudioPlayer(require('./assets/sounds/gore-2.wav')),
+    useAudioPlayer(require('./assets/sounds/gore-3.wav')),
+  ];
+
   // The knight taking a hit, played with the flinch animation. At 0.63 s the
   // clip runs almost exactly as long as the flinch it accompanies. Add variants
   // here as they arrive; name them in tools/sound-config.mjs first.
@@ -854,12 +870,16 @@ export default function App() {
   attackSoundsRef.current = attackSounds;
   const killSoundsRef = useRef(killSounds);
   killSoundsRef.current = killSounds;
+  const goreSoundsRef = useRef(goreSounds);
+  goreSoundsRef.current = goreSounds;
 
   // A swing's sound is held back until the blade comes round. These carry that
   // pending sound between frames. They are refs rather than player state because
   // nothing about them belongs in a saved run.
   const swingSoundTimerRef = useRef(0);
-  const swingSoundIsKillRef = useRef(false);
+  const swingSoundPlayerRef = useRef<AudioPlayer | undefined>(undefined);
+  /** Where to throw extra blood when the pending sound turns out to be a gore one. */
+  const swingSoundGorePosRef = useRef<Vec | null>(null);
   const hurtSoundsRef = useRef(hurtSounds);
   hurtSoundsRef.current = hurtSounds;
   const hurtAnimGapRef = useRef(0);
@@ -1191,7 +1211,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    for (const s of [...attackSoundsRef.current, ...killSoundsRef.current, ...hurtSoundsRef.current]) {
+    for (const s of [
+      ...attackSoundsRef.current,
+      ...killSoundsRef.current,
+      ...goreSoundsRef.current,
+      ...hurtSoundsRef.current,
+    ]) {
       if (s) s.volume = SFX_VOLUME;
     }
   }, []);
@@ -1512,11 +1537,13 @@ export default function App() {
 
       const survivorMobs: Mob[] = [];
       let anyMobDied = false;
+      let lastDeathPos: Vec | null = null;
       for (const m of currentMobs) {
         if (m.hp > 0) {
           survivorMobs.push(m);
         } else {
           anyMobDied = true;
+          lastDeathPos = { ...m.pos };
           newBlood.push({
             id: ++bloodIdCounter,
             pos: { ...m.pos },
@@ -1590,15 +1617,32 @@ export default function App() {
           // Held back until the blade comes round, and scaled with the
           // animation so it keeps landing on the strike at any attack speed.
           swingSoundTimerRef.current = SWING_SOUND_AT / attackAnimSpeed;
-          // Decided now, while it is still known whether this blow killed
-          // anything. A killing blow sometimes earns the heavier combo, which
+
+          // Which clip is decided now, while it is still known whether this blow
+          // killed anything. A killing blow sometimes earns a heavier one, which
           // replaces the swing rather than layering over it: both at once just
-          // muddies, and the combo opens on a strike of its own.
-          swingSoundIsKillRef.current = anyMobDied && Math.random() < KILL_SFX_CHANCE;
+          // muddies, and those clips open on a strike of their own.
+          //
+          // The heavy clips are one pool of six, half of them gore takes. Landing
+          // on a gore one is what calls for the extra blood, so the position is
+          // remembered here and used when the sound actually fires.
+          swingSoundGorePosRef.current = null;
+          if (anyMobDied && Math.random() < KILL_SFX_CHANCE) {
+            const combo = killSoundsRef.current;
+            const gore = goreSoundsRef.current;
+            const pick = Math.floor(Math.random() * (combo.length + gore.length));
+            const isGore = pick >= combo.length;
+            swingSoundPlayerRef.current = isGore ? gore[pick - combo.length] : combo[pick];
+            if (isGore) swingSoundGorePosRef.current = lastDeathPos;
+          } else {
+            const swings = attackSoundsRef.current;
+            swingSoundPlayerRef.current = swings[Math.floor(Math.random() * swings.length)];
+          }
         } else {
           // Interrupted before the strike, so it never happened as far as the
-          // eye is concerned. Drop the pending sound.
+          // eye is concerned. Drop the pending sound and the blood with it.
           swingSoundTimerRef.current = 0;
+          swingSoundGorePosRef.current = null;
         }
       }
       p.anim = nextAnim;
@@ -1606,8 +1650,25 @@ export default function App() {
       if (swingSoundTimerRef.current > 0) {
         swingSoundTimerRef.current -= dt;
         if (swingSoundTimerRef.current <= 0) {
-          const pool = swingSoundIsKillRef.current ? killSoundsRef.current : attackSoundsRef.current;
-          playSfx(pool[Math.floor(Math.random() * pool.length)]);
+          playSfx(swingSoundPlayerRef.current);
+
+          // Bound to the sound rather than to the kill: a gore clip never plays
+          // without the mess, and the mess never appears without it.
+          const gorePos = swingSoundGorePosRef.current;
+          if (gorePos) {
+            for (let i = 0; i < GORE_EXTRA_SPLATS; i++) {
+              newBlood.push({
+                id: ++bloodIdCounter,
+                pos: {
+                  x: gorePos.x + (Math.random() - 0.5) * GORE_SPLATTER_SPREAD * 2,
+                  y: gorePos.y + (Math.random() - 0.5) * GORE_SPLATTER_SPREAD,
+                },
+                variant: Math.floor(Math.random() * BLOOD_VARIANTS),
+                createdAt: now,
+              });
+            }
+            swingSoundGorePosRef.current = null;
+          }
         }
       }
 
