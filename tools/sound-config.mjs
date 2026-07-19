@@ -166,7 +166,17 @@ export const MUSIC = [
  * long, it wants to be quiet, and it has to stream instead of being unpacked
  * whole. Under the music on purpose -- it is the room, not an event.
  */
-export const AMBIENCE_RMS_DB = -40;
+/**
+ * Halved from -40 on 2026-07-20, which is -6 dB: turning a volume control to
+ * half its travel halves the amplitude, and halving amplitude is -6 dB.
+ *
+ * It was drowning things. The shimmer layered into every footstep sits 20.8 dB
+ * under the step it rides on, which puts it around -38 dB once the steps are
+ * levelled -- so rain running constantly at -40 dB average sat right on top of
+ * it, and broadband noise is the most effective masker there is. At -46 the
+ * rain is 8 dB under the shimmer instead of level with it.
+ */
+export const AMBIENCE_RMS_DB = -46;
 
 /**
  * A stretch cut out of the recording and folded back on itself so it loops.
