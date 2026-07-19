@@ -58,6 +58,8 @@ const ABILITY3_HASTE_DURATION = 5;
 
 const PROJECTILE_SPEED = 700; // px/sec
 const HIT_FLASH_DURATION = 150; // ms
+const FLOATING_TEXT_DURATION = 700; // ms
+const FLOATING_TEXT_RISE = 32; // px
 
 const EQUIP_SLOTS = 3;
 const BAG_SLOTS = 9;
@@ -71,6 +73,7 @@ let allyIdCounter = 0;
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
 let itemIdCounter = 0;
+let floatingTextIdCounter = 0;
 
 type Vec = { x: number; y: number };
 
@@ -110,6 +113,7 @@ type Projectile = {
   targetId: number;
 };
 type HitFlash = { id: number; pos: Vec; createdAt: number };
+type FloatingText = { id: number; text: string; pos: Vec; color: string; createdAt: number };
 
 type AbilityId = 1 | 2 | 3;
 type Ability = { level: number; cooldown: number };
@@ -184,21 +188,26 @@ function fireCone(
   origin: Vec,
   aimPoint: Vec,
   currentMobs: Mob[],
-  damage: number,
+  baseDamage: number,
+  damagePercent: number,
   range: number,
   halfAngleDeg: number
-): Mob[] {
+): { mobs: Mob[]; hits: { pos: Vec; amount: number }[] } {
   const dirAngle = (Math.atan2(aimPoint.y - origin.y, aimPoint.x - origin.x) * 180) / Math.PI;
-  return currentMobs.map((m) => {
+  const hits: { pos: Vec; amount: number }[] = [];
+  const mobs = currentMobs.map((m) => {
     const d = dist(origin, m.pos);
     if (d <= range) {
       const mobAngle = (Math.atan2(m.pos.y - origin.y, m.pos.x - origin.x) * 180) / Math.PI;
       if (Math.abs(normalizeAngle(mobAngle - dirAngle)) <= halfAngleDeg) {
-        return { ...m, hp: m.hp - damage };
+        const amount = baseDamage + m.maxHp * damagePercent;
+        hits.push({ pos: { ...m.pos }, amount });
+        return { ...m, hp: m.hp - amount };
       }
     }
     return m;
   });
+  return { mobs, hits };
 }
 
 function xpForLevel(level: number) {
@@ -209,8 +218,12 @@ function ability1Stats(level: number) {
   return { hp: 20 + (level - 1) * 15, damage: 4 + (level - 1) * 3 };
 }
 
-function ability2Damage(level: number) {
-  return 15 + (level - 1) * 10;
+function ability2BaseDamage(level: number) {
+  return 10 * level;
+}
+
+function ability2DamagePercent(level: number) {
+  return 0.1 + (level - 1) * 0.05;
 }
 
 function ability3DamageBonus(level: number) {
@@ -221,22 +234,25 @@ function rangedTargetCount(ability3Level: number) {
   return ability3Level >= 4 ? 2 : 1;
 }
 
-function abilityDescription(id: AbilityId, level: number): string {
-  if (level <= 0) {
-    const names: Record<AbilityId, string> = { 1: 'Summon', 2: 'Cone', 3: 'Ranged' };
-    return `${names[id]}: locked. Spend an ability point to unlock it.`;
-  }
+const ALL_LEVELS = [1, 2, 3, 4];
+
+function levelBracket(values: (string | number)[]): string {
+  return `(${values.join('/')})`;
+}
+
+function abilityDescription(id: AbilityId): string {
   if (id === 1) {
-    const stats = ability1Stats(level);
-    const count = level;
-    const rangedNote = level >= 4 ? ' (2 melee, 2 ranged)' : '';
-    return `Summon: calls ${count} allied mob${count > 1 ? 's' : ''}${rangedNote} that fight for you. Each has ${stats.hp} HP and deals ${stats.damage} damage.`;
+    const hps = levelBracket(ALL_LEVELS.map((l) => ability1Stats(l).hp));
+    const dmgs = levelBracket(ALL_LEVELS.map((l) => ability1Stats(l).damage));
+    return `Summon: calls 1/2/3/4 allied mobs (at level 4: 2 melee, 2 ranged) that fight for you. HP ${hps}, DMG ${dmgs}.`;
   }
   if (id === 2) {
-    return `Cone: deals ${ability2Damage(level)} damage to enemies in a widening cone toward where you aim.`;
+    const bases = levelBracket(ALL_LEVELS.map((l) => ability2BaseDamage(l)));
+    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(ability2DamagePercent(l) * 100)}%`));
+    return `Cone: deals ${bases} damage plus ${pcts} of each enemy's max HP in a widening cone toward where you aim.`;
   }
-  const hitNote = level >= 4 ? ', hitting 2 enemies at once' : '';
-  return `Ranged: passively turns your attacks ranged with +${ability3DamageBonus(level)} damage${hitNote}. Tap to gain +50% attack speed for 5s.`;
+  const dmgs = levelBracket(ALL_LEVELS.map((l) => ability3DamageBonus(l)));
+  return `Ranged: passively turns your attacks ranged, adding ${dmgs} damage (at level 4: hits 2 enemies at once). Tap to gain +50% attack speed for 5s.`;
 }
 
 function abilityStatsSuffix(id: AbilityId): string {
@@ -391,6 +407,15 @@ function spawnLoot(wave: number): GroundItem {
   };
 }
 
+function makeFloatingText(text: string, pos: Vec, color: string, now: number): FloatingText {
+  floatingTextIdCounter += 1;
+  return { id: floatingTextIdCounter, text, pos: { ...pos }, color, createdAt: now };
+}
+
+const DAMAGE_TEXT_COLOR = '#ffffff';
+const TAKEN_TEXT_COLOR = '#ff5252';
+const XP_TEXT_COLOR = '#ffd54f';
+
 function equippedBonus(equipped: Slot[], kind: ItemKind) {
   let total = 0;
   for (const it of equipped) {
@@ -518,6 +543,7 @@ export default function App() {
   const [aimPreviewPoint, setAimPreviewPoint] = useState<Vec | null>(null);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
   const [waveActive, setWaveActive] = useState(false);
   const [gameOver, setGameOver] = useState(false);
@@ -538,6 +564,7 @@ export default function App() {
   const abilitiesRef = useRef(abilities);
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
+  const floatingTextsRef = useRef(floatingTexts);
   const waveRef = useRef(wave);
   const waveActiveRef = useRef(waveActive);
   const gameOverRef = useRef(gameOver);
@@ -550,12 +577,15 @@ export default function App() {
   const lootOwedRef = useRef<number[]>([]);
   const materialsRef = useRef(materials);
   const screenRef = useRef(screen);
+  // Any overlay (menu or tooltip) being open pauses the simulation.
+  const overlayOpenRef = useRef(false);
   playerRef.current = player;
   mobsRef.current = mobs;
   alliesRef.current = allies;
   abilitiesRef.current = abilities;
   projectilesRef.current = projectiles;
   hitFlashesRef.current = hitFlashes;
+  floatingTextsRef.current = floatingTexts;
   waveRef.current = wave;
   waveActiveRef.current = waveActive;
   gameOverRef.current = gameOver;
@@ -564,6 +594,7 @@ export default function App() {
   bagRef.current = bag;
   materialsRef.current = materials;
   screenRef.current = screen;
+  overlayOpenRef.current = skillsMenuOpen || invMenuOpen || mobStatsOpen || tooltip != null;
 
   // Run bookkeeping: which saved run (if any) is active, and whether this is a
   // throwaway test run that should never be persisted.
@@ -583,16 +614,31 @@ export default function App() {
 
   // ---- Tooltip helpers ----
   const tooltipOpenedAtRef = useRef(0);
-  const showOrToggleTooltip = (key: string, text: string, e: GestureResponderEvent) => {
-    const { pageX, pageY } = e.nativeEvent;
-    tooltipOpenedAtRef.current = Date.now();
-    setTooltip((cur) => (cur && cur.key === key ? null : { key, text, x: pageX, y: pageY }));
-  };
   const dismissTooltip = () => setTooltip(null);
   // Ignore the trailing click that immediately follows opening (it would otherwise
   // dismiss the tooltip on the same tap that opened it).
   const handleDismissOverlayPress = () => {
     if (Date.now() - tooltipOpenedAtRef.current > 250) dismissTooltip();
+  };
+
+  // Shows the tooltip anchored just above the element registered under `key`
+  // (via registerSlot), rather than wherever the tap landed inside it.
+  const showTooltipAboveKey = (key: string, text: string) => {
+    if (tooltip && tooltip.key === key) {
+      setTooltip(null);
+      return;
+    }
+    tooltipOpenedAtRef.current = Date.now();
+    const node = slotNodesRef.current[key];
+    if (node && node.measureInWindow) {
+      node.measureInWindow((x: number, y: number, w: number, h: number) => {
+        slotRectsRef.current[key] = { x, y, w, h };
+        setTooltip({ key, text, x: x + w / 2, y });
+      });
+    } else {
+      const r = slotRectsRef.current[key];
+      setTooltip({ key, text, x: r ? r.x + r.w / 2 : SCREEN_W / 2, y: r ? r.y : SCREEN_H / 2 });
+    }
   };
 
   // ---- Inventory drag between slots ----
@@ -691,7 +737,7 @@ export default function App() {
     if (!d) return;
     const item = itemAtKey(key);
     if (!d.moved) {
-      if (item) showOrToggleTooltip(`slot-${key}`, itemTooltip(item), e);
+      if (item) showTooltipAboveKey(`slot-${key}`, itemTooltip(item));
       return;
     }
     const dropKey = keyAtPoint(e.nativeEvent.pageX, e.nativeEvent.pageY);
@@ -728,8 +774,12 @@ export default function App() {
     setAimingAbility(null);
     setAimPreviewPoint(null);
     if (p.mana < cost) return;
-    const dmg = ability2Damage(ab.level);
-    setMobs((prev) => fireCone(p.pos, { x: locationX, y: locationY }, prev, dmg, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG));
+    const baseDmg = ability2BaseDamage(ab.level);
+    const dmgPercent = ability2DamagePercent(ab.level);
+    const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
+    setMobs(result.mobs);
+    const now = Date.now();
+    setFloatingTexts((prev) => prev.concat(result.hits.map((h) => makeFloatingText(`-${Math.round(h.amount)}`, h.pos, DAMAGE_TEXT_COLOR, now))));
     setPlayer((prev) => ({ ...prev, mana: prev.mana - cost }));
     setAbilities((prev) => ({ ...prev, 2: { ...prev[2], cooldown: ABILITY_COOLDOWN_TIME[2] } }));
   };
@@ -791,6 +841,7 @@ export default function App() {
     abilitiesRef.current = s.abilities;
     projectilesRef.current = [];
     hitFlashesRef.current = [];
+    floatingTextsRef.current = [];
     waveRef.current = s.wave;
     waveActiveRef.current = false;
     gameOverRef.current = false;
@@ -811,6 +862,7 @@ export default function App() {
     setAimPreviewPoint(null);
     setProjectiles([]);
     setHitFlashes([]);
+    setFloatingTexts([]);
     setWave(s.wave);
     setWaveActive(false);
     setGameOver(false);
@@ -852,7 +904,7 @@ export default function App() {
 
   useEffect(() => {
     const step = (time: number) => {
-      if (screenRef.current !== 'game' || gameOverRef.current) {
+      if (screenRef.current !== 'game' || gameOverRef.current || overlayOpenRef.current) {
         lastTimeRef.current = null;
         rafRef.current = requestAnimationFrame(step);
         return;
@@ -868,6 +920,7 @@ export default function App() {
       const currentAllies = alliesRef.current.map((a) => ({ ...a }));
       const newProjectiles: Projectile[] = [];
       const newFlashes: HitFlash[] = [];
+      const newFloatingTexts: FloatingText[] = [];
 
       const eq = equippedRef.current;
       const dmgBonus = equippedBonus(eq, 'dmg');
@@ -887,11 +940,14 @@ export default function App() {
           if (pr.friendly && pr.targetKind === 'mob') {
             const target = currentMobs.find((m) => m.id === pr.targetId);
             if (target && target.hp > 0) target.hp -= pr.damage;
+            newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, DAMAGE_TEXT_COLOR, now));
           } else if (!pr.friendly && pr.targetKind === 'player') {
             damageToPlayer += pr.damage;
+            newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, TAKEN_TEXT_COLOR, now));
           } else if (!pr.friendly && pr.targetKind === 'ally') {
             const ally = currentAllies.find((a) => a.id === pr.targetId);
             if (ally) ally.hp -= pr.damage;
+            newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, TAKEN_TEXT_COLOR, now));
           }
           newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...pr.to }, createdAt: now });
         } else {
@@ -1011,11 +1067,13 @@ export default function App() {
               if (nearest.kind === 'player') {
                 damageToPlayer += m.damage;
                 newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...p.pos }, createdAt: now });
+                newFloatingTexts.push(makeFloatingText(`-${m.damage}`, p.pos, TAKEN_TEXT_COLOR, now));
               } else {
                 const ally = currentAllies.find((a) => a.id === nearest.id);
                 if (ally) {
                   ally.hp -= m.damage;
                   newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...ally.pos }, createdAt: now });
+                  newFloatingTexts.push(makeFloatingText(`-${m.damage}`, ally.pos, TAKEN_TEXT_COLOR, now));
                 }
               }
               m.attackCooldown = MOB_ATTACK_COOLDOWN;
@@ -1061,6 +1119,7 @@ export default function App() {
               m.hp -= playerDamage;
               hitAny = true;
               newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
+              newFloatingTexts.push(makeFloatingText(`-${Math.round(playerDamage)}`, m.pos, DAMAGE_TEXT_COLOR, now));
             }
           }
           if (hitAny) p.attackCooldown = attackCooldownDuration;
@@ -1099,6 +1158,7 @@ export default function App() {
                 } else {
                   mob.hp -= a.damage;
                   newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...mob.pos }, createdAt: now });
+                  newFloatingTexts.push(makeFloatingText(`-${a.damage}`, mob.pos, DAMAGE_TEXT_COLOR, now));
                 }
               }
               a.attackCooldown = ALLY_ATTACK_COOLDOWN;
@@ -1115,8 +1175,13 @@ export default function App() {
 
       const survivorMobs: Mob[] = [];
       for (const m of currentMobs) {
-        if (m.hp > 0) survivorMobs.push(m);
-        else xpGain += m.type === 'boss' ? BOSS_XP_REWARD : MOB_XP_REWARD;
+        if (m.hp > 0) {
+          survivorMobs.push(m);
+        } else {
+          const reward = m.type === 'boss' ? BOSS_XP_REWARD : MOB_XP_REWARD;
+          xpGain += reward;
+          newFloatingTexts.push(makeFloatingText(`+${reward} XP`, m.pos, XP_TEXT_COLOR, now));
+        }
       }
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
 
@@ -1128,8 +1193,10 @@ export default function App() {
           p.xp -= p.xpToNext;
           p.level += 1;
           p.xpToNext = xpForLevel(p.level);
+          // Scale current HP up with the new max instead of fully healing.
+          const oldMaxHp = p.maxHp;
           p.maxHp += 10;
-          p.hp = p.maxHp + hpBonus;
+          p.hp = p.hp * (p.maxHp / oldMaxHp);
           p.abilityPoints += 1;
         }
       }
@@ -1153,6 +1220,9 @@ export default function App() {
         for (const w of lootOwedRef.current) remainingItems.push(spawnLoot(w));
         lootOwedRef.current = [];
         waveJustCleared = true;
+        // Fully restore health and mana once every minion from the wave is cleared.
+        p.hp = p.maxHp + hpBonus;
+        p.mana = effectiveMaxMana;
       }
 
       const newAbilities: Abilities = {
@@ -1165,6 +1235,9 @@ export default function App() {
       const survivorFlashes = hitFlashesRef.current
         .filter((f) => now - f.createdAt < HIT_FLASH_DURATION)
         .concat(newFlashes);
+      const survivorFloatingTexts = floatingTextsRef.current
+        .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
+        .concat(newFloatingTexts);
 
       const isGameOver = p.hp <= 0;
 
@@ -1211,6 +1284,7 @@ export default function App() {
       abilitiesRef.current = newAbilities;
       projectilesRef.current = survivorProjectiles;
       hitFlashesRef.current = survivorFlashes;
+      floatingTextsRef.current = survivorFloatingTexts;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
       groundItemsRef.current = remainingItems;
@@ -1224,6 +1298,7 @@ export default function App() {
       setAbilities(newAbilities);
       setProjectiles(survivorProjectiles);
       setHitFlashes(survivorFlashes);
+      setFloatingTexts(survivorFloatingTexts);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
       setGroundItems(remainingItems);
@@ -1479,6 +1554,22 @@ export default function App() {
           const opacity = Math.max(0, 1 - age / HIT_FLASH_DURATION);
           return <View key={f.id} style={[styles.hitFlash, { left: f.pos.x - 10, top: f.pos.y - 10, opacity }]} />;
         })}
+
+        {floatingTexts.map((f) => {
+          const age = Date.now() - f.createdAt;
+          const t = Math.min(1, age / FLOATING_TEXT_DURATION);
+          const opacity = Math.max(0, 1 - t);
+          const y = f.pos.y - t * FLOATING_TEXT_RISE;
+          return (
+            <Text
+              key={f.id}
+              pointerEvents="none"
+              style={[styles.floatingText, { left: f.pos.x - 25, top: y - 10, color: f.color, opacity }]}
+            >
+              {f.text}
+            </Text>
+          );
+        })}
       </View>
 
       <View style={styles.quickCastBar}>
@@ -1603,9 +1694,8 @@ export default function App() {
                 <View key={id} style={styles.listRow}>
                   <View style={styles.listIconWrap}>
                     <Pressable
-                      onPress={(e) =>
-                        showOrToggleTooltip(`skill-${id}`, abilityDescription(id, ab.level) + abilityStatsSuffix(id), e)
-                      }
+                      {...registerSlot(`skill-${id}`)}
+                      onPress={() => showTooltipAboveKey(`skill-${id}`, abilityDescription(id) + abilityStatsSuffix(id))}
                       style={[styles.listIcon, { backgroundColor: meta.color }, locked && styles.abilityLocked]}
                     >
                       <View style={styles.pipsRow}>
@@ -1839,6 +1929,13 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     backgroundColor: '#ffffff',
+  },
+  floatingText: {
+    position: 'absolute',
+    width: 50,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   groundItem: {
     position: 'absolute',
