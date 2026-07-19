@@ -234,15 +234,15 @@ const RAIN_ENABLED = true;
  * instead of a flat sheet.
  */
 const RAIN = {
-  drops: 60,
-  tiltDeg: 14, // off vertical; the wind
-  speedFar: 480, // px/sec
-  speedNear: 1100,
-  lengthFar: 14, // px
-  lengthNear: 40,
-  opacityFar: 0.25,
-  opacityNear: 0.8,
-  thickFrom: 0.6, // depth past which a drop is drawn 2 px wide instead of 1
+  drops: 270,
+  tiltDeg: 2, // off vertical; the wind
+  speedFar: 60, // px/sec
+  speedNear: 200,
+  lengthFar: 1, // px
+  lengthNear: 9,
+  opacityFar: 0.14,
+  opacityNear: 0.26,
+  thickFrom: 1, // depth past which a drop is drawn 2 px wide instead of 1
   colour: 'rgba(190, 214, 235, 0.5)',
 };
 
@@ -312,12 +312,12 @@ const groundScale = bgDrawnH / BG_SOURCE_H;
 // rhythm, and picks a fresh spot every time round, so nothing repeats visibly.
 // Tuned on the same page as the rain.
 const RIPPLE = {
-  slots: 14,
-  size: 26, // px across at its widest
+  slots: 60,
+  size: 19, // px across at its widest
   periodFast: 1.5, // sec between one ring and the next
   periodSlow: 3.7,
-  opacity: 0.9,
-  colour: 'rgba(200, 224, 245, 0.55)',
+  opacity: 0.73,
+  colour: 'rgba(200, 224, 245, 0.6)',
 };
 
 /** Repeatable stand-in for randomness, so a ripple needs no state to remember. */
