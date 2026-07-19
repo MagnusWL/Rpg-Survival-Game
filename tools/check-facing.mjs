@@ -18,10 +18,10 @@ const CELL = 96;
 const ROWS = 8;
 
 // Kept in sync with facingFromDelta() in App.tsx.
-const SPRITE_ROW_FOR_EAST = 6;
+const SPRITE_ROW_FOR_EAST = 0;
 function facingFromDelta(dx, dy) {
   const eighths = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
-  return (((SPRITE_ROW_FOR_EAST - eighths) % ROWS) + ROWS) % ROWS;
+  return (((SPRITE_ROW_FOR_EAST + eighths) % ROWS) + ROWS) % ROWS;
 }
 
 // Screen coordinates: y grows downward, so "north" is dy = -1.

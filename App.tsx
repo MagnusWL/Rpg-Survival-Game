@@ -40,21 +40,19 @@ const KNIGHT_SHEETS: Record<AnimName, ImageSourcePropType> = {
 
 const ANIM_FPS: Record<AnimName, number> = { idle: 10, run: 16 };
 
-// Row order going down each sheet is N, NW, W, SW, S, SE, E, NE. Read off the
-// art rather than guessed: rows 2 and 6 are the narrow side-on silhouettes, and
-// since the shield rides on the knight's left arm it is fully visible on row 2
-// (facing west) and hidden behind him on row 6 (facing east). That fixes the
-// east/west pair, which leaves north and south on rows 0 and 4 -- and row 4 is
-// the one showing his face. See tools/check-rows.mjs and tools/check-facing.mjs.
-//
-// If he ever runs the wrong way on screen, this is the only value to change.
-const SPRITE_ROW_FOR_EAST = 6;
+// Row order going down each sheet is E, SE, S, SW, W, NW, N, NE -- one 45 degree
+// step clockwise per row, starting at east. Established by driving the game and
+// watching which way the knight actually ran, which is worth trusting over
+// reading the art: the sword and shield extend along the facing direction, so a
+// knight in profile has a WIDER silhouette than one seen head-on, and reasoning
+// from the shapes gets east and north exactly backwards.
+const SPRITE_ROW_FOR_EAST = 0;
 
 function facingFromDelta(dx: number, dy: number) {
-  // atan2 is 0 at east and grows clockwise on screen, since y points down.
-  // The sheet's rows run the other way round, hence the subtraction.
+  // atan2 is 0 at east and grows clockwise on screen, since y points down --
+  // the same direction the rows advance, so this adds rather than subtracts.
   const eighths = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
-  return (((SPRITE_ROW_FOR_EAST - eighths) % SPRITE_ROWS) + SPRITE_ROWS) % SPRITE_ROWS;
+  return (((SPRITE_ROW_FOR_EAST + eighths) % SPRITE_ROWS) + SPRITE_ROWS) % SPRITE_ROWS;
 }
 const PLAYER_ATTACK_RANGE = 60;
 const RANGED_ATTACK_RANGE = 240;

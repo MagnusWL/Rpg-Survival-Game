@@ -15,16 +15,21 @@ only need it to re-run `build:sprites`.
 
 ## Facing order
 
-Going down a sheet the rows are **N, NW, W, SW, S, SE, E, NE**.
+Going down a sheet the rows are **E, SE, S, SW, W, NW, N, NE** — one 45 degree
+step clockwise per row, starting at east. `App.tsx` encodes this in
+`facingFromDelta` and `SPRITE_ROW_FOR_EAST`.
 
-Rows 2 and 6 have the narrow side-on silhouettes, so they are the east/west
-pair. The shield rides on the knight's left arm, which makes it fully visible on
-row 2 (facing west, left arm toward the camera) and hidden behind him on row 6
-(facing east). North and south are then rows 0 and 4, and row 4 is the one
-showing his face.
+This was settled by driving the game and watching which way the knight ran, and
+it is worth knowing why reading the art failed. The obvious inference — that a
+figure seen in profile has a narrow silhouette and one seen head-on a wide one —
+is backwards here. The knight's sword and shield extend along the direction he
+faces, so in profile they stretch across the screen and make him **wider**,
+while head-on they foreshorten and make him **narrower**. Reasoning from
+silhouette width gets east and north swapped, and reasoning from shield
+visibility fails the same way: the shield reads clearest when he faces the
+camera, not when he faces west.
 
-`App.tsx` encodes this as `SPRITE_ROW_FOR_EAST`. If the knight ever runs the
-wrong way, change that one constant.
+If a future sheet ever disagrees, drive it rather than squinting at it.
 
 ## Scripts
 
