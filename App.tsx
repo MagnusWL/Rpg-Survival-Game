@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -91,6 +92,20 @@ const BLOOD_ANIM: AnimDef = {
 const BLOOD_ANIMS = { blood: BLOOD_ANIM };
 const BLOOD_DURATION = SPRITE_COLS / BLOOD_ANIM.fps; // seconds
 const BLOOD_SIZE = 128;
+
+/**
+ * Every sheet the game can draw, for loading up front.
+ *
+ * Nothing that draws them exists until a run starts, so without this the first
+ * fetch of the knight begins at the same moment he is first needed and he is
+ * invisible until it lands. The sounds already load at start-up because their
+ * players are created there; the art had no such thing.
+ */
+const ALL_SHEETS: number[] = [
+  ...Object.values(ANIMS).map((a) => a.sheet),
+  ...Object.values(MOB_ANIMS).map((a) => a.sheet),
+  BLOOD_ANIM.sheet,
+] as number[];
 
 // Drawn the same size as the knight, both being human-sized. The foot offset is
 // smaller because a mob's collision circle is smaller (14 against 18), and it
@@ -919,6 +934,13 @@ export default function App() {
       setSavedRuns(runs);
       setRunsLoaded(true);
     });
+  }, []);
+
+  // Pull the art down while the menu is up, so a run starts with everything
+  // already in hand. Failures are ignored on purpose: a sheet that misses here
+  // simply loads when it is first drawn, which is what used to happen anyway.
+  useEffect(() => {
+    Asset.loadAsync(ALL_SHEETS).catch(() => {});
   }, []);
 
   // ---- Tooltip helpers ----
