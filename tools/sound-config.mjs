@@ -106,9 +106,13 @@ export const SOUNDS = [
   //
   // Quiet on purpose. Two of these land every second for as long as anyone is
   // moving, so they have to sit under the swords rather than beside them.
+  // Wet ones, since it is always raining: he is splashing through puddles now
+  // rather than walking on dry stone. Same eleven names, so nothing downstream
+  // has to know they were swapped. A twelfth arrived with them and is left out
+  // -- at 3.5 s and 8 dB quieter on average it is not a footfall.
   ...Array.from({ length: 11 }, (_, i) => ({
     out: `footstep-${i + 1}`,
-    src: `footsteps sound/Amor walk 1/footstep-${i + 1}.wav`,
+    src: `footsteps sound/Amor walk 1/puddles-fx/puddle-fx-${i + 1}.wav`,
     group: 'footstep',
     level: -10,
     eq: { bass: 0, mid: 0, treble: 0 },
@@ -139,6 +143,37 @@ export const MUSIC_RMS_DB = -32;
 export const MUSIC = [
   { out: 'menu', src: 'Music/01 The Legend of Drakewood Castle.wav' },
   { out: 'game', src: 'Music/04 Dungeon Crawl.wav' },
+];
+
+/**
+ * Weather, which rides the music pipeline rather than the effects one: it is
+ * long, it wants to be quiet, and it has to stream instead of being unpacked
+ * whole. Under the music on purpose -- it is the room, not an event.
+ */
+export const AMBIENCE_RMS_DB = -40;
+
+/**
+ * A stretch cut out of the recording and folded back on itself so it loops.
+ *
+ * `from`/`to` pick the stretch. The rain field recording runs 105 seconds and
+ * cannot be used whole: it eases off as it goes -- the last ten seconds average
+ * 5 dB below the first -- so a loop of all of it would sink and then jump. It
+ * also has a thunderclap at 30-35 s, 23 dB above its own average, which would
+ * come round like clockwork. 35-60 s is even to within 2 dB and has neither.
+ *
+ * `crossfade` folds the last seconds back over the first, so where the loop
+ * meets itself there is nothing to hear. Faded with an equal-power curve rather
+ * than a straight line, since two uncorrelated stretches of rain summed on a
+ * straight fade dip in the middle.
+ */
+export const AMBIENCE = [
+  {
+    out: 'rain',
+    src: 'Lyde/Weather/316896__alexkandrell__heavy_rain_thunder_uk_cambridge.wav',
+    from: 35,
+    to: 60,
+    crossfade: 3,
+  },
 ];
 
 /**

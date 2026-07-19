@@ -561,7 +561,7 @@ const BOSS_COINS = 5;
  * trade at 64, for the same reason, which is room.
  */
 const COINSACK_LEFT = 165;
-const COINSACK_BOTTOM = 181;
+const COINSACK_BOTTOM = 153;
 const COINSACK_WIDTH = 60;
 
 // Temporary on-screen sliders for placing it. Set to false once the numbers are
@@ -1372,6 +1372,10 @@ export default function App() {
   const menuMusic = useAudioPlayer(require('./assets/music/menu.mp3'));
   const gameMusic = useAudioPlayer(require('./assets/music/game.mp3'));
 
+  // The weather, under the music rather than beside it. Built as a seamless
+  // 22 s loop out of a 105 s field recording -- see AMBIENCE in sound-config.
+  const rainAmbience = useAudioPlayer(require('./assets/music/rain.mp3'));
+
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -1491,10 +1495,19 @@ export default function App() {
       playing.loop = true;
       quiet.pause();
       playing.play();
+
+      // Weather belongs to the field, so it runs with a run and stops with it.
+      // Nothing to cross-fade: it is quiet enough to simply start.
+      if (screen === 'game' && RAIN_ENABLED) {
+        rainAmbience.loop = true;
+        rainAmbience.play();
+      } else {
+        rainAmbience.pause();
+      }
     } catch {
       // music is decoration; never let it take the game down
     }
-  }, [screen, gameMusic, menuMusic]);
+  }, [screen, gameMusic, menuMusic, rainAmbience]);
 
   // ---- Tooltip helpers ----
   const tooltipOpenedAtRef = useRef(0);
