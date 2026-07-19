@@ -200,15 +200,49 @@ if (!existsSync(ZOMBIE_SRC)) {
 const BG_SRC = path.join(ROOT, 'Grafik', 'Baggrund', 'Background.png');
 const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
 
+/** Overall brightness. 0.85 is the 15% knock-down the ground gets. */
+const BG_BRIGHTNESS = 0.85;
+
+/**
+ * The corner darkening, on top of the vignette already painted into the source.
+ * `start` is how far out from the centre it begins as a fraction of the radius,
+ * `strength` how black the very corners go.
+ */
+const BG_VIGNETTE = { start: 0.45, strength: 0.55 };
+
 if (existsSync(BG_SRC)) {
-  await sharp(BG_SRC).jpeg({ quality: 88, mozjpeg: true }).toFile(BG_OUT);
+  const meta = await sharp(BG_SRC).metadata();
+
+  // An ellipse rather than a circle: an SVG gradient defaults to the shape's own
+  // box, so it follows the image's proportions instead of cropping to a square.
+  const vignette = Buffer.from(
+    `<svg width="${meta.width}" height="${meta.height}">
+       <defs>
+         <radialGradient id="v" cx="50%" cy="50%" r="75%">
+           <stop offset="${BG_VIGNETTE.start * 100}%" stop-color="#000" stop-opacity="0"/>
+           <stop offset="100%" stop-color="#000" stop-opacity="${BG_VIGNETTE.strength}"/>
+         </radialGradient>
+       </defs>
+       <rect width="100%" height="100%" fill="url(#v)"/>
+     </svg>`
+  );
+
+  await sharp(BG_SRC)
+    .modulate({ brightness: BG_BRIGHTNESS })
+    .composite([{ input: vignette, blend: 'over' }])
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toFile(BG_OUT);
+
   const before = statSync(BG_SRC).size;
   const after = statSync(BG_OUT).size;
-  const meta = await sharp(BG_OUT).metadata();
   console.log(
     `\nBaggrund: ${meta.width}x${meta.height}  ` +
       `${(before / 1024).toFixed(0)} KB PNG  ->  ${(after / 1024).toFixed(0)} KB JPEG ` +
       `(-${Math.round((1 - after / before) * 100)}%)`
+  );
+  console.log(
+    `  daempet ${Math.round((1 - BG_BRIGHTNESS) * 100)}%, ` +
+      `vignet fra ${Math.round(BG_VIGNETTE.start * 100)}% ud til ${BG_VIGNETTE.strength} i hjoernerne`
   );
 }
 
