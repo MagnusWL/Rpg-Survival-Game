@@ -110,6 +110,24 @@ const BLOOD_DURATION = SPRITE_COLS / BLOOD_ANIM.fps; // seconds
 const BLOOD_SIZE = 128;
 
 /**
+ * A soft light under the knight, to lift him off a dark floor and keep track of
+ * him in a crowd.
+ *
+ * The image is white and gets its colour from tintColor, which recolours a
+ * sprite while leaving its transparency alone. One file, any colour.
+ *
+ * It breathes slowly rather than sitting still -- a fixed disc reads as a
+ * texture stuck to the ground, a moving one as light.
+ */
+const GLOW = require('./assets/sprites/effects/glow.png');
+const GLOW_COLOR = '#ffd27f'; // warm, against the cold blue-grey stone
+const GLOW_SIZE = 150;
+const GLOW_OPACITY = 0.4;
+const GLOW_PULSE = 0.12; // how far the size swings either side
+const GLOW_PERIOD = 2600; // ms for one breath
+const GLOW_FOOT_OFFSET = 18; // down from pos, so it sits at his feet
+
+/**
  * The ground the whole play area stands on. Drawn to cover rather than stretch,
  * so it crops instead of distorting when the screen is not its 4:3 shape.
  */
@@ -128,6 +146,7 @@ const ALL_SHEETS: number[] = [
   ...Object.values(MOB_ANIMS).map((a) => a.sheet),
   BLOOD_ANIM.sheet,
   BACKGROUND,
+  GLOW,
 ] as number[];
 
 // Drawn the same size as the knight, both being human-sized. The foot offset is
@@ -2004,6 +2023,11 @@ export default function App() {
     );
   }
 
+  // Breathes on the wall clock rather than the animation, so it keeps its own
+  // slow rhythm whatever the knight happens to be doing.
+  const glowSize =
+    GLOW_SIZE * (1 + Math.sin(((Date.now() % GLOW_PERIOD) / GLOW_PERIOD) * Math.PI * 2) * GLOW_PULSE);
+
   // Everyone standing on the ground is drawn as one list sorted by how far down
   // the screen they are, so whoever is nearer the camera covers whoever is
   // behind them. Drawn separately -- as they were -- a zombie standing behind
@@ -2033,19 +2057,44 @@ export default function App() {
       key: 'player',
       y: player.pos.y,
       node: (
-        // Anchored on the sprite's feet rather than its centre, so the knight
-        // stands on pos instead of hovering over it. Every animation shares the
-        // same cell size, so he does not jump when it changes.
-        <SpriteSheet
-          key="player"
-          anims={ANIMS}
-          anim={player.anim}
-          animTime={player.animTime * player.animSpeed}
-          facing={player.facing}
-          size={PLAYER_SPRITE_SIZE}
-          left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
-          top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
-        />
+        <View key="player">
+          {/* Under his feet, so anyone standing in front of him covers it too.
+              Deaf to touches, or it would swallow taps in the one spot the
+              player aims at most -- right where their own character is. The
+              wrapper carries that, since neither Image nor ImageStyle takes it. */}
+          <View
+            style={{
+              position: 'absolute',
+              left: player.pos.x - glowSize / 2,
+              top: player.pos.y + GLOW_FOOT_OFFSET - glowSize / 2,
+              width: glowSize,
+              height: glowSize,
+              pointerEvents: 'none',
+            }}
+          >
+            <Image
+              source={GLOW}
+              style={{
+                width: glowSize,
+                height: glowSize,
+                opacity: GLOW_OPACITY,
+                tintColor: GLOW_COLOR,
+              }}
+            />
+          </View>
+          {/* Anchored on the sprite's feet rather than its centre, so the knight
+              stands on pos instead of hovering over it. Every animation shares
+              the same cell size, so he does not jump when it changes. */}
+          <SpriteSheet
+            anims={ANIMS}
+            anim={player.anim}
+            animTime={player.animTime * player.animSpeed}
+            facing={player.facing}
+            size={PLAYER_SPRITE_SIZE}
+            left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
+            top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
+          />
+        </View>
       ),
     },
     ...mobs.map((m) => ({

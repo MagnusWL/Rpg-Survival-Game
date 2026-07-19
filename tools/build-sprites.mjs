@@ -189,6 +189,39 @@ if (!existsSync(ZOMBIE_SRC)) {
   console.log(`Skrevet til ${path.relative(ROOT, ZOMBIE_OUT)}`);
 }
 
+// --- Glow ----------------------------------------------------------------
+// A soft disc drawn under a character. Generated rather than drawn by hand so
+// its falloff can be adjusted by editing a number.
+//
+// Deliberately white: React Native can tint an image, which replaces its colour
+// while keeping its transparency, so one file covers any glow the game wants.
+//
+// This is how a 2D game does a glow. Filters that trace a sprite's silhouette
+// exist in a browser but not in React Native, so anything built on those would
+// look right here and do nothing on a phone.
+const GLOW_OUT = path.join(ROOT, 'assets', 'sprites', 'effects', 'glow.png');
+const GLOW_SIZE = 256;
+
+{
+  mkdirSync(path.dirname(GLOW_OUT), { recursive: true });
+  const r = GLOW_SIZE / 2;
+  const glow = Buffer.from(
+    `<svg width="${GLOW_SIZE}" height="${GLOW_SIZE}">
+       <defs>
+         <radialGradient id="g" cx="50%" cy="50%" r="50%">
+           <stop offset="0%"   stop-color="#fff" stop-opacity="1"/>
+           <stop offset="35%"  stop-color="#fff" stop-opacity="0.55"/>
+           <stop offset="70%"  stop-color="#fff" stop-opacity="0.15"/>
+           <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+         </radialGradient>
+       </defs>
+       <circle cx="${r}" cy="${r}" r="${r}" fill="url(#g)"/>
+     </svg>`
+  );
+  await sharp(glow).png({ compressionLevel: 9 }).toFile(GLOW_OUT);
+  console.log(`\nLysskaer: ${GLOW_SIZE}x${GLOW_SIZE}  ->  ${(statSync(GLOW_OUT).size / 1024).toFixed(0)} KB`);
+}
+
 // --- Background ----------------------------------------------------------
 // A ground texture rather than a sheet, so it gets none of the grid treatment.
 // It carries no alpha, which means JPEG rather than PNG: identical to the eye at
