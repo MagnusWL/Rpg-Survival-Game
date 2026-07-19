@@ -983,6 +983,11 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/hurt-1.wav')),
   ];
 
+  // Steel leaving the scabbard, for the entrance. It runs 1.6 s against the
+  // animation's 0.94, so the ring carries on past the flourish -- which is what
+  // a drawn sword sounds like.
+  const drawSound = useAudioPlayer(require('./assets/sounds/draw.wav'));
+
   // Music streams rather than being unpacked into memory, so length costs
   // download size and nothing else. Levels are baked in, like everything else.
   const menuMusic = useAudioPlayer(require('./assets/music/menu.mp3'));
@@ -1035,6 +1040,8 @@ export default function App() {
   const swingSoundGorePosRef = useRef<Vec | null>(null);
   const hurtSoundsRef = useRef(hurtSounds);
   hurtSoundsRef.current = hurtSounds;
+  const drawSoundRef = useRef(drawSound);
+  drawSoundRef.current = drawSound;
   const hurtAnimGapRef = useRef(0);
 
   playerRef.current = player;
@@ -1799,6 +1806,8 @@ export default function App() {
         // happening on the field yet, so there is nothing for it to trample.
         nextAnim = 'spawn';
         restartAnim = true;
+        // Heard as the animation begins, the same rule the rest follow.
+        playSfx(drawSoundRef.current);
       } else if (mayFlinch) {
         nextAnim = 'hurt';
         restartAnim = true;

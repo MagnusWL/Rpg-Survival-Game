@@ -44,13 +44,14 @@ if (!ffmpegAvailable()) {
 
 mkdirSync(OUT_DIR, { recursive: true });
 
-const chain = [...trimFilters(), ...eqFilters(EQ)].join(',');
+/** The house treatment, unless a clip brought its own EQ. */
+const chainFor = (eq) => [...trimFilters(), ...eqFilters(eq ?? EQ)].join(',');
 
 /**
  * Measures the loudest sample after the chain, so the gain can be exact.
  * ffmpeg reports volumedetect on stderr, not stdout.
  */
-function measurePeakDb(inPath) {
+function measurePeakDb(inPath, chain) {
   const res = spawnSync(
     'ffmpeg',
     ['-i', inPath, '-af', `${chain},volumedetect`, '-f', 'null', '-'],
@@ -64,17 +65,18 @@ function measurePeakDb(inPath) {
 let totalBefore = 0;
 let totalAfter = 0;
 
-for (const { out, src, level = 0 } of SOUNDS) {
+for (const { out, src, level = 0, eq } of SOUNDS) {
   const inPath = path.join(SRC_DIR, src);
   if (!existsSync(inPath)) {
     console.error(`MANGLER: ${src}`);
     continue;
   }
   const outPath = path.join(OUT_DIR, `${out}.wav`);
+  const chain = chainFor(eq);
 
   // Two passes: find the peak, then apply one constant gain to reach the
   // target. A fixed multiplier leaves the waveform's shape untouched.
-  const peak = measurePeakDb(inPath);
+  const peak = measurePeakDb(inPath, chain);
   const target = PEAK_DB + level;
   const gain = target - peak;
   const af = `${chain},volume=${gain.toFixed(2)}dB`;
@@ -101,7 +103,8 @@ for (const { out, src, level = 0 } of SOUNDS) {
     `${out.padEnd(9)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
       `${(after / 1024).toFixed(0).padStart(4)} KB   (-${Math.round((1 - after / before) * 100)}%)` +
       `   top ${peak.toFixed(1)} -> ${target.toFixed(1)} dB` +
-      (level ? `  (${level > 0 ? '+' : ''}${level} dB egen justering)` : '')
+      (level ? `  (${level > 0 ? '+' : ''}${level} dB)` : '') +
+      (eq ? `  egen EQ: diskant ${eq.treble} dB` : '')
   );
 }
 

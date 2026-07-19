@@ -50,6 +50,9 @@ const PACK = 'Sword Combat Sound Effects Pack FREE VERSION/Main Sounds';
  * from there. That is how sounds get balanced against each other -- a swing that
  * fires constantly wants to sit under a hurt that has to cut through.
  *
+ * A clip can also carry its own `eq`, replacing the shared one above. Most want
+ * the house treatment; the odd one arrives with a balance of its own.
+ *
  * Adjust here rather than in the game. There is no runtime volume any more.
  */
 export const SOUNDS = [
@@ -72,6 +75,22 @@ export const SOUNDS = [
   // here as hurt-2, hurt-3 and so on, then add a matching useAudioPlayer line
   // to hurtSounds in App.tsx.
   { out: 'hurt-1', src: 'deffend/620355__marb7e__whooshsword_hit-armor.wav' },
+
+  // Steel leaving the scabbard, for the entrance.
+  //
+  // Its own EQ and a level of its own, because it arrives nothing like the
+  // rest: 98% of its energy sits above 3 kHz, against 73% for a sword swing,
+  // and it is 30 dB more treble-tilted than anything else in the game. It is a
+  // metallic scrape with no body at all, so the house EQ leaves it shrill.
+  //
+  // The treble can only come down so far -- there is no bass underneath to
+  // reveal -- so it also plays quieter than everything else.
+  {
+    out: 'draw',
+    src: 'sword sounds/draw sword.wav',
+    eq: { bass: 0, mid: 0, treble: -11 },
+    level: -7,
+  },
 ];
 
 // --- Music ---------------------------------------------------------------
