@@ -37,12 +37,10 @@ const PLAYER_SPRITE_SIZE = 128;
 
 // How far below pos the sprite's bottom edge sits, i.e. where his feet land.
 // Larger moves him down the screen. The art is not centred in its cell, so this
-// cannot be derived -- it has to be eyeballed against the collision circle.
-const PLAYER_SPRITE_FOOT_OFFSET = PLAYER_RADIUS;
-
-// Temporary on-screen sliders for finding the two numbers above. Set to false
-// once they are settled; the panel and its state then cost nothing.
-const DEBUG_SPRITE_TUNING = true;
+// cannot be derived -- it was eyeballed against the collision circle with a
+// temporary slider. Well below the sprite's midpoint, because the knight only
+// occupies the lower part of his 128px cell.
+const PLAYER_SPRITE_FOOT_OFFSET = 49;
 
 type AnimName = 'idle' | 'run' | 'attack' | 'hurt';
 
@@ -419,52 +417,6 @@ function buildWaveQueue(wave: number): MobType[] {
   return queue;
 }
 
-/**
- * Drag-anywhere slider for the temporary tuning panel. Built on the same
- * responder props the play area uses, so it needs no extra dependency, and it
- * lives outside the play area so dragging it does not also order a move.
- */
-function DebugSlider({
-  label,
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
-  const trackWidth = useRef(0);
-  const setFromX = (x: number) => {
-    if (trackWidth.current <= 0) return;
-    const t = Math.max(0, Math.min(1, x / trackWidth.current));
-    onChange(Math.round(min + t * (max - min)));
-  };
-  const pct: `${number}%` = `${((value - min) / (max - min)) * 100}%`;
-  return (
-    <View style={styles.tuneRow}>
-      <Text style={styles.tuneLabel}>{label}</Text>
-      <View
-        style={styles.tuneTrack}
-        onLayout={(e) => {
-          trackWidth.current = e.nativeEvent.layout.width;
-        }}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(e) => setFromX(e.nativeEvent.locationX)}
-        onResponderMove={(e) => setFromX(e.nativeEvent.locationX)}
-      >
-        <View style={[styles.tuneFill, { width: pct }]} />
-        <View style={[styles.tuneKnob, { left: pct }]} />
-      </View>
-      <Text style={styles.tuneValue}>{value}</Text>
-    </View>
-  );
-}
-
 function makePlayer(): PlayerState {
   return {
     pos: { x: SCREEN_W / 2, y: PLAY_H - 80 },
@@ -688,8 +640,6 @@ export default function App() {
   const [equipped, setEquipped] = useState<Slot[]>(new Array(EQUIP_SLOTS).fill(null));
   const [bag, setBag] = useState<Slot[]>(new Array(BAG_SLOTS).fill(null));
   const [materials, setMaterials] = useState(0);
-  const [tuneSize, setTuneSize] = useState(PLAYER_SPRITE_SIZE);
-  const [tuneFoot, setTuneFoot] = useState(PLAYER_SPRITE_FOOT_OFFSET);
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -1501,11 +1451,6 @@ export default function App() {
     };
   }, []);
 
-  // The tuning panel drives these while DEBUG_SPRITE_TUNING is on; the constants
-  // take over the moment it is switched off.
-  const spriteSize = DEBUG_SPRITE_TUNING ? tuneSize : PLAYER_SPRITE_SIZE;
-  const spriteFoot = DEBUG_SPRITE_TUNING ? tuneFoot : PLAYER_SPRITE_FOOT_OFFSET;
-
   const ability3Level = abilities[3].level;
   const playerAttackRange = ability3Level > 0 ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
   const dmgBonusDisplay = equippedBonus(equipped, 'dmg');
@@ -1714,10 +1659,8 @@ export default function App() {
               // Anchored on the sprite's feet rather than its centre, so the
               // knight stands on pos instead of hovering over it. Every anim
               // shares the same cell size, so he does not jump when it changes.
-              width: spriteSize,
-              height: spriteSize,
-              left: player.pos.x - spriteSize / 2,
-              top: player.pos.y + spriteFoot - spriteSize,
+              left: player.pos.x - PLAYER_SPRITE_SIZE / 2,
+              top: player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE,
             },
           ]}
         >
@@ -1725,11 +1668,12 @@ export default function App() {
             source={ANIMS[player.anim].sheet}
             style={{
               position: 'absolute',
-              // The whole sheet is scaled, so one cell lands exactly on the clip box.
-              width: spriteSize * SPRITE_COLS,
-              height: spriteSize * SPRITE_ROWS,
-              left: -spriteSize * animColumn(player.anim, player.animTime),
-              top: -spriteSize * player.facing,
+              // The sheet is drawn at native size, so one cell lands exactly on
+              // the clip box and the art renders pixel-for-pixel.
+              width: PLAYER_SPRITE_SIZE * SPRITE_COLS,
+              height: PLAYER_SPRITE_SIZE * SPRITE_ROWS,
+              left: -PLAYER_SPRITE_SIZE * animColumn(player.anim, player.animTime),
+              top: -PLAYER_SPRITE_SIZE * player.facing,
             }}
           />
         </View>
@@ -1785,16 +1729,6 @@ export default function App() {
           );
         })}
       </View>
-
-      {DEBUG_SPRITE_TUNING && (
-        <View style={styles.tunePanel}>
-          <DebugSlider label="Stoerrelse" value={tuneSize} min={48} max={256} onChange={setTuneSize} />
-          <DebugSlider label="Fodpunkt" value={tuneFoot} min={-40} max={100} onChange={setTuneFoot} />
-          <Text style={styles.tuneHint}>
-            PLAYER_SPRITE_SIZE = {tuneSize} · PLAYER_SPRITE_FOOT_OFFSET = {tuneFoot}
-          </Text>
-        </View>
-      )}
 
       <View style={styles.quickCastBar}>
         {([1, 2, 3] as AbilityId[])
@@ -2120,39 +2054,10 @@ const styles = StyleSheet.create({
   },
   playerSprite: {
     position: 'absolute',
+    width: PLAYER_SPRITE_SIZE,
+    height: PLAYER_SPRITE_SIZE,
     overflow: 'hidden', // clips the sheet down to the single current frame
   },
-  // --- Temporary sprite tuning panel; delete with DEBUG_SPRITE_TUNING ---
-  tunePanel: {
-    position: 'absolute',
-    top: TOP_BAR_HEIGHT + 8,
-    left: 8,
-    right: 8,
-    zIndex: 50,
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.72)',
-  },
-  tuneRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  tuneLabel: { width: 74, color: '#cfd8dc', fontSize: 11 },
-  tuneTrack: {
-    flex: 1,
-    height: 22,
-    justifyContent: 'center',
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  tuneFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 4, backgroundColor: '#4fc3f7' },
-  tuneKnob: {
-    position: 'absolute',
-    width: 12,
-    height: 22,
-    marginLeft: -6,
-    borderRadius: 3,
-    backgroundColor: '#ffffff',
-  },
-  tuneValue: { width: 34, textAlign: 'right', color: '#ffffff', fontSize: 12, fontWeight: 'bold' },
-  tuneHint: { color: '#ffe082', fontSize: 10 },
   ally: {
     position: 'absolute',
     width: ALLY_RADIUS * 2,
