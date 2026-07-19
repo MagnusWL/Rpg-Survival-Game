@@ -64,7 +64,7 @@ function measurePeakDb(inPath) {
 let totalBefore = 0;
 let totalAfter = 0;
 
-for (const { out, src } of SOUNDS) {
+for (const { out, src, level = 0 } of SOUNDS) {
   const inPath = path.join(SRC_DIR, src);
   if (!existsSync(inPath)) {
     console.error(`MANGLER: ${src}`);
@@ -72,10 +72,11 @@ for (const { out, src } of SOUNDS) {
   }
   const outPath = path.join(OUT_DIR, `${out}.wav`);
 
-  // Two passes: find the peak, then apply one constant gain to reach PEAK_DB.
-  // A fixed multiplier leaves the waveform's shape untouched.
+  // Two passes: find the peak, then apply one constant gain to reach the
+  // target. A fixed multiplier leaves the waveform's shape untouched.
   const peak = measurePeakDb(inPath);
-  const gain = PEAK_DB - peak;
+  const target = PEAK_DB + level;
+  const gain = target - peak;
   const af = `${chain},volume=${gain.toFixed(2)}dB`;
 
   execFileSync(
@@ -99,7 +100,8 @@ for (const { out, src } of SOUNDS) {
   console.log(
     `${out.padEnd(9)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
       `${(after / 1024).toFixed(0).padStart(4)} KB   (-${Math.round((1 - after / before) * 100)}%)` +
-      `   top ${peak.toFixed(1)} dB, forstaerket ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB`
+      `   top ${peak.toFixed(1)} -> ${target.toFixed(1)} dB` +
+      (level ? `  (${level > 0 ? '+' : ''}${level} dB egen justering)` : '')
   );
 }
 

@@ -14,16 +14,25 @@ export const RATE = 48000;
 export const SILENCE_THRESHOLD = '-60dB';
 
 /**
- * Peak to normalise to. This is PEAK normalisation -- one constant multiplier
- * per file, which cannot change the shape of the sound.
+ * Peak every clip is normalised to, in dBFS. This is PEAK normalisation -- one
+ * constant multiplier per file, which cannot change the shape of the sound.
  *
  * Deliberately not loudnorm. That is EBU R128 broadcast normalisation, built
  * for speech and music over minutes, and it rides gain up and down as it goes.
  * Measured against its source, a loudnorm'd clip correlated at 0.08 with gain
  * wandering without bound, where a fixed gain correlates at 1.0000 and holds to
  * within 0.3 dB. It stopped sounding like the source because it no longer was.
+ *
+ * The playing level is baked in here rather than set at runtime. iOS browsers
+ * refuse programmatic volume outright -- Apple reserves it for the hardware
+ * buttons -- so a runtime setting was silently ignored there and everything
+ * played at full blast. Same reasoning as the EQ: what the browser will not let
+ * us do while playing, we do beforehand.
+ *
+ * -7.4 dB is the old -3 dB peak times the 0.6 volume this used to be played at,
+ * since 20*log10(0.6) is -4.4 dB.
  */
-export const PEAK_DB = -3;
+export const PEAK_DB = -7.4;
 
 /**
  * Tone shaping, in dB, baked into the files. There is no runtime equaliser and
@@ -36,6 +45,13 @@ export const EQ = { bass: 0.5, mid: 0, treble: -4 };
 
 const PACK = 'Sword Combat Sound Effects Pack FREE VERSION/Main Sounds';
 
+/**
+ * Every clip lands on PEAK_DB unless it carries a `level`, which nudges it in dB
+ * from there. That is how sounds get balanced against each other -- a swing that
+ * fires constantly wants to sit under a hurt that has to cut through.
+ *
+ * Adjust here rather than in the game. There is no runtime volume any more.
+ */
 export const SOUNDS = [
   { out: 'attack-1', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_01.wav' },
   { out: 'attack-2', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_11.wav' },

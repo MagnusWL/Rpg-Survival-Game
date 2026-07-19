@@ -102,10 +102,13 @@ const MOB_SPRITE_FOOT_OFFSET = 44;
 const animDuration = (a: AnimDef) => SPRITE_COLS / a.fps;
 
 // --- Sound ---------------------------------------------------------------
-// Built by tools/build-sounds.mjs from the raw pack in Lyde/. Tone shaping is
-// baked into the files rather than applied here: mobile has no equaliser, so
-// anything done at runtime would work on web only.
-const SFX_VOLUME = 0.6;
+// Built by tools/build-sounds.mjs from the raw pack in Lyde/.
+//
+// Both tone and level are baked into the files rather than set here. Mobile has
+// no equaliser, and iOS browsers refuse programmatic volume outright -- Apple
+// reserves it for the hardware buttons -- so anything set at runtime either did
+// nothing or worked on some platforms only. Balancing one clip against another
+// happens in tools/sound-config.mjs, where each can carry its own level.
 
 /**
  * How often a killing blow gets the heavier stab combo instead of the ordinary
@@ -1209,17 +1212,6 @@ export default function App() {
   const handleBackToMenu = () => {
     setScreen('menu');
   };
-
-  useEffect(() => {
-    for (const s of [
-      ...attackSoundsRef.current,
-      ...killSoundsRef.current,
-      ...goreSoundsRef.current,
-      ...hurtSoundsRef.current,
-    ]) {
-      if (s) s.volume = SFX_VOLUME;
-    }
-  }, []);
 
   useEffect(() => {
     const step = (time: number) => {
