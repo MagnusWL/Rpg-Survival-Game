@@ -121,36 +121,40 @@ const BLOOD_SIZE = 128;
  * texture stuck to the ground, a moving one as light.
  */
 const GLOW = require('./assets/sprites/effects/glow.png');
-const GLOW_COLOR = '#ffd27f'; // warm, against the cold blue-grey stone
-const GLOW_SIZE = 150;
-const GLOW_OPACITY = 0.4;
-const GLOW_PULSE = 0.12; // how far the size swings either side
-const GLOW_PERIOD = 2600; // ms for one breath
-const GLOW_FOOT_OFFSET = 18; // down from pos, so it sits at his feet
+
+type GlowStyle = {
+  color: string;
+  size: number;
+  opacity: number;
+  /** How far the size swings either side of `size`. */
+  pulse: number;
+  /** Milliseconds for one breath. */
+  period: number;
+  /** Down from pos, so it sits at the feet rather than the middle. */
+  foot: number;
+  /**
+   * How it mixes with what is behind -- the same layer modes a paint program
+   * offers, supported by React Native since 0.76. 'normal' lays it flat on top;
+   * 'plus-lighter' and 'screen' only ever lighten, which is how light behaves
+   * and lets the stone show through.
+   */
+  blend: BlendMode;
+};
 
 /**
- * How the glow is mixed into what is behind it -- the same layer modes a paint
- * program offers, which React Native supports as of 0.76.
- *
- * 'normal' lays it flat on top. 'screen' and 'plus-lighter' only ever lighten,
- * which is how actual light behaves and lets the stone show through it.
+ * The knight's ordinary light. Grouped rather than left as loose constants
+ * because a buff wants to change several of these at once -- a second object of
+ * this shape, swapped in while it lasts, is all that would take.
  */
-const GLOW_BLEND: BlendMode = 'screen';
-
-/** Temporary panel for finding the values above. Set false and delete it after. */
-const DEBUG_GLOW_TUNING = true;
-
-const GLOW_BLEND_CHOICES: BlendMode[] = [
-  'normal',
-  'screen',
-  'plus-lighter',
-  'overlay',
-  'soft-light',
-  'color-dodge',
-  'lighten',
-];
-
-const GLOW_COLOR_CHOICES = ['#ffd27f', '#ffffff', '#7fd4ff', '#9dff7f', '#ff7f7f', '#d79dff'];
+const PLAYER_GLOW: GlowStyle = {
+  color: '#ffd27f', // warm, against the cold blue-grey stone
+  size: 136,
+  opacity: 0.47,
+  pulse: 0.19,
+  period: 2600,
+  foot: 6,
+  blend: 'plus-lighter',
+};
 
 /**
  * The ground the whole play area stands on. Drawn to cover rather than stretch,
@@ -664,59 +668,6 @@ function SpriteSheet({
   );
 }
 
-/**
- * Drag-anywhere slider for the temporary tuning panel. Built on the responder
- * props the play area already uses, so it needs no extra dependency.
- */
-function DebugSlider({
-  label,
-  value,
-  min,
-  max,
-  step = 1,
-  suffix = '',
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step?: number;
-  suffix?: string;
-  onChange: (v: number) => void;
-}) {
-  const trackWidth = useRef(0);
-  const setFromX = (x: number) => {
-    if (trackWidth.current <= 0) return;
-    const t = Math.max(0, Math.min(1, x / trackWidth.current));
-    const raw = min + t * (max - min);
-    onChange(Math.round(raw / step) * step);
-  };
-  const pct: `${number}%` = `${((value - min) / (max - min)) * 100}%`;
-  return (
-    <View style={styles.tuneRow}>
-      <Text style={styles.tuneLabel}>{label}</Text>
-      <View
-        style={styles.tuneTrack}
-        onLayout={(e) => {
-          trackWidth.current = e.nativeEvent.layout.width;
-        }}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={(e) => setFromX(e.nativeEvent.locationX)}
-        onResponderMove={(e) => setFromX(e.nativeEvent.locationX)}
-      >
-        <View style={[styles.tuneFill, { width: pct }]} />
-        <View style={[styles.tuneKnob, { left: pct }]} />
-      </View>
-      <Text style={styles.tuneValue}>
-        {value}
-        {suffix}
-      </Text>
-    </View>
-  );
-}
-
 function makePlayer(): PlayerState {
   return {
     pos: { x: SCREEN_W / 2, y: PLAY_H - 80 },
@@ -981,16 +932,6 @@ export default function App() {
   // download size and nothing else. Levels are baked in, like everything else.
   const menuMusic = useAudioPlayer(require('./assets/music/menu.mp3'));
   const gameMusic = useAudioPlayer(require('./assets/music/game.mp3'));
-
-  // Live glow settings while DEBUG_GLOW_TUNING is on; the constants take over
-  // the moment it is switched off.
-  const [tuneGlowSize, setTuneGlowSize] = useState(GLOW_SIZE);
-  const [tuneGlowOpacity, setTuneGlowOpacity] = useState(Math.round(GLOW_OPACITY * 100));
-  const [tuneGlowPulse, setTuneGlowPulse] = useState(Math.round(GLOW_PULSE * 100));
-  const [tuneGlowPeriod, setTuneGlowPeriod] = useState(GLOW_PERIOD);
-  const [tuneGlowFoot, setTuneGlowFoot] = useState(GLOW_FOOT_OFFSET);
-  const [tuneGlowBlend, setTuneGlowBlend] = useState<BlendMode>(GLOW_BLEND);
-  const [tuneGlowColor, setTuneGlowColor] = useState(GLOW_COLOR);
 
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
@@ -2111,25 +2052,9 @@ export default function App() {
     );
   }
 
-  const glow = DEBUG_GLOW_TUNING
-    ? {
-        size: tuneGlowSize,
-        opacity: tuneGlowOpacity / 100,
-        pulse: tuneGlowPulse / 100,
-        period: tuneGlowPeriod,
-        foot: tuneGlowFoot,
-        blend: tuneGlowBlend,
-        color: tuneGlowColor,
-      }
-    : {
-        size: GLOW_SIZE,
-        opacity: GLOW_OPACITY,
-        pulse: GLOW_PULSE,
-        period: GLOW_PERIOD,
-        foot: GLOW_FOOT_OFFSET,
-        blend: GLOW_BLEND,
-        color: GLOW_COLOR,
-      };
+  // Swap this for another GlowStyle to change his light -- while a buff runs,
+  // say. Everything below reads from it.
+  const glow = PLAYER_GLOW;
 
   // Breathes on the wall clock rather than the animation, so it keeps its own
   // slow rhythm whatever the knight happens to be doing.
@@ -2366,49 +2291,6 @@ export default function App() {
           );
         })}
       </View>
-
-      {DEBUG_GLOW_TUNING && (
-        <View style={styles.tunePanel}>
-          <DebugSlider label="Stoerrelse" value={tuneGlowSize} min={0} max={320} onChange={setTuneGlowSize} />
-          <DebugSlider label="Styrke" value={tuneGlowOpacity} min={0} max={100} suffix="%" onChange={setTuneGlowOpacity} />
-          <DebugSlider label="Puls" value={tuneGlowPulse} min={0} max={60} suffix="%" onChange={setTuneGlowPulse} />
-          <DebugSlider label="Tempo" value={tuneGlowPeriod} min={400} max={6000} step={100} suffix=" ms" onChange={setTuneGlowPeriod} />
-          <DebugSlider label="Hoejde" value={tuneGlowFoot} min={-40} max={70} onChange={setTuneGlowFoot} />
-
-          <View style={styles.tuneChips}>
-            {GLOW_BLEND_CHOICES.map((b) => (
-              <Pressable
-                key={b}
-                onPress={() => setTuneGlowBlend(b)}
-                style={[styles.tuneChip, b === tuneGlowBlend && styles.tuneChipOn]}
-              >
-                <Text style={styles.tuneChipText}>{b}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.tuneChips}>
-            {GLOW_COLOR_CHOICES.map((c) => (
-              <Pressable
-                key={c}
-                onPress={() => setTuneGlowColor(c)}
-                style={[
-                  styles.tuneSwatch,
-                  { backgroundColor: c },
-                  c === tuneGlowColor && styles.tuneSwatchOn,
-                ]}
-              />
-            ))}
-          </View>
-
-          <Text style={styles.tuneHint}>
-            {`GLOW_COLOR = '${tuneGlowColor}'  ·  GLOW_SIZE = ${tuneGlowSize}  ·  GLOW_OPACITY = ${(tuneGlowOpacity / 100).toFixed(2)}`}
-          </Text>
-          <Text style={styles.tuneHint}>
-            {`GLOW_PULSE = ${(tuneGlowPulse / 100).toFixed(2)}  ·  GLOW_PERIOD = ${tuneGlowPeriod}  ·  GLOW_FOOT_OFFSET = ${tuneGlowFoot}  ·  GLOW_BLEND = '${tuneGlowBlend}'`}
-          </Text>
-        </View>
-      )}
 
       <View style={styles.quickCastBar}>
         {([1, 2, 3] as AbilityId[])
@@ -2735,36 +2617,6 @@ const styles = StyleSheet.create({
     width: SCREEN_W,
     height: PLAY_H,
   },
-  // --- Temporary glow tuning panel; delete along with DEBUG_GLOW_TUNING ---
-  tunePanel: {
-    position: 'absolute',
-    top: TOP_BAR_HEIGHT + 8,
-    left: 8,
-    right: 8,
-    zIndex: 50,
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.78)',
-  },
-  tuneRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-  tuneLabel: { width: 72, color: '#cfd8dc', fontSize: 11 },
-  tuneTrack: {
-    flex: 1,
-    height: 20,
-    justifyContent: 'center',
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  tuneFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 4, backgroundColor: '#4fc3f7' },
-  tuneKnob: { position: 'absolute', width: 11, height: 20, marginLeft: -5.5, borderRadius: 3, backgroundColor: '#fff' },
-  tuneValue: { width: 52, textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 'bold' },
-  tuneChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, marginBottom: 2 },
-  tuneChip: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.12)' },
-  tuneChipOn: { backgroundColor: '#4fc3f7' },
-  tuneChipText: { color: '#fff', fontSize: 10 },
-  tuneSwatch: { width: 26, height: 20, borderRadius: 4, borderWidth: 2, borderColor: 'transparent' },
-  tuneSwatchOn: { borderColor: '#fff' },
-  tuneHint: { color: '#ffe082', fontSize: 9.5, marginTop: 2 },
   rangeRing: {
     position: 'absolute',
     borderWidth: 1.5,
