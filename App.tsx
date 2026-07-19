@@ -455,6 +455,55 @@ function buildWaveQueue(wave: number): MobType[] {
   return queue;
 }
 
+/**
+ * Draws one frame of a sprite sheet: a clipping box with the sheet inside it,
+ * shifted so the wanted cell lands in view.
+ *
+ * Every animation stays mounted and only the active one is made visible.
+ * Swapping a single Image's source instead makes react-native-web reload it --
+ * it renders the picture as a CSS background and clears that background while
+ * the new one loads, even from cache -- and the frames in between draw nothing,
+ * so the character blinks each time the animation changes.
+ */
+function SpriteSheet({
+  anims,
+  anim,
+  animTime,
+  facing,
+  size,
+  left,
+  top,
+}: {
+  anims: Record<string, AnimDef>;
+  anim: string;
+  animTime: number;
+  facing: number;
+  size: number;
+  left: number;
+  top: number;
+}) {
+  return (
+    <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
+      {Object.entries(anims).map(([name, def]) => (
+        <Image
+          key={name}
+          source={def.sheet}
+          style={{
+            position: 'absolute',
+            // Drawn at native size, so one cell lands exactly on the clip box
+            // and the art renders pixel-for-pixel.
+            width: size * SPRITE_COLS,
+            height: size * SPRITE_ROWS,
+            left: -size * animColumn(def, animTime),
+            top: -size * facing,
+            opacity: name === anim ? 1 : 0,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
 function makePlayer(): PlayerState {
   return {
     pos: { x: SCREEN_W / 2, y: PLAY_H - 80 },
@@ -1735,60 +1784,36 @@ export default function App() {
           </View>
         ))}
 
-        <View
-          style={[
-            styles.playerSprite,
-            {
-              // Anchored on the sprite's feet rather than its centre, so the
-              // knight stands on pos instead of hovering over it. Every anim
-              // shares the same cell size, so he does not jump when it changes.
-              left: player.pos.x - PLAYER_SPRITE_SIZE / 2,
-              top: player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE,
-            },
-          ]}
-        >
-          <Image
-            source={ANIMS[player.anim].sheet}
-            style={{
-              position: 'absolute',
-              // The sheet is drawn at native size, so one cell lands exactly on
-              // the clip box and the art renders pixel-for-pixel.
-              width: PLAYER_SPRITE_SIZE * SPRITE_COLS,
-              height: PLAYER_SPRITE_SIZE * SPRITE_ROWS,
-              left: -PLAYER_SPRITE_SIZE * animColumn(ANIMS[player.anim], player.animTime),
-              top: -PLAYER_SPRITE_SIZE * player.facing,
-            }}
-          />
-        </View>
+        {/* Anchored on the sprite's feet rather than its centre, so the knight
+            stands on pos instead of hovering over it. Every animation shares the
+            same cell size, so he does not jump when it changes. */}
+        <SpriteSheet
+          anims={ANIMS}
+          anim={player.anim}
+          animTime={player.animTime}
+          facing={player.facing}
+          size={PLAYER_SPRITE_SIZE}
+          left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
+          top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
+        />
 
         {mobs.map((m) => {
           const meta = MOB_TYPE_META[m.type];
           // Only the plain melee mob has art so far. Ranged and boss stay as
           // circles, which also keeps them easy to tell apart at a glance.
-          const anim = m.type === 'melee' ? MOB_ANIMS[m.anim] : null;
+          const hasSprite = m.type === 'melee';
           return (
             <View key={m.id}>
-              {anim ? (
-                <View
-                  style={[
-                    styles.mobSprite,
-                    {
-                      left: m.pos.x - MOB_SPRITE_SIZE / 2,
-                      top: m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE,
-                    },
-                  ]}
-                >
-                  <Image
-                    source={anim.sheet}
-                    style={{
-                      position: 'absolute',
-                      width: MOB_SPRITE_SIZE * SPRITE_COLS,
-                      height: MOB_SPRITE_SIZE * SPRITE_ROWS,
-                      left: -MOB_SPRITE_SIZE * animColumn(anim, m.animTime),
-                      top: -MOB_SPRITE_SIZE * m.facing,
-                    }}
-                  />
-                </View>
+              {hasSprite ? (
+                <SpriteSheet
+                  anims={MOB_ANIMS}
+                  anim={m.anim}
+                  animTime={m.animTime}
+                  facing={m.facing}
+                  size={MOB_SPRITE_SIZE}
+                  left={m.pos.x - MOB_SPRITE_SIZE / 2}
+                  top={m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE}
+                />
               ) : (
                 <View
                   style={{
@@ -2160,18 +2185,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.25)',
     backgroundColor: 'transparent',
-  },
-  playerSprite: {
-    position: 'absolute',
-    width: PLAYER_SPRITE_SIZE,
-    height: PLAYER_SPRITE_SIZE,
-    overflow: 'hidden', // clips the sheet down to the single current frame
-  },
-  mobSprite: {
-    position: 'absolute',
-    width: MOB_SPRITE_SIZE,
-    height: MOB_SPRITE_SIZE,
-    overflow: 'hidden',
   },
   ally: {
     position: 'absolute',
