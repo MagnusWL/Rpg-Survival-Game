@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import CoinSackView, { CoinSackHandle } from './CoinSackView';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
@@ -530,6 +531,16 @@ const MOB_MAX_HP = 20; // wave 1 base
 const MOB_DAMAGE = 5; // wave 1 base
 const MOB_XP_REWARD = 15;
 const BOSS_XP_REWARD = 120;
+
+/**
+ * Coins into the sack for a kill.
+ *
+ * Not an economy: this game has no money, and whether it should have reaches
+ * into Magnus's gameplay rather than our animation. The sack needed something
+ * to react to, and a kill is the obvious something. It keeps its own count.
+ */
+const MOB_COINS = 1;
+const BOSS_COINS = 5;
 
 /**
  * The shove a mob takes when it is struck.
@@ -1297,6 +1308,8 @@ export default function App() {
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
   const bloodSplatsRef = useRef(bloodSplats);
+  /** The kit's engine, once it has built itself. Null on anything but web. */
+  const coinSackRef = useRef<CoinSackHandle>(null);
   const floatingTextsRef = useRef(floatingTexts);
   const waveRef = useRef(wave);
   const waveActiveRef = useRef(waveActive);
@@ -2059,6 +2072,10 @@ export default function App() {
           const reward = m.type === 'boss' ? BOSS_XP_REWARD : MOB_XP_REWARD;
           xpGain += reward;
           newFloatingTexts.push(makeFloatingText(`+${reward} XP`, m.pos, XP_TEXT_COLOR, now));
+          // One call per coin is the whole integration; the sack keeps its own
+          // count and drops them in itself.
+          const coins = m.type === 'boss' ? BOSS_COINS : MOB_COINS;
+          for (let i = 0; i < coins; i++) coinSackRef.current?.addCoin();
         }
       }
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
@@ -2821,6 +2838,9 @@ export default function App() {
             </Text>
           );
         })}
+
+        {/* The kit's own canvas, over the field and deaf to touches. */}
+        <CoinSackView sackRef={coinSackRef} />
       </View>
 
       <View style={styles.quickCastBar}>
