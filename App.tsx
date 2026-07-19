@@ -1716,6 +1716,90 @@ export default function App() {
     );
   }
 
+  // Everyone standing on the ground is drawn as one list sorted by how far down
+  // the screen they are, so whoever is nearer the camera covers whoever is
+  // behind them. Drawn separately -- as they were -- a zombie standing behind
+  // the knight still painted over him, which 128 px sprites made obvious.
+  //
+  // Sorting on the feet rather than the centre, since that is where a character
+  // actually meets the ground.
+  const groundActors = [
+    ...allies.map((a) => ({
+      key: `ally-${a.id}`,
+      y: a.pos.y,
+      node: (
+        <View key={`ally-${a.id}`}>
+          <View
+            style={[
+              styles.ally,
+              { left: a.pos.x - ALLY_RADIUS, top: a.pos.y - ALLY_RADIUS, backgroundColor: a.ranged ? '#b39ddb' : '#9575cd' },
+            ]}
+          />
+          <View style={[styles.mobHpBarBg, { left: a.pos.x - ALLY_RADIUS, top: a.pos.y - ALLY_RADIUS - 8, width: ALLY_RADIUS * 2 }]}>
+            <View style={[styles.mobHpBarFill, { width: ALLY_RADIUS * 2 * (a.hp / a.maxHp), backgroundColor: '#7e57c2' }]} />
+          </View>
+        </View>
+      ),
+    })),
+    {
+      key: 'player',
+      y: player.pos.y,
+      node: (
+        // Anchored on the sprite's feet rather than its centre, so the knight
+        // stands on pos instead of hovering over it. Every animation shares the
+        // same cell size, so he does not jump when it changes.
+        <SpriteSheet
+          key="player"
+          anims={ANIMS}
+          anim={player.anim}
+          animTime={player.animTime}
+          facing={player.facing}
+          size={PLAYER_SPRITE_SIZE}
+          left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
+          top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
+        />
+      ),
+    },
+    ...mobs.map((m) => ({
+      key: `mob-${m.id}`,
+      y: m.pos.y,
+      node: (
+        <View key={`mob-${m.id}`}>
+          {/* Only the plain melee mob has art so far. Ranged and boss stay as
+              circles, which also keeps them easy to tell apart at a glance. */}
+          {m.type === 'melee' ? (
+            <SpriteSheet
+              anims={MOB_ANIMS}
+              anim={m.anim}
+              animTime={m.animTime}
+              facing={m.facing}
+              size={MOB_SPRITE_SIZE}
+              left={m.pos.x - MOB_SPRITE_SIZE / 2}
+              top={m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE}
+            />
+          ) : (
+            <View
+              style={{
+                position: 'absolute',
+                left: m.pos.x - m.radius,
+                top: m.pos.y - m.radius,
+                width: m.radius * 2,
+                height: m.radius * 2,
+                borderRadius: m.radius,
+                backgroundColor: MOB_TYPE_META[m.type].color,
+              }}
+            />
+          )}
+          <View style={[styles.mobHpBarBg, { left: m.pos.x - m.radius, top: m.pos.y - m.radius - 8, width: m.radius * 2 }]}>
+            <View style={[styles.mobHpBarFill, { width: m.radius * 2 * (m.hp / m.maxHp) }]} />
+          </View>
+        </View>
+      ),
+    })),
+  ]
+    .sort((a, b) => a.y - b.y)
+    .map((actor) => actor.node);
+
   return (
     <View style={styles.root}>
       <View style={styles.topBar}>
@@ -1770,69 +1854,7 @@ export default function App() {
           );
         })}
 
-        {allies.map((a) => (
-          <View key={a.id}>
-            <View
-              style={[
-                styles.ally,
-                { left: a.pos.x - ALLY_RADIUS, top: a.pos.y - ALLY_RADIUS, backgroundColor: a.ranged ? '#b39ddb' : '#9575cd' },
-              ]}
-            />
-            <View style={[styles.mobHpBarBg, { left: a.pos.x - ALLY_RADIUS, top: a.pos.y - ALLY_RADIUS - 8, width: ALLY_RADIUS * 2 }]}>
-              <View style={[styles.mobHpBarFill, { width: (ALLY_RADIUS * 2) * (a.hp / a.maxHp), backgroundColor: '#7e57c2' }]} />
-            </View>
-          </View>
-        ))}
-
-        {/* Anchored on the sprite's feet rather than its centre, so the knight
-            stands on pos instead of hovering over it. Every animation shares the
-            same cell size, so he does not jump when it changes. */}
-        <SpriteSheet
-          anims={ANIMS}
-          anim={player.anim}
-          animTime={player.animTime}
-          facing={player.facing}
-          size={PLAYER_SPRITE_SIZE}
-          left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
-          top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
-        />
-
-        {mobs.map((m) => {
-          const meta = MOB_TYPE_META[m.type];
-          // Only the plain melee mob has art so far. Ranged and boss stay as
-          // circles, which also keeps them easy to tell apart at a glance.
-          const hasSprite = m.type === 'melee';
-          return (
-            <View key={m.id}>
-              {hasSprite ? (
-                <SpriteSheet
-                  anims={MOB_ANIMS}
-                  anim={m.anim}
-                  animTime={m.animTime}
-                  facing={m.facing}
-                  size={MOB_SPRITE_SIZE}
-                  left={m.pos.x - MOB_SPRITE_SIZE / 2}
-                  top={m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE}
-                />
-              ) : (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: m.pos.x - m.radius,
-                    top: m.pos.y - m.radius,
-                    width: m.radius * 2,
-                    height: m.radius * 2,
-                    borderRadius: m.radius,
-                    backgroundColor: meta.color,
-                  }}
-                />
-              )}
-              <View style={[styles.mobHpBarBg, { left: m.pos.x - m.radius, top: m.pos.y - m.radius - 8, width: m.radius * 2 }]}>
-                <View style={[styles.mobHpBarFill, { width: m.radius * 2 * (m.hp / m.maxHp) }]} />
-              </View>
-            </View>
-          );
-        })}
+        {groundActors}
 
         {projectiles.map((pr) => {
           const progress = Math.min(1, (Date.now() - pr.createdAt) / pr.duration);
