@@ -67,6 +67,30 @@ function animColumn(anim: AnimName, animTime: number) {
 // from the shapes gets east and north exactly backwards.
 const SPRITE_ROW_FOR_EAST = 0;
 
+/**
+ * Which way to face when swinging, given everything within reach.
+ *
+ * Picks the nearest target, except that any target already lying in the
+ * direction the knight faces wins outright. Without that, two enemies at
+ * similar range trade places as "nearest" and he flips between them.
+ *
+ * Facing is cosmetic here -- the melee swing damages everything in its radius
+ * regardless of where he looks -- so this only has to read naturally.
+ */
+function facingForTargets(from: Vec, targets: Vec[], current: number) {
+  let best: Vec | null = null;
+  let bestDist = Infinity;
+  for (const t of targets) {
+    if (facingFromDelta(t.x - from.x, t.y - from.y) === current) return current;
+    const d = dist(from, t);
+    if (d < bestDist) {
+      bestDist = d;
+      best = t;
+    }
+  }
+  return best ? facingFromDelta(best.x - from.x, best.y - from.y) : current;
+}
+
 function facingFromDelta(dx: number, dy: number) {
   // atan2 is 0 at east and grows clockwise on screen, since y points down --
   // the same direction the rows advance, so this adds rather than subtracts.
@@ -1155,6 +1179,7 @@ export default function App() {
 
       // Player attack: melee hits everything in range instantly, ranged fires projectiles
       let playerAttacked = false;
+      const attackTargets: Vec[] = [];
       if (p.attackCooldown <= 0) {
         if (isRangedAttack) {
           const candidates = currentMobs
@@ -1163,6 +1188,7 @@ export default function App() {
             .slice(0, rangedTargetCount(ability3Level));
           if (candidates.length > 0) {
             for (const target of candidates) {
+              attackTargets.push({ ...target.pos });
               newProjectiles.push({
                 id: ++projectileIdCounter,
                 from: { ...p.pos },
@@ -1185,6 +1211,7 @@ export default function App() {
             if (m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange + (m.radius - MOB_RADIUS)) {
               m.hp -= playerDamage;
               hitAny = true;
+              attackTargets.push({ ...m.pos });
               newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
               newFloatingTexts.push(makeFloatingText(`-${Math.round(playerDamage)}`, m.pos, DAMAGE_TEXT_COLOR, now));
             }
@@ -1256,6 +1283,15 @@ export default function App() {
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
 
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
+
+      // Turn to face what he is hitting, but only from a standstill. While
+      // moving, the movement block owns facing -- otherwise he slides one way
+      // while looking another, which the 8 fixed directions make very obvious.
+      // Nothing is lost by that: tapping towards an enemy already points him at
+      // it. This is for the enemy that walks up behind him while he stands.
+      if (playerAttacked && !moving) {
+        p.facing = facingForTargets(p.pos, attackTargets, p.facing);
+      }
 
       // Pick the animation now that this frame's attacks and damage are known.
       // A one-shot owns the sprite until it finishes, so a swing plays out
