@@ -216,6 +216,44 @@ const PLAYER_GLOW: GlowStyle = {
   blend: 'plus-lighter',
 };
 
+// --- Rain -----------------------------------------------------------------
+// Every drop is worked out from the clock rather than stored and stepped: given
+// its speed and where it started, the time says where it is. So the game loop
+// carries none of this, nothing accumulates, and there is no state to reset
+// between runs.
+const RAIN_ENABLED = true;
+const RAIN_DROPS = 60;
+const RAIN_TILT_DEG = 14; // wind, and the angle each streak is drawn at
+const RAIN_COLOR = 'rgba(190, 214, 235, 0.5)';
+
+/**
+ * Fixed for the life of the app. Each drop keeps its own speed and length so
+ * they do not fall as a sheet -- the faster, longer ones read as nearer.
+ */
+const RAIN = Array.from({ length: RAIN_DROPS }, () => {
+  const near = Math.random(); // 0 far away, 1 close to the camera
+  return {
+    x: Math.random(),
+    speed: 480 + near * 620, // px/sec
+    length: 14 + near * 26,
+    width: near > 0.6 ? 2 : 1,
+    opacity: 0.25 + near * 0.55,
+    offset: Math.random(), // where in its fall it starts
+  };
+});
+
+const RAIN_TILT_X = Math.tan((RAIN_TILT_DEG * Math.PI) / 180);
+
+/**
+ * How far the wind carries a drop over a full fall.
+ *
+ * Drops start spread across the width plus this much to the left of it, so they
+ * blow in from off the edge. Without it the bottom-left corner stays dry while
+ * drops on the right blow off the screen -- measured at 60 px of empty ground on
+ * one side and 155 px of wasted drops on the other.
+ */
+const RAIN_DRIFT = PLAY_H * RAIN_TILT_X;
+
 /**
  * The ground the whole play area stands on. Drawn to cover rather than stretch,
  * so it crops instead of distorting when the screen is not its 4:3 shape.
@@ -2455,6 +2493,33 @@ export default function App() {
 
         {groundActors}
 
+        {/* In front of everyone, as weather between the scene and the camera.
+            Deaf to touches, or sixty streaks would eat every tap on the field. */}
+        {RAIN_ENABLED && (
+          <View style={styles.rain}>
+            {RAIN.map((d, i) => {
+              // How far through its fall this drop is, right now.
+              const span = PLAY_H + d.length;
+              const y = ((d.offset * span + (Date.now() / 1000) * d.speed) % span) - d.length;
+              return (
+                <View
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    left: d.x * (SCREEN_W + RAIN_DRIFT) - RAIN_DRIFT + y * RAIN_TILT_X,
+                    top: y,
+                    width: d.width,
+                    height: d.length,
+                    backgroundColor: RAIN_COLOR,
+                    opacity: d.opacity,
+                    transform: [{ rotate: `${RAIN_TILT_DEG}deg` }],
+                  }}
+                />
+              );
+            })}
+          </View>
+        )}
+
         {projectiles.map((pr) => {
           const progress = Math.min(1, (Date.now() - pr.createdAt) / pr.duration);
           const x = pr.from.x + (pr.to.x - pr.from.x) * progress;
@@ -2809,6 +2874,15 @@ const styles = StyleSheet.create({
     top: 0,
     width: SCREEN_W,
     height: PLAY_H,
+  },
+  rain: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: PLAY_H,
+    overflow: 'hidden',
+    pointerEvents: 'none',
   },
   rangeRing: {
     position: 'absolute',
