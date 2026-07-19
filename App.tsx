@@ -50,6 +50,11 @@ type AnimDef = {
   fps: number;
   /** Looping animations repeat forever; one-shots hold their last frame. */
   loop: boolean;
+  /**
+   * How many rows the sheet has. Characters use one per facing; effects have no
+   * facings and spend their rows on variants instead.
+   */
+  rows?: number;
 };
 
 const ANIMS: Record<AnimName, AnimDef> = {
@@ -61,12 +66,31 @@ const ANIMS: Record<AnimName, AnimDef> = {
 
 // The zombie art arrives as loose frames per direction and is packed into the
 // same 15x8 grid by tools/build-sprites.mjs, so it shares everything above.
-type MobAnimName = 'walk' | 'attack';
+type MobAnimName = 'walk' | 'attack' | 'attack2' | 'attack3';
 
 const MOB_ANIMS: Record<MobAnimName, AnimDef> = {
   walk: { sheet: require('./assets/sprites/zombie/walk.png'), fps: 12, loop: true },
   attack: { sheet: require('./assets/sprites/zombie/attack.png'), fps: 16, loop: false },
+  attack2: { sheet: require('./assets/sprites/zombie/attack2.png'), fps: 16, loop: false },
+  attack3: { sheet: require('./assets/sprites/zombie/attack3.png'), fps: 16, loop: false },
 };
+
+/** Picked at random per swing, so a crowd of zombies does not attack in lockstep. */
+const MOB_ATTACK_ANIMS: MobAnimName[] = ['attack', 'attack2', 'attack3'];
+
+// --- Effects -------------------------------------------------------------
+// Blood has no facings; tools/build-sprites.mjs packs its five variants as the
+// sheet's rows, so choosing one is the same lookup as choosing a facing.
+const BLOOD_VARIANTS = 5;
+const BLOOD_ANIM: AnimDef = {
+  sheet: require('./assets/sprites/effects/blood.png'),
+  fps: 20,
+  loop: false,
+  rows: BLOOD_VARIANTS,
+};
+const BLOOD_ANIMS = { blood: BLOOD_ANIM };
+const BLOOD_DURATION = SPRITE_COLS / BLOOD_ANIM.fps; // seconds
+const BLOOD_SIZE = 128;
 
 // Drawn the same size as the knight, both being human-sized. The foot offset is
 // smaller because a mob's collision circle is smaller (14 against 18), and it
@@ -197,6 +221,7 @@ let mobIdCounter = 0;
 let allyIdCounter = 0;
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
+let bloodIdCounter = 0;
 let itemIdCounter = 0;
 let floatingTextIdCounter = 0;
 
@@ -241,6 +266,7 @@ type Projectile = {
   targetId: number;
 };
 type HitFlash = { id: number; pos: Vec; createdAt: number };
+type BloodSplat = { id: number; pos: Vec; variant: number; createdAt: number };
 type FloatingText = { id: number; text: string; pos: Vec; color: string; createdAt: number };
 
 type AbilityId = 1 | 2 | 3;
@@ -491,22 +517,25 @@ function SpriteSheet({
 }) {
   return (
     <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
-      {Object.entries(anims).map(([name, def]) => (
-        <Image
-          key={name}
-          source={def.sheet}
-          style={{
-            position: 'absolute',
-            // Drawn at native size, so one cell lands exactly on the clip box
-            // and the art renders pixel-for-pixel.
-            width: size * SPRITE_COLS,
-            height: size * SPRITE_ROWS,
-            left: -size * animColumn(def, animTime),
-            top: -size * facing,
-            opacity: name === anim ? 1 : 0,
-          }}
-        />
-      ))}
+      {Object.entries(anims).map(([name, def]) => {
+        const rows = def.rows ?? SPRITE_ROWS;
+        return (
+          <Image
+            key={name}
+            source={def.sheet}
+            style={{
+              position: 'absolute',
+              // Drawn at native size, so one cell lands exactly on the clip box
+              // and the art renders pixel-for-pixel.
+              width: size * SPRITE_COLS,
+              height: size * rows,
+              left: -size * animColumn(def, animTime),
+              top: -size * Math.min(facing, rows - 1),
+              opacity: name === anim ? 1 : 0,
+            }}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -729,6 +758,7 @@ export default function App() {
   const [aimPreviewPoint, setAimPreviewPoint] = useState<Vec | null>(null);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
+  const [bloodSplats, setBloodSplats] = useState<BloodSplat[]>([]);
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
   const [waveActive, setWaveActive] = useState(false);
@@ -767,6 +797,7 @@ export default function App() {
   const abilitiesRef = useRef(abilities);
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
+  const bloodSplatsRef = useRef(bloodSplats);
   const floatingTextsRef = useRef(floatingTexts);
   const waveRef = useRef(wave);
   const waveActiveRef = useRef(waveActive);
@@ -795,6 +826,7 @@ export default function App() {
   abilitiesRef.current = abilities;
   projectilesRef.current = projectiles;
   hitFlashesRef.current = hitFlashes;
+  bloodSplatsRef.current = bloodSplats;
   floatingTextsRef.current = floatingTexts;
   waveRef.current = wave;
   waveActiveRef.current = waveActive;
@@ -1051,6 +1083,7 @@ export default function App() {
     abilitiesRef.current = s.abilities;
     projectilesRef.current = [];
     hitFlashesRef.current = [];
+    bloodSplatsRef.current = [];
     floatingTextsRef.current = [];
     waveRef.current = s.wave;
     waveActiveRef.current = false;
@@ -1072,6 +1105,7 @@ export default function App() {
     setAimPreviewPoint(null);
     setProjectiles([]);
     setHitFlashes([]);
+    setBloodSplats([]);
     setFloatingTexts([]);
     setWave(s.wave);
     setWaveActive(false);
@@ -1136,6 +1170,7 @@ export default function App() {
       const currentAllies = alliesRef.current.map((a) => ({ ...a }));
       const newProjectiles: Projectile[] = [];
       const newFlashes: HitFlash[] = [];
+      const newBlood: BloodSplat[] = [];
       const newFloatingTexts: FloatingText[] = [];
 
       const eq = equippedRef.current;
@@ -1315,7 +1350,7 @@ export default function App() {
                 }
               }
               m.attackCooldown = MOB_ATTACK_COOLDOWN;
-              setMobAnim('attack');
+              setMobAnim(MOB_ATTACK_ANIMS[Math.floor(Math.random() * MOB_ATTACK_ANIMS.length)]);
             }
           } else {
             const dx = nearest.pos.x - m.pos.x;
@@ -1428,6 +1463,12 @@ export default function App() {
           survivorMobs.push(m);
         } else {
           anyMobDied = true;
+          newBlood.push({
+            id: ++bloodIdCounter,
+            pos: { ...m.pos },
+            variant: Math.floor(Math.random() * BLOOD_VARIANTS),
+            createdAt: now,
+          });
           const reward = m.type === 'boss' ? BOSS_XP_REWARD : MOB_XP_REWARD;
           xpGain += reward;
           newFloatingTexts.push(makeFloatingText(`+${reward} XP`, m.pos, XP_TEXT_COLOR, now));
@@ -1524,6 +1565,9 @@ export default function App() {
       const survivorFlashes = hitFlashesRef.current
         .filter((f) => now - f.createdAt < HIT_FLASH_DURATION)
         .concat(newFlashes);
+      const survivorBlood = bloodSplatsRef.current
+        .filter((b) => now - b.createdAt < BLOOD_DURATION * 1000)
+        .concat(newBlood);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
@@ -1573,6 +1617,7 @@ export default function App() {
       abilitiesRef.current = newAbilities;
       projectilesRef.current = survivorProjectiles;
       hitFlashesRef.current = survivorFlashes;
+      bloodSplatsRef.current = survivorBlood;
       floatingTextsRef.current = survivorFloatingTexts;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
@@ -1587,6 +1632,7 @@ export default function App() {
       setAbilities(newAbilities);
       setProjectiles(survivorProjectiles);
       setHitFlashes(survivorFlashes);
+      setBloodSplats(survivorBlood);
       setFloatingTexts(survivorFloatingTexts);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
@@ -1876,6 +1922,20 @@ export default function App() {
             </View>
           );
         })}
+
+        {/* Blood lands on the ground, so it goes under everyone standing on it. */}
+        {bloodSplats.map((b) => (
+          <SpriteSheet
+            key={b.id}
+            anims={BLOOD_ANIMS}
+            anim="blood"
+            animTime={(Date.now() - b.createdAt) / 1000}
+            facing={b.variant}
+            size={BLOOD_SIZE}
+            left={b.pos.x - BLOOD_SIZE / 2}
+            top={b.pos.y - BLOOD_SIZE / 2}
+          />
+        ))}
 
         {groundActors}
 

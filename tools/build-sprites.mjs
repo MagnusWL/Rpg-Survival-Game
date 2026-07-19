@@ -90,11 +90,22 @@ const ZOMBIE_SRC = path.join(
 );
 const ZOMBIE_OUT = path.join(ROOT, 'assets', 'sprites', 'zombie');
 
-// Start with what the mob AI already does: walk towards the player, and hit him.
+// Walking plus three swings, picked at random per attack so a crowd does not
+// move in lockstep.
 const ZOMBIE_ANIMS = [
   { out: 'walk', src: 'Walk' },
   { out: 'attack', src: 'Attack1' },
+  { out: 'attack2', src: 'Attack2' },
+  { out: 'attack3', src: 'Attack3' },
 ];
+
+// Blood has no facings -- it is an effect seen from above. The five variants are
+// packed as rows instead, so picking one is the same lookup as picking a facing
+// and the renderer needs no special case.
+const BLOOD_SRC = path.join(
+  ROOT, 'Grafik', 'Enemies', '2D HD Zombie individual sprites', 'Blood'
+);
+const BLOOD_VARIANTS = ['Blood1', 'Blood2', 'Blood3', 'Blood4', 'Blood5'];
 
 async function packDirectionFolders(srcDir, outPath) {
   const tiles = [];
@@ -129,6 +140,39 @@ async function packDirectionFolders(srcDir, outPath) {
   return tiles.length;
 }
 
+/** Packs a list of flat frame folders into one sheet, one folder per row. */
+async function packFrameFolders(folders, outPath) {
+  const tiles = [];
+  for (const [row, dir] of folders.entries()) {
+    if (!existsSync(dir)) throw new Error(`Mangler mappe: ${dir}`);
+    const frames = readdirSync(dir).filter((f) => f.endsWith('.png')).sort();
+    if (frames.length !== COLS) {
+      throw new Error(`${dir} har ${frames.length} billeder, forventede ${COLS}`);
+    }
+    for (const [col, file] of frames.entries()) {
+      const meta = await sharp(path.join(dir, file)).metadata();
+      if (meta.width !== SRC_CELL || meta.height !== SRC_CELL) {
+        throw new Error(`${file} er ${meta.width}x${meta.height}, forventede ${SRC_CELL}x${SRC_CELL}`);
+      }
+      tiles.push({ input: path.join(dir, file), left: col * OUT_CELL, top: row * OUT_CELL });
+    }
+  }
+
+  await sharp({
+    create: {
+      width: COLS * OUT_CELL,
+      height: folders.length * OUT_CELL,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite(tiles)
+    .png({ compressionLevel: 9, palette: false })
+    .toFile(outPath);
+
+  return tiles.length;
+}
+
 if (!existsSync(ZOMBIE_SRC)) {
   console.log('\n(Springer fjender over -- Grafik/Enemies findes ikke)');
 } else {
@@ -143,4 +187,17 @@ if (!existsSync(ZOMBIE_SRC)) {
     );
   }
   console.log(`Skrevet til ${path.relative(ROOT, ZOMBIE_OUT)}`);
+}
+
+if (existsSync(BLOOD_SRC)) {
+  const outPath = path.join(ROOT, 'assets', 'sprites', 'effects', 'blood.png');
+  mkdirSync(path.dirname(outPath), { recursive: true });
+  const count = await packFrameFolders(
+    BLOOD_VARIANTS.map((v) => path.join(BLOOD_SRC, v)),
+    outPath
+  );
+  console.log(
+    `\nBlod: ${BLOOD_VARIANTS.length} varianter som raekker, ` +
+      `${count} billeder  ->  ${(statSync(outPath).size / 1024).toFixed(0)} KB`
+  );
 }
