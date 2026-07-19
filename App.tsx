@@ -19,8 +19,11 @@ import type { BlendMode } from 'react-native';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 const TOP_BAR_HEIGHT = 50;
-const QUICK_CAST_BAR_HEIGHT = 66;
-const HUD_HEIGHT = 84;
+// Sized to what is in them rather than by eye, since every pixel here is one
+// the field does not get: the quick-cast buttons are 42 square, and the HUD's
+// two rows plus its padding measure 73. They were 66 and 84.
+const QUICK_CAST_BAR_HEIGHT = 48;
+const HUD_HEIGHT = 74;
 const MENU_BAR_HEIGHT = 58;
 const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - QUICK_CAST_BAR_HEIGHT - HUD_HEIGHT - MENU_BAR_HEIGHT;
 const BAR_WIDTH = 80;
