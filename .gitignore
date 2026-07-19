@@ -52,6 +52,7 @@ yarn-error.*
 /Lyde/
 /Music/
 
-# Generated EQ tuning page -- rebuilt by "npm run build:eq", and it embeds the
-# audio, so there is no reason to version it.
+# Generated tuning pages -- rebuilt by "npm run build:eq" and "build:rain", and
+# they embed the audio and the ground, so there is no reason to version them.
 tools/eq-preview.html
+tools/rain-preview.html
