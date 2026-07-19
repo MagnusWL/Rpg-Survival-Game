@@ -126,13 +126,6 @@ const KILL_SFX_CHANCE = 0.3;
 const SWING_SOUND_AT = 0.25; // seconds
 
 /**
- * Shortest gap between two hurt sounds. Several mobs can be landing blows at
- * once, and a grunt for every one of them turns into a continuous noise that
- * says nothing. This lets it mark being hurt rather than count the hits.
- */
-const HURT_SFX_MIN_GAP = 0.45; // seconds
-
-/**
  * Shortest gap between two flinch animations.
  *
  * A flinch used to outrank everything and lasts 0.68 s, so under any real
@@ -140,6 +133,9 @@ const HURT_SFX_MIN_GAP = 0.45; // seconds
  * contact he landed 25 blows and visibly swung once, spending the rest of the
  * time twitching. With this and the mid-swing guard below, that goes back to
  * about two thirds of blows showing a swing.
+ *
+ * The hurt sound rides on the flinch, so this also sets how often he can be
+ * heard taking a hit. Raise it to hear him less.
  */
 const HURT_ANIM_MIN_GAP = 1.2; // seconds
 
@@ -816,10 +812,10 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/kill-3.wav')),
   ];
 
-  // The knight taking a hit. Empty until the clips are chosen -- the trigger
-  // below is live and simply plays nothing, since playSfx ignores a missing
-  // player. Add one useAudioPlayer line per file here and the sound starts
-  // working; see the note in tools/sound-config.mjs.
+  // The knight taking a hit, played with the flinch animation. Empty until the
+  // clips are chosen -- the trigger is live and simply plays nothing, since
+  // playSfx ignores a missing player. Add one useAudioPlayer line per file here
+  // and the sound starts working; see the note in tools/sound-config.mjs.
   const hurtSounds: (AudioPlayer | undefined)[] = [];
 
   const [tooltip, setTooltip] = useState<TooltipState>(null);
@@ -865,7 +861,6 @@ export default function App() {
   const swingSoundIsKillRef = useRef(false);
   const hurtSoundsRef = useRef(hurtSounds);
   hurtSoundsRef.current = hurtSounds;
-  const hurtSoundGapRef = useRef(0);
   const hurtAnimGapRef = useRef(0);
 
   playerRef.current = player;
@@ -1536,16 +1531,6 @@ export default function App() {
 
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
 
-      // Played the instant the blow lands, unlike the swing: the flinch starts
-      // on this same frame, so there is nothing to wait for.
-      hurtSoundGapRef.current = Math.max(0, hurtSoundGapRef.current - dt);
-      if (damageToPlayer > 0 && hurtSoundGapRef.current <= 0) {
-        const pool = hurtSoundsRef.current;
-        if (pool.length > 0) {
-          playSfx(pool[Math.floor(Math.random() * pool.length)]);
-          hurtSoundGapRef.current = HURT_SFX_MIN_GAP;
-        }
-      }
 
 
       // Turn to face what he is hitting, but only from a standstill. While
@@ -1578,6 +1563,11 @@ export default function App() {
         nextAnim = 'hurt';
         restartAnim = true;
         hurtAnimGapRef.current = HURT_ANIM_MIN_GAP;
+        // Heard exactly when the flinch is drawn, the same rule the sword
+        // follows. No delay: a flinch is the reaction to the blow, so it starts
+        // on the hit rather than building up to it like a swing does.
+        const pool = hurtSoundsRef.current;
+        playSfx(pool[Math.floor(Math.random() * pool.length)]);
       } else if (!oneShotBusy) {
         nextAnim = playerAttacked ? 'attack' : moving ? 'run' : 'idle';
         // Any freshly triggered one-shot restarts, including a second swing
