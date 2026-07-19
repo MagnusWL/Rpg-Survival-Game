@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -52,7 +53,7 @@ const ABILITY_MAX_LEVEL = 4;
 const ABILITY_MANA_COST: Record<1 | 2 | 3, number> = { 1: 30, 2: 20, 3: 25 };
 const ABILITY_COOLDOWN_TIME: Record<1 | 2 | 3, number> = { 1: 12, 2: 5, 3: 15 };
 const CONE_RANGE = Math.hypot(SCREEN_W, PLAY_H);
-const ABILITY2_HALF_ANGLE_DEG = 35;
+const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
 const ABILITY3_HASTE_DURATION = 5;
 
 const PROJECTILE_SPEED = 700; // px/sec
@@ -398,7 +399,117 @@ function equippedBonus(equipped: Slot[], kind: ItemKind) {
   return total;
 }
 
+// ---- Run persistence ----
+
+type RunSave = {
+  id: string;
+  savedAt: number;
+  wave: number;
+  level: number;
+  xp: number;
+  xpToNext: number;
+  hp: number;
+  maxHp: number;
+  mana: number;
+  abilityPoints: number;
+  abilities: Abilities;
+  equipped: Slot[];
+  bag: Slot[];
+  materials: number;
+};
+
+type GameState = {
+  player: PlayerState;
+  abilities: Abilities;
+  equipped: Slot[];
+  bag: Slot[];
+  materials: number;
+  wave: number;
+};
+
+const RUNS_STORAGE_KEY = 'rpg_runs_v1';
+
+async function loadRuns(): Promise<RunSave[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RUNS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as RunSave[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function persistRuns(runs: RunSave[]) {
+  try {
+    await AsyncStorage.setItem(RUNS_STORAGE_KEY, JSON.stringify(runs));
+  } catch {
+    // best-effort; ignore storage failures
+  }
+}
+
+function buildFreshState(): GameState {
+  return {
+    player: makePlayer(),
+    abilities: makeAbilities(),
+    equipped: new Array(EQUIP_SLOTS).fill(null),
+    bag: new Array(BAG_SLOTS).fill(null),
+    materials: 0,
+    wave: 0,
+  };
+}
+
+function buildTestState(): GameState {
+  const base = makePlayer();
+  const targetLevel = 10;
+  let maxHp = base.maxHp;
+  let abilityPoints = base.abilityPoints;
+  for (let lvl = 2; lvl <= targetLevel; lvl++) {
+    maxHp += 10;
+    abilityPoints += 1;
+  }
+  const player: PlayerState = {
+    ...base,
+    level: targetLevel,
+    xp: 0,
+    xpToNext: xpForLevel(targetLevel),
+    maxHp,
+    hp: maxHp,
+    abilityPoints,
+  };
+  const randomTestItem = () => makeItem(ITEM_KINDS[Math.floor(Math.random() * ITEM_KINDS.length)], Math.max(1, targetLevel + Math.floor(Math.random() * 5) - 2));
+  const equipped: Slot[] = [randomTestItem(), randomTestItem(), randomTestItem()];
+  const bag: Slot[] = new Array(BAG_SLOTS).fill(null);
+  bag[0] = randomTestItem();
+  bag[1] = randomTestItem();
+  bag[2] = randomTestItem();
+  return { player, abilities: makeAbilities(), equipped, bag, materials: 0, wave: targetLevel - 1 };
+}
+
+function buildStateFromSave(save: RunSave): GameState {
+  const base = makePlayer();
+  const player: PlayerState = {
+    ...base,
+    level: save.level,
+    xp: save.xp,
+    xpToNext: save.xpToNext,
+    hp: save.hp,
+    maxHp: save.maxHp,
+    mana: save.mana,
+    abilityPoints: save.abilityPoints,
+  };
+  return {
+    player,
+    abilities: save.abilities,
+    equipped: save.equipped,
+    bag: save.bag,
+    materials: save.materials,
+    wave: save.wave,
+  };
+}
+
 export default function App() {
+  const [screen, setScreen] = useState<'menu' | 'continue' | 'game'>('menu');
+  const [savedRuns, setSavedRuns] = useState<RunSave[]>([]);
+  const [runsLoaded, setRunsLoaded] = useState(false);
   const [player, setPlayer] = useState<PlayerState>(makePlayer());
   const [mobs, setMobs] = useState<Mob[]>([]);
   const [allies, setAllies] = useState<Ally[]>([]);
@@ -434,7 +545,11 @@ export default function App() {
   const equippedRef = useRef(equipped);
   const bagRef = useRef(bag);
   const waveQueueRef = useRef<MobType[]>([]);
-  const waveLootDroppedRef = useRef(false);
+  // Wave numbers whose clear-reward loot hasn't dropped yet. Starting a new wave
+  // before the field is clear leaves the previous wave's loot owed here.
+  const lootOwedRef = useRef<number[]>([]);
+  const materialsRef = useRef(materials);
+  const screenRef = useRef(screen);
   playerRef.current = player;
   mobsRef.current = mobs;
   alliesRef.current = allies;
@@ -447,17 +562,38 @@ export default function App() {
   groundItemsRef.current = groundItems;
   equippedRef.current = equipped;
   bagRef.current = bag;
+  materialsRef.current = materials;
+  screenRef.current = screen;
+
+  // Run bookkeeping: which saved run (if any) is active, and whether this is a
+  // throwaway test run that should never be persisted.
+  const currentRunIdRef = useRef<string | null>(null);
+  const isTestRunRef = useRef(false);
 
   const spawnTimerRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    loadRuns().then((runs) => {
+      setSavedRuns(runs);
+      setRunsLoaded(true);
+    });
+  }, []);
+
   // ---- Tooltip helpers ----
+  const tooltipOpenedAtRef = useRef(0);
   const showOrToggleTooltip = (key: string, text: string, e: GestureResponderEvent) => {
     const { pageX, pageY } = e.nativeEvent;
+    tooltipOpenedAtRef.current = Date.now();
     setTooltip((cur) => (cur && cur.key === key ? null : { key, text, x: pageX, y: pageY }));
   };
   const dismissTooltip = () => setTooltip(null);
+  // Ignore the trailing click that immediately follows opening (it would otherwise
+  // dismiss the tooltip on the same tap that opened it).
+  const handleDismissOverlayPress = () => {
+    if (Date.now() - tooltipOpenedAtRef.current > 250) dismissTooltip();
+  };
 
   // ---- Inventory drag between slots ----
   const slotRectsRef = useRef<Record<string, { x: number; y: number; w: number; h: number }>>({});
@@ -643,48 +779,45 @@ export default function App() {
     waveRef.current = nextWave;
     waveQueueRef.current = buildWaveQueue(nextWave);
     waveActiveRef.current = true;
-    waveLootDroppedRef.current = false;
+    lootOwedRef.current.push(nextWave);
     setWave(nextWave);
     setWaveActive(true);
   };
 
-  const handleRetry = () => {
-    const freshPlayer = makePlayer();
-    const freshAbilities = makeAbilities();
-    const freshEquipped = new Array(EQUIP_SLOTS).fill(null);
-    const freshBag = new Array(BAG_SLOTS).fill(null);
-    playerRef.current = freshPlayer;
+  const applyGameState = (s: GameState) => {
+    playerRef.current = s.player;
     mobsRef.current = [];
     alliesRef.current = [];
-    abilitiesRef.current = freshAbilities;
+    abilitiesRef.current = s.abilities;
     projectilesRef.current = [];
     hitFlashesRef.current = [];
-    waveRef.current = 0;
+    waveRef.current = s.wave;
     waveActiveRef.current = false;
     gameOverRef.current = false;
     groundItemsRef.current = [];
-    equippedRef.current = freshEquipped;
-    bagRef.current = freshBag;
+    equippedRef.current = s.equipped;
+    bagRef.current = s.bag;
     waveQueueRef.current = [];
-    waveLootDroppedRef.current = false;
+    lootOwedRef.current = [];
+    materialsRef.current = s.materials;
     spawnTimerRef.current = 0;
     lastTimeRef.current = null;
 
-    setPlayer(freshPlayer);
+    setPlayer(s.player);
     setMobs([]);
     setAllies([]);
-    setAbilities(freshAbilities);
+    setAbilities(s.abilities);
     setAimingAbility(null);
     setAimPreviewPoint(null);
     setProjectiles([]);
     setHitFlashes([]);
-    setWave(0);
+    setWave(s.wave);
     setWaveActive(false);
     setGameOver(false);
     setGroundItems([]);
-    setEquipped(freshEquipped);
-    setBag(freshBag);
-    setMaterials(0);
+    setEquipped(s.equipped);
+    setBag(s.bag);
+    setMaterials(s.materials);
     setTooltip(null);
     setSkillsMenuOpen(false);
     setInvMenuOpen(false);
@@ -692,9 +825,35 @@ export default function App() {
     setDragging(null);
   };
 
+  const handleStartNewRun = () => {
+    currentRunIdRef.current = `run-${Date.now()}`;
+    isTestRunRef.current = false;
+    applyGameState(buildFreshState());
+    setScreen('game');
+  };
+
+  const handleStartTestRun = () => {
+    currentRunIdRef.current = null;
+    isTestRunRef.current = true;
+    applyGameState(buildTestState());
+    setScreen('game');
+  };
+
+  const handleContinueRun = (save: RunSave) => {
+    currentRunIdRef.current = save.id;
+    isTestRunRef.current = false;
+    applyGameState(buildStateFromSave(save));
+    setScreen('game');
+  };
+
+  const handleBackToMenu = () => {
+    setScreen('menu');
+  };
+
   useEffect(() => {
     const step = (time: number) => {
-      if (gameOverRef.current) {
+      if (screenRef.current !== 'game' || gameOverRef.current) {
+        lastTimeRef.current = null;
         rafRef.current = requestAnimationFrame(step);
         return;
       }
@@ -987,10 +1146,13 @@ export default function App() {
         if (waveQueueRef.current.length === 0) newWaveActive = false;
       }
 
-      // Wave cleared: drop an item once per wave
-      if (waveRef.current > 0 && !newWaveActive && survivorMobs.length === 0 && !waveLootDroppedRef.current) {
-        remainingItems.push(spawnLoot(waveRef.current));
-        waveLootDroppedRef.current = true;
+      // Field cleared and nothing spawning: pay out loot owed for every wave finished
+      // so far (waves the player rushed together still each drop their item).
+      let waveJustCleared = false;
+      if (!newWaveActive && survivorMobs.length === 0 && lootOwedRef.current.length > 0) {
+        for (const w of lootOwedRef.current) remainingItems.push(spawnLoot(w));
+        lootOwedRef.current = [];
+        waveJustCleared = true;
       }
 
       const newAbilities: Abilities = {
@@ -1005,6 +1167,43 @@ export default function App() {
         .concat(newFlashes);
 
       const isGameOver = p.hp <= 0;
+
+      if (isGameOver) {
+        // Delete this run's save on death.
+        if (!isTestRunRef.current && currentRunIdRef.current) {
+          const idToDelete = currentRunIdRef.current;
+          setSavedRuns((prev) => {
+            const next = prev.filter((r) => r.id !== idToDelete);
+            persistRuns(next);
+            return next;
+          });
+        }
+      } else if (waveJustCleared && !isTestRunRef.current && currentRunIdRef.current) {
+        // Autosave after each wave clear.
+        const id = currentRunIdRef.current;
+        const save: RunSave = {
+          id,
+          savedAt: Date.now(),
+          wave: waveRef.current,
+          level: p.level,
+          xp: p.xp,
+          xpToNext: p.xpToNext,
+          hp: p.hp,
+          maxHp: p.maxHp,
+          mana: p.mana,
+          abilityPoints: p.abilityPoints,
+          abilities: newAbilities,
+          equipped: newEquipped ?? equippedRef.current,
+          bag: newBag ?? bagRef.current,
+          materials: materialsRef.current,
+        };
+        setSavedRuns((prev) => {
+          const next = prev.filter((r) => r.id !== id);
+          next.push(save);
+          persistRuns(next);
+          return next;
+        });
+      }
 
       playerRef.current = p;
       mobsRef.current = survivorMobs;
@@ -1124,6 +1323,54 @@ export default function App() {
             <Text style={styles.invSlotLevel}>{item.level}</Text>
           </>
         )}
+      </View>
+    );
+  }
+
+  if (screen === 'menu') {
+    const hasSaves = runsLoaded && savedRuns.length > 0;
+    return (
+      <View style={styles.root}>
+        <View style={styles.menuScreen}>
+          <Text style={styles.menuScreenTitle}>RPG Survival</Text>
+          <Pressable
+            onPress={() => hasSaves && setScreen('continue')}
+            style={[styles.menuBigButton, !hasSaves && styles.menuBigButtonDisabled]}
+          >
+            <Text style={styles.menuBigButtonText}>Continue Run{hasSaves ? ` (${savedRuns.length})` : ''}</Text>
+          </Pressable>
+          <Pressable onPress={handleStartNewRun} style={styles.menuBigButton}>
+            <Text style={styles.menuBigButtonText}>Start New Run</Text>
+          </Pressable>
+          <Pressable onPress={handleStartTestRun} style={styles.menuBigButton}>
+            <Text style={styles.menuBigButtonText}>Start Test Run</Text>
+          </Pressable>
+        </View>
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
+  if (screen === 'continue') {
+    const sorted = savedRuns.slice().sort((a, b) => b.savedAt - a.savedAt);
+    return (
+      <View style={styles.root}>
+        <View style={styles.menuScreen}>
+          <Text style={styles.menuScreenTitle}>Continue Run</Text>
+          {sorted.length === 0 && <Text style={styles.menuEmptyText}>No saved runs.</Text>}
+          {sorted.map((run) => (
+            <Pressable key={run.id} onPress={() => handleContinueRun(run)} style={styles.runRow}>
+              <Text style={styles.runRowTitle}>
+                Wave {run.wave} · Lv {run.level}
+              </Text>
+              <Text style={styles.runRowSub}>{new Date(run.savedAt).toLocaleString()}</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => setScreen('menu')} style={styles.menuBackButton}>
+            <Text style={styles.menuBackButtonText}>Back</Text>
+          </Pressable>
+        </View>
+        <StatusBar style="auto" />
       </View>
     );
   }
@@ -1485,7 +1732,7 @@ export default function App() {
 
       {tooltip && (
         <>
-          <Pressable style={styles.tooltipDismissOverlay} onPress={dismissTooltip} />
+          <Pressable style={styles.tooltipDismissOverlay} onPress={handleDismissOverlayPress} />
           <View pointerEvents="none" style={[styles.tooltipBox, tooltipPositionStyle(tooltip.x, tooltip.y)]}>
             <Text style={styles.tooltipText}>{tooltip.text}</Text>
           </View>
@@ -1495,8 +1742,8 @@ export default function App() {
       {gameOver && (
         <View style={styles.gameOverOverlay}>
           <Text style={styles.gameOverText}>Game Over</Text>
-          <Pressable onPress={handleRetry} style={styles.retryButton}>
-            <Text style={styles.retryText}>Retry</Text>
+          <Pressable onPress={handleBackToMenu} style={styles.retryButton}>
+            <Text style={styles.retryText}>Main Menu</Text>
           </Pressable>
         </View>
       )}
@@ -1946,6 +2193,63 @@ const styles = StyleSheet.create({
   tooltipText: {
     color: '#fff',
     fontSize: 12,
+  },
+  menuScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 24,
+  },
+  menuScreenTitle: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  menuBigButton: {
+    width: 240,
+    backgroundColor: '#37474f',
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  menuBigButtonDisabled: {
+    opacity: 0.4,
+  },
+  menuBigButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  menuEmptyText: {
+    color: '#999',
+    fontSize: 13,
+  },
+  runRow: {
+    width: 260,
+    backgroundColor: '#232338',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  runRowTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  runRowSub: {
+    color: '#999',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  menuBackButton: {
+    marginTop: 10,
+    backgroundColor: '#333',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  menuBackButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
   gameOverOverlay: {
     position: 'absolute',
