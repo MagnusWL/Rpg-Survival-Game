@@ -222,27 +222,44 @@ const PLAYER_GLOW: GlowStyle = {
 // carries none of this, nothing accumulates, and there is no state to reset
 // between runs.
 const RAIN_ENABLED = true;
-const RAIN_DROPS = 60;
-const RAIN_TILT_DEG = 14; // wind, and the angle each streak is drawn at
-const RAIN_COLOR = 'rgba(190, 214, 235, 0.5)';
 
 /**
- * Fixed for the life of the app. Each drop keeps its own speed and length so
- * they do not fall as a sheet -- the faster, longer ones read as nearer.
+ * Dialled in by eye with `npm run build:rain`, which writes a page of sliders
+ * over this same background. Move them, then paste the block it prints back in
+ * here -- the page and the game work the drops out identically.
+ *
+ * Every drop is dealt a depth at startup, and each pair below is what it is
+ * worth at the far end and the near end of that. The near ones fall faster,
+ * streak longer and show more strongly, which is what gives the rain depth
+ * instead of a flat sheet.
  */
-const RAIN = Array.from({ length: RAIN_DROPS }, () => {
+const RAIN = {
+  drops: 60,
+  tiltDeg: 14, // off vertical; the wind
+  speedFar: 480, // px/sec
+  speedNear: 1100,
+  lengthFar: 14, // px
+  lengthNear: 40,
+  opacityFar: 0.25,
+  opacityNear: 0.8,
+  thickFrom: 0.6, // depth past which a drop is drawn 2 px wide instead of 1
+  colour: 'rgba(190, 214, 235, 0.5)',
+};
+
+/** Fixed for the life of the app: the depth each drop was dealt, spelled out. */
+const RAIN_STREAKS = Array.from({ length: RAIN.drops }, () => {
   const near = Math.random(); // 0 far away, 1 close to the camera
   return {
     x: Math.random(),
-    speed: 480 + near * 620, // px/sec
-    length: 14 + near * 26,
-    width: near > 0.6 ? 2 : 1,
-    opacity: 0.25 + near * 0.55,
+    speed: RAIN.speedFar + near * (RAIN.speedNear - RAIN.speedFar),
+    length: RAIN.lengthFar + near * (RAIN.lengthNear - RAIN.lengthFar),
+    width: near > RAIN.thickFrom ? 2 : 1,
+    opacity: RAIN.opacityFar + near * (RAIN.opacityNear - RAIN.opacityFar),
     offset: Math.random(), // where in its fall it starts
   };
 });
 
-const RAIN_TILT_X = Math.tan((RAIN_TILT_DEG * Math.PI) / 180);
+const RAIN_TILT_X = Math.tan((RAIN.tiltDeg * Math.PI) / 180);
 
 /**
  * How far the wind carries a drop over a full fall.
@@ -255,13 +272,27 @@ const RAIN_TILT_X = Math.tan((RAIN_TILT_DEG * Math.PI) / 180);
 const RAIN_DRIFT = PLAY_H * RAIN_TILT_X;
 
 // --- Puddles ---------------------------------------------------------------
-// Where the ground has standing water, read off a mask by the build. Positions
-// are fractions of the background image, not pixels, because the ground is drawn
-// to cover and its scale depends on the screen.
-const PUDDLES: { x: number; y: number; rx: number; ry: number }[] = require('./assets/sprites/effects/puddles.json');
+// Places a ripple may appear, read off a painted mask by the build. Fractions of
+// the background image rather than pixels, because the ground is drawn to cover
+// and its scale depends on the screen.
+//
+// Spots, not shapes. Each puddle used to be stored as the ellipse around it,
+// which put 27% of the rings on dry grass -- the puddles are irregular and an
+// ellipse drawn round one takes in a lot of bank. Sampling inside the water
+// instead cannot miss, and there are more spots in the big puddles than the
+// small ones, so the rain falls hardest on open water without being told to.
+//
+// The third number is how far a ring may spread there before it reaches the
+// bank, in the source image's own pixels. Carried per spot because the ground
+// is drawn to cover: on a phone it is scaled well down, and one size for every
+// ring would have them washing over the small puddles entirely.
+const PUDDLE_SPOTS: [number, number, number][] = require('./assets/sprites/effects/puddles.json');
+
+/** The height the spots were measured against, to turn that room into screen px. */
+const BG_SOURCE_H = 1086;
 
 /** The background's own proportions, needed to place anything on top of it. */
-const BG_ASPECT = 1448 / 1086;
+const BG_ASPECT = 1448 / BG_SOURCE_H;
 
 /**
  * The same 'cover' the background is drawn with: scale until it fills, centre
@@ -274,12 +305,20 @@ const bgOffsetX = (SCREEN_W - bgDrawnW) / 2;
 const bgOffsetY = (PLAY_H - bgDrawnH) / 2;
 const onGroundX = (fx: number) => bgOffsetX + fx * bgDrawnW;
 const onGroundY = (fy: number) => bgOffsetY + fy * bgDrawnH;
+/** What one pixel of the source image is worth on screen, once it is laid down. */
+const groundScale = bgDrawnH / BG_SOURCE_H;
 
 // Rings spreading where rain meets standing water. Each slot fires on its own
 // rhythm, and picks a fresh spot every time round, so nothing repeats visibly.
-const RIPPLE_SLOTS = 14;
-const RIPPLE_COLOR = 'rgba(200, 224, 245, 0.55)';
-const RIPPLE_MAX = 26; // px across at its widest
+// Tuned on the same page as the rain.
+const RIPPLE = {
+  slots: 14,
+  size: 26, // px across at its widest
+  periodFast: 1.5, // sec between one ring and the next
+  periodSlow: 3.7,
+  opacity: 0.9,
+  colour: 'rgba(200, 224, 245, 0.55)',
+};
 
 /** Repeatable stand-in for randomness, so a ripple needs no state to remember. */
 const noise = (n: number) => {
@@ -287,9 +326,9 @@ const noise = (n: number) => {
   return x - Math.floor(x);
 };
 
-const RIPPLES = Array.from({ length: RIPPLE_SLOTS }, (_, i) => ({
+const RIPPLES = Array.from({ length: RIPPLE.slots }, (_, i) => ({
   seed: i * 37 + 11,
-  period: 1.5 + noise(i * 3.1) * 2.2, // seconds between one ring and the next
+  period: RIPPLE.periodFast + noise(i * 3.1) * (RIPPLE.periodSlow - RIPPLE.periodFast),
   phase: noise(i * 7.7),
 }));
 
@@ -449,6 +488,23 @@ const MOB_DAMAGE = 5; // wave 1 base
 const MOB_XP_REWARD = 15;
 const BOSS_XP_REWARD = 120;
 
+/**
+ * The shove a mob takes when it is struck.
+ *
+ * Speed at the instant of the blow, not a distance: it is fed into the same
+ * position that everything else moves, and fades away rather than stopping, so
+ * the mob is pushed rather than teleported. Roughly, it travels SPEED x TAU
+ * before it settles -- about 22 px as these stand, which reads as a stagger
+ * without undoing the ground it has covered.
+ *
+ * The variation is what stops a row of blows looking mechanical. Weight comes
+ * from the body: a boss is nearly twice the radius, so it barely rocks.
+ */
+const KNOCKBACK_SPEED = 260; // px/sec
+const KNOCKBACK_VARIATION = 0.45; // +/- this much of it, per blow
+const KNOCKBACK_TAU = 0.085; // sec; how quickly the shove bleeds off
+const KNOCKBACK_STOP = 8; // px/sec below which it is over
+
 const WAVE_SPAWN_INTERVAL = 0.5; // sec between mob spawns within a wave
 const MANA_REGEN_PER_SEC = 4;
 const MANA_MAX = 100;
@@ -507,6 +563,8 @@ type Mob = {
   /** Seconds left of the red flash, and of the wait before another flinch. */
   flashTime: number;
   hurtGap: number;
+  /** Speed left in the shove from the last blow, px/sec. Zero when at rest. */
+  knock: Vec;
 };
 
 type Ally = {
@@ -841,16 +899,33 @@ function SpriteSheet({
 }
 
 /**
- * Marks a mob as struck: the red instant always, and a flinch when it is free
- * to take one.
+ * Marks a mob as struck: the red instant and the shove always, and a flinch
+ * when it is free to take one.
  *
  * The flash and the flinch are deliberately separate. A flash on every blow
  * reads as a hit landing; a flinch on every blow would leave anything under
  * attack twitching without ever swinging back, which is exactly what the knight
- * did before his own flinch was reined in.
+ * did before his own flinch was reined in. The shove sides with the flash: it
+ * costs the mob no animation, so there is nothing for it to compete with.
+ *
+ * `from` is wherever the blow came from -- the swinger, or the spot a shot was
+ * loosed. The mob goes directly away from it.
  */
-function hurtMob(m: Mob) {
+function hurtMob(m: Mob, from?: Vec) {
   m.flashTime = MOB_FLASH_TIME;
+
+  if (from) {
+    const dx = m.pos.x - from.x;
+    const dy = m.pos.y - from.y;
+    const len = Math.hypot(dx, dy);
+    // Standing exactly on the attacker leaves no direction to be pushed in.
+    if (len > 0.001) {
+      const vary = 1 + (Math.random() * 2 - 1) * KNOCKBACK_VARIATION;
+      const speed = KNOCKBACK_SPEED * vary * (MOB_RADIUS / m.radius);
+      m.knock = { x: (dx / len) * speed, y: (dy / len) * speed };
+    }
+  }
+
   const def = MOB_ANIMS[m.anim];
   const busy = !def.loop && m.animTime < animDuration(def);
   if (!busy && m.hurtGap <= 0) {
@@ -915,6 +990,7 @@ function spawnMob(type: MobType, wave: number): Mob {
     animTime: 0,
     flashTime: 0,
     hurtGap: 0,
+    knock: { x: 0, y: 0 },
   };
 }
 
@@ -1584,7 +1660,7 @@ export default function App() {
             const target = currentMobs.find((m) => m.id === pr.targetId);
             if (target && target.hp > 0) {
               target.hp -= pr.damage;
-              hurtMob(target);
+              hurtMob(target, pr.from);
             }
             newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, DAMAGE_TEXT_COLOR, now));
           } else if (!pr.friendly && pr.targetKind === 'player') {
@@ -1685,6 +1761,21 @@ export default function App() {
         m.animTime += dt;
         m.flashTime = Math.max(0, m.flashTime - dt);
         m.hurtGap = Math.max(0, m.hurtGap - dt);
+
+        // The shove from the last blow, bleeding off as it goes. Applied before
+        // the mob takes its own turn, so one that is chasing spends the moment
+        // after a hit walking back in rather than being frozen out of the frame.
+        // Held inside the field, or a mob caught at the top edge is punted off
+        // the screen and has to walk all the way back.
+        if (m.knock.x !== 0 || m.knock.y !== 0) {
+          m.pos = {
+            x: Math.min(SCREEN_W - m.radius, Math.max(m.radius, m.pos.x + m.knock.x * dt)),
+            y: Math.min(PLAY_H - m.radius, Math.max(m.radius, m.pos.y + m.knock.y * dt)),
+          };
+          const fade = Math.exp(-dt / KNOCKBACK_TAU);
+          m.knock = { x: m.knock.x * fade, y: m.knock.y * fade };
+          if (Math.hypot(m.knock.x, m.knock.y) < KNOCKBACK_STOP) m.knock = { x: 0, y: 0 };
+        }
         // A swing owns the sprite until it finishes, exactly as the player's does.
         const mobBusy = !MOB_ANIMS[m.anim].loop && m.animTime < animDuration(MOB_ANIMS[m.anim]);
         const setMobAnim = (next: MobAnimName) => {
@@ -1809,7 +1900,7 @@ export default function App() {
           for (const m of currentMobs) {
             if (m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange + (m.radius - MOB_RADIUS)) {
               m.hp -= playerDamage;
-              hurtMob(m);
+              hurtMob(m, p.pos);
               hitAny = true;
               attackTargets.push({ ...m.pos });
               newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
@@ -1854,7 +1945,7 @@ export default function App() {
                   });
                 } else {
                   mob.hp -= a.damage;
-                  hurtMob(mob);
+                  hurtMob(mob, a.pos);
                   newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...mob.pos }, createdAt: now });
                   newFloatingTexts.push(makeFloatingText(`-${a.damage}`, mob.pos, DAMAGE_TEXT_COLOR, now));
                 }
@@ -2532,31 +2623,30 @@ export default function App() {
 
         {/* Rings where the rain lands in standing water. Before the characters,
             since they are on the ground and anyone standing there covers them. */}
-        {RAIN_ENABLED && PUDDLES.length > 0 && (
+        {RAIN_ENABLED && PUDDLE_SPOTS.length > 0 && (
           <View style={styles.rain}>
             {RIPPLES.map((r, i) => {
               const t = Date.now() / 1000 + r.phase * r.period;
               const cycle = Math.floor(t / r.period);
               const life = (t % r.period) / r.period; // 0 just born, 1 gone
-              // A fresh spot each time round, inside a puddle picked the same way.
-              const p = PUDDLES[Math.floor(noise(r.seed + cycle * 1.7) * PUDDLES.length)];
-              const a = noise(r.seed + cycle * 3.3) * Math.PI * 2;
-              const d = Math.sqrt(noise(r.seed + cycle * 5.9)); // even across the area
-              const size = RIPPLE_MAX * life;
+              // A fresh spot each time round, out of the ones the build found.
+              const [fx, fy, room] = PUDDLE_SPOTS[Math.floor(noise(r.seed + cycle * 1.7) * PUDDLE_SPOTS.length)];
+              // Never wider than the water it sits in, however big rings are set.
+              const size = Math.min(RIPPLE.size, room * 2 * groundScale) * life;
               return (
                 <View
                   key={i}
                   style={{
                     position: 'absolute',
-                    left: onGroundX(p.x + Math.cos(a) * d * p.rx) - size / 2,
-                    top: onGroundY(p.y + Math.sin(a) * d * p.ry) - size / 4,
+                    left: onGroundX(fx) - size / 2,
+                    top: onGroundY(fy) - size / 4,
                     width: size,
                     // Squashed, because the ground is seen at an angle.
                     height: size / 2,
                     borderRadius: size / 2,
                     borderWidth: 1,
-                    borderColor: RIPPLE_COLOR,
-                    opacity: (1 - life) * 0.9,
+                    borderColor: RIPPLE.colour,
+                    opacity: (1 - life) * RIPPLE.opacity,
                   }}
                 />
               );
@@ -2570,7 +2660,7 @@ export default function App() {
             Deaf to touches, or sixty streaks would eat every tap on the field. */}
         {RAIN_ENABLED && (
           <View style={styles.rain}>
-            {RAIN.map((d, i) => {
+            {RAIN_STREAKS.map((d, i) => {
               // How far through its fall this drop is, right now.
               const span = PLAY_H + d.length;
               const y = ((d.offset * span + (Date.now() / 1000) * d.speed) % span) - d.length;
@@ -2583,9 +2673,13 @@ export default function App() {
                     top: y,
                     width: d.width,
                     height: d.length,
-                    backgroundColor: RAIN_COLOR,
+                    backgroundColor: RAIN.colour,
                     opacity: d.opacity,
-                    transform: [{ rotate: `${RAIN_TILT_DEG}deg` }],
+                    // Turned the other way to the wind. A rotation goes clockwise
+                    // while the drift carries the drop the other way, so at plain
+                    // +tilt the streak leant against its own path by twice the
+                    // angle -- measured at 9.7 px of drift against 9.7 px of lean.
+                    transform: [{ rotate: `${-RAIN.tiltDeg}deg` }],
                   }}
                 />
               );

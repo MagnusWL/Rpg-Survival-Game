@@ -212,20 +212,78 @@ if (!existsSync(ZOMBIE_SRC)) {
 // belong. That one is never drawn -- it is read, turned into coordinates, and
 // discarded.
 //
-// Coordinates come out as fractions of the image rather than pixels, since the
-// background is drawn to cover and its scale depends on the screen.
+// What comes out is a list of spots where a ripple may appear, as fractions of
+// the image rather than pixels -- the background is drawn to cover, so its scale
+// depends on the screen.
+//
+// Spots rather than shapes, because the first attempt stored each puddle as its
+// bounding ellipse and 27% of the rings landed on dry grass: the puddles are
+// irregular, and an ellipse drawn round one covers a good deal of ground that is
+// not water. Measured coverage was as low as 62%. Points sampled from the mask
+// itself cannot miss, and they leave the runtime with less to do rather than
+// more -- it picks one and draws there.
 const PUDDLE_ART = path.join(ROOT, 'Grafik', 'Baggrund', 'effekt', 'water puddles on background.png');
 const PUDDLE_MASK = path.join(ROOT, 'Grafik', 'Baggrund', 'effekt', 'waterpuddles placement for effekt.png');
 const PUDDLE_OUT = path.join(ROOT, 'assets', 'sprites', 'effects', 'puddles.json');
 
-/** Groups the marked pixels into blobs and measures each one. */
+/** Keeps ripples off the rim, so a ring spreads into water rather than out of it. */
+const PUDDLE_EDGE_MARGIN = 11; // px in the mask
+/** Roughly how far apart the spots sit. Smaller means more of them. */
+const PUDDLE_POINT_SPACING = 11; // px in the mask
+/** No point measuring elbow room past this; nothing draws a ring that big. */
+const PUDDLE_MAX_ROOM = 70; // px in the mask
+
+/**
+ * Finds the marked blobs and samples each one for places a ripple can sit.
+ *
+ * Sampling is spread over a grid rather than taken at random so the spots cover
+ * a puddle evenly. Big puddles yield more of them, which is what makes the rain
+ * fall harder on open water without anything having to weight it.
+ */
 async function readPuddleMask(file) {
   const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width, height, channels } = info;
   const marked = (i) => data[i * channels + 3] > 40 && data[i * channels] > 90;
 
+  /** True when every pixel within the margin is water too. */
+  const wellInside = (x, y) => {
+    const r = PUDDLE_EDGE_MARGIN;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) return false;
+        if (!marked(ny * width + nx)) return false;
+      }
+    }
+    return true;
+  };
+
+  /**
+   * How wide a ring can grow here before it touches the bank.
+   *
+   * Measured squashed to half height, since that is the shape a ring is drawn
+   * as -- the ground is seen at an angle. Recorded per spot so a ring in a
+   * narrow puddle stays small while one in open water spreads properly, which
+   * also keeps the effect right on a phone, where the ground is drawn smaller
+   * and a fixed size would swamp the little puddles.
+   */
+  const roomFor = (x, y) => {
+    for (let r = 1; r <= PUDDLE_MAX_ROOM; r++) {
+      for (let a = 0; a < 32; a++) {
+        const th = (a / 32) * Math.PI * 2;
+        const nx = Math.round(x + Math.cos(th) * r);
+        const ny = Math.round(y + Math.sin(th) * r * 0.5);
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) return r;
+        if (!marked(ny * width + nx)) return r;
+      }
+    }
+    return PUDDLE_MAX_ROOM;
+  };
+
   const seen = new Uint8Array(width * height);
-  const blobs = [];
+  const puddles = [];
   const stack = [];
 
   for (let start = 0; start < width * height; start++) {
@@ -255,15 +313,37 @@ async function readPuddleMask(file) {
     }
     // Ignore stray specks; a real puddle covers a decent patch of ground.
     if (count < 400) continue;
-    blobs.push({
-      x: +(((minX + maxX) / 2) / width).toFixed(4),
-      y: +(((minY + maxY) / 2) / height).toFixed(4),
-      rx: +((maxX - minX) / 2 / width).toFixed(4),
-      ry: +((maxY - minY) / 2 / height).toFixed(4),
-      pixels: count,
-    });
+
+    // One spot per grid cell, taken as near the cell's middle as the water
+    // allows. A puddle too narrow to hold any is dropped rather than fudged.
+    const step = PUDDLE_POINT_SPACING;
+    const points = [];
+    for (let cy = minY; cy <= maxY; cy += step) {
+      for (let cx = minX; cx <= maxX; cx += step) {
+        let best = null;
+        let bestD = Infinity;
+        for (let y = cy; y < Math.min(cy + step, maxY + 1); y++) {
+          for (let x = cx; x < Math.min(cx + step, maxX + 1); x++) {
+            if (!marked(y * width + x)) continue;
+            const d = (x - cx - step / 2) ** 2 + (y - cy - step / 2) ** 2;
+            if (d < bestD && wellInside(x, y)) {
+              bestD = d;
+              best = [x, y];
+            }
+          }
+        }
+        if (best) {
+          points.push([
+            +(best[0] / width).toFixed(4),
+            +(best[1] / height).toFixed(4),
+            roomFor(best[0], best[1]),
+          ]);
+        }
+      }
+    }
+    if (points.length) puddles.push({ points, pixels: count });
   }
-  return blobs.sort((a, b) => b.pixels - a.pixels);
+  return puddles.sort((a, b) => b.pixels - a.pixels);
 }
 
 // --- Glow ----------------------------------------------------------------
@@ -392,15 +472,21 @@ if (existsSync(BG_SRC)) {
 
 if (existsSync(PUDDLE_MASK)) {
   const found = await readPuddleMask(PUDDLE_MASK);
+  // Flattened on the way out: the game picks a spot, not a puddle. Which means
+  // the big puddles win more rings simply by holding more spots.
+  const points = found.flatMap((p) => p.points);
   mkdirSync(path.dirname(PUDDLE_OUT), { recursive: true });
-  writeFileSync(PUDDLE_OUT, JSON.stringify(found.map(({ pixels, ...rest }) => rest)));
+  writeFileSync(PUDDLE_OUT, JSON.stringify(points));
   console.log(`\nVandpytter: ${found.length} fundet i markeringslaget`);
-  for (const b of found) {
-    console.log(
-      `  midt (${(b.x * 100).toFixed(0)}%, ${(b.y * 100).toFixed(0)}%)  ` +
-        `stoerrelse ${(b.rx * 2 * 100).toFixed(0)}% x ${(b.ry * 2 * 100).toFixed(0)}%`
-    );
+  for (const p of found) {
+    console.log(`  ${String(p.pixels).padStart(6)} px vand  ->  ${String(p.points.length).padStart(3)} pladser`);
   }
+  const room = points.map((p) => p[2]).sort((a, b) => a - b);
+  console.log(
+    `  ${points.length} pladser i alt, mindst ${PUDDLE_EDGE_MARGIN} px fra kanten  ->  ` +
+      `${(statSync(PUDDLE_OUT).size / 1024).toFixed(1)} KB`
+  );
+  console.log(`  plads til ringen: ${room[0]} til ${room[room.length - 1]} px, median ${room[room.length >> 1]}`);
 }
 
 if (existsSync(BLOOD_SRC)) {
