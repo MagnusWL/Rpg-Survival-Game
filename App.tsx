@@ -125,6 +125,13 @@ const KILL_SFX_CHANCE = 0.3;
  */
 const SWING_SOUND_AT = 0.25; // seconds
 
+/**
+ * Shortest gap between two hurt sounds. Several mobs can be landing blows at
+ * once, and a grunt for every one of them turns into a continuous noise that
+ * says nothing. This lets it mark being hurt rather than count the hits.
+ */
+const HURT_SFX_MIN_GAP = 0.45; // seconds
+
 /** Fire and forget. Audio is a garnish -- it must never break the game loop. */
 function playSfx(player: AudioPlayer | undefined) {
   if (!player) return;
@@ -798,6 +805,12 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/kill-3.wav')),
   ];
 
+  // The knight taking a hit. Empty until the clips are chosen -- the trigger
+  // below is live and simply plays nothing, since playSfx ignores a missing
+  // player. Add one useAudioPlayer line per file here and the sound starts
+  // working; see the note in tools/sound-config.mjs.
+  const hurtSounds: (AudioPlayer | undefined)[] = [];
+
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -839,6 +852,9 @@ export default function App() {
   // nothing about them belongs in a saved run.
   const swingSoundTimerRef = useRef(0);
   const swingSoundIsKillRef = useRef(false);
+  const hurtSoundsRef = useRef(hurtSounds);
+  hurtSoundsRef.current = hurtSounds;
+  const hurtSoundGapRef = useRef(0);
 
   playerRef.current = player;
   mobsRef.current = mobs;
@@ -1167,7 +1183,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    for (const s of [...attackSoundsRef.current, ...killSoundsRef.current]) {
+    for (const s of [...attackSoundsRef.current, ...killSoundsRef.current, ...hurtSoundsRef.current]) {
       if (s) s.volume = SFX_VOLUME;
     }
   }, []);
@@ -1507,6 +1523,17 @@ export default function App() {
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
 
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
+
+      // Played the instant the blow lands, unlike the swing: the flinch starts
+      // on this same frame, so there is nothing to wait for.
+      hurtSoundGapRef.current = Math.max(0, hurtSoundGapRef.current - dt);
+      if (damageToPlayer > 0 && hurtSoundGapRef.current <= 0) {
+        const pool = hurtSoundsRef.current;
+        if (pool.length > 0) {
+          playSfx(pool[Math.floor(Math.random() * pool.length)]);
+          hurtSoundGapRef.current = HURT_SFX_MIN_GAP;
+        }
+      }
 
       if (playerAttacked) {
         // Queue the sound rather than playing it now -- see SWING_SOUND_AT.
