@@ -25,37 +25,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_DIR = path.join(ROOT, 'Lyde');
 const OUT_DIR = path.join(ROOT, 'assets', 'sounds');
 
-const RATE = 48000;
-
-// Low enough to keep the quiet head of the transient and the reverb tail. At
-// -50 dB the very front of the swing was being clipped off.
-const SILENCE_THRESHOLD = '-60dB';
-
-/**
- * Tone shaping, baked in here rather than applied at runtime: mobile has no
- * equaliser, so anything done live would work on web only. Values are dB gain,
- * 0 meaning untouched.
- */
-const EQ = { bass: 0, mid: 0, treble: 0 };
-
-/**
- * Peak to normalise to. This is PEAK normalisation -- a single constant gain
- * applied to the whole clip, which cannot change the shape of the sound.
- *
- * It is deliberately not loudnorm. That is EBU R128 broadcast normalisation,
- * built for speech and music running over minutes; it rides the gain up and
- * down as it goes. Measured against the source, a loudnorm'd clip correlated at
- * 0.08 with a gain that wandered without bound, where a fixed gain correlates at
- * 1.0000 and holds to within 0.3 dB. It did not sound like the source because
- * it no longer was it.
- */
-const PEAK_DB = -3;
-
-const SOUNDS = [
-  { out: 'attack-1', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_01.wav' },
-  { out: 'attack-2', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_11.wav' },
-  { out: 'attack-3', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_17.wav' },
-];
+import { RATE, PEAK_DB, EQ, SOUNDS, trimFilters, eqFilters } from './sound-config.mjs';
 
 function ffmpegAvailable() {
   try {
@@ -74,20 +44,7 @@ if (!ffmpegAvailable()) {
 
 mkdirSync(OUT_DIR, { recursive: true });
 
-const filters = [
-  // strip leading and trailing quiet; the reverb tail is kept by only cutting
-  // once a full 0.1 s stays below the threshold
-  `silenceremove=start_periods=1:start_threshold=${SILENCE_THRESHOLD}:start_silence=0.01`,
-  'areverse',
-  `silenceremove=start_periods=1:start_threshold=${SILENCE_THRESHOLD}:start_silence=0.1`,
-  'areverse',
-];
-
-if (EQ.bass) filters.push(`bass=g=${EQ.bass}`);
-if (EQ.mid) filters.push(`equalizer=f=1200:width_type=o:width=2:g=${EQ.mid}`);
-if (EQ.treble) filters.push(`treble=g=${EQ.treble}`);
-
-const chain = filters.join(',');
+const chain = [...trimFilters(), ...eqFilters(EQ)].join(',');
 
 /**
  * Measures the loudest sample after the chain, so the gain can be exact.

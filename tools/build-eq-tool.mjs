@@ -17,24 +17,59 @@
  *
  * Run: npm run build:eq
  */
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { writeFileSync, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RATE, PEAK_DB, EQ, SOUNDS, trimFilters } from './sound-config.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SOUND_DIR = path.join(ROOT, 'assets', 'sounds');
+const SRC_DIR = path.join(ROOT, 'Lyde');
 const OUT = path.join(ROOT, 'tools', 'eq-preview.html');
 
-const files = readdirSync(SOUND_DIR).filter((f) => f.endsWith('.wav')).sort();
-if (files.length === 0) {
-  console.error('Ingen lyde i assets/sounds. Koer "npm run build:sounds" foerst.');
-  process.exit(1);
+/**
+ * The preview deliberately embeds the audio WITHOUT any EQ -- trimmed and
+ * levelled only. The sliders then start at the values currently baked into the
+ * shipped files, so what you hear on opening matches the game, and every
+ * setting is absolute.
+ *
+ * Building the preview from the shipped files instead would stack EQ on EQ:
+ * zero on the sliders would already mean "minus four treble", invisibly.
+ */
+const chain = trimFilters().join(',');
+
+function render(src) {
+  const res = spawnSync(
+    'ffmpeg',
+    ['-i', src, '-af', `${chain},volumedetect`, '-f', 'null', '-'],
+    { encoding: 'utf8' }
+  );
+  const m = /max_volume:\s*(-?[\d.]+) dB/.exec(res.stderr ?? '');
+  const gain = m ? PEAK_DB - parseFloat(m[1]) : 0;
+
+  const out = spawnSync(
+    'ffmpeg',
+    ['-i', src, '-af', `${chain},volume=${gain.toFixed(2)}dB`,
+      '-ar', String(RATE), '-sample_fmt', 's16', '-f', 'wav', '-'],
+    { maxBuffer: 1 << 28 }
+  );
+  return out.stdout;
 }
 
-const clips = files.map((f) => ({
-  name: f.replace('.wav', ''),
-  data: readFileSync(path.join(SOUND_DIR, f)).toString('base64'),
-}));
+const clips = [];
+for (const { out, src } of SOUNDS) {
+  const inPath = path.join(SRC_DIR, src);
+  if (!existsSync(inPath)) {
+    console.error(`MANGLER: ${src}`);
+    continue;
+  }
+  clips.push({ name: out, data: render(inPath).toString('base64') });
+}
+
+if (clips.length === 0) {
+  console.error('Ingen kildelyde fundet i Lyde/.');
+  process.exit(1);
+}
 
 const html = `<!doctype html>
 <html lang="da">
@@ -78,28 +113,28 @@ const html = `<!doctype html>
 
   <div class="row">
     <label for="bass">Bas</label>
-    <input type="range" id="bass" min="-12" max="12" step="0.5" value="0">
+    <input type="range" id="bass" min="-12" max="12" step="0.5" value="${EQ.bass}">
     <output id="bassOut">0 dB</output>
   </div>
   <div class="hint">Tyngde og bulder. Op = tungere sværd.</div>
 
   <div class="row">
     <label for="mid">Mellemtone</label>
-    <input type="range" id="mid" min="-12" max="12" step="0.5" value="0">
+    <input type="range" id="mid" min="-12" max="12" step="0.5" value="${EQ.mid}">
     <output id="midOut">0 dB</output>
   </div>
   <div class="hint">Kroppen i lyden. Ned = mindre &quot;pap&quot;, mere plads.</div>
 
   <div class="row">
     <label for="treble">Diskant</label>
-    <input type="range" id="treble" min="-12" max="12" step="0.5" value="0">
+    <input type="range" id="treble" min="-12" max="12" step="0.5" value="${EQ.treble}">
     <output id="trebleOut">0 dB</output>
   </div>
   <div class="hint">Skarphed og luftsus. Ned hvis det hviner.</div>
 
   <div class="row">
-    <button id="bypass" class="ghost">Hør uden equalizer</button>
-    <button id="reset" class="ghost">Nulstil</button>
+    <button id="bypass" class="ghost">Hør helt uden equalizer</button>
+    <button id="reset" class="ghost">Tilbage til det spillet bruger</button>
   </div>
 
   <div class="result">
@@ -107,7 +142,7 @@ const html = `<!doctype html>
     <code id="out">EQ = { bass: 0, mid: 0, treble: 0 }</code>
   </div>
 
-  <p class="note">Tryk <kbd>mellemrum</kbd> for at afspille den sidste lyd igen. Filtrene her er de samme som ffmpeg bruger bagefter, så resultatet lyder som det du hører nu.</p>
+  <p class="note">Lydene her er <strong>ubehandlede</strong> — skyderne står på det spillet bruger nu, så det du hører ved åbning er det du har i spillet. Derfor er indstillingerne absolutte og bygger ikke oven på hinanden. Tryk <kbd>mellemrum</kbd> for at gentage sidste lyd. Filtrene er de samme som ffmpeg bruger bagefter.</p>
 </div>
 
 <script>
@@ -187,9 +222,14 @@ for (const k of Object.keys(bands)) {
 }
 
 el('bypass').onclick = () => { bypassed = true; play(lastPlayed); };
+// "Reset" goes back to what the game currently ships, not to flat -- flat is
+// what the bypass button is for.
+const BAKED = ${JSON.stringify(EQ)};
 el('reset').onclick = () => {
-  for (const k of Object.keys(bands)) bands[k].value = 0;
+  for (const k of Object.keys(bands)) bands[k].value = BAKED[k];
   refresh();
+  bypassed = false;
+  play(lastPlayed);
 };
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); bypassed = false; play(lastPlayed); }
