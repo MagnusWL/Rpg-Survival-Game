@@ -54,8 +54,17 @@ const INTRO_START_BELOW = 140;
 const INTRO_STOP_ABOVE_BOTTOM = 160;
 /** He walks in rather than running, so the entrance moves at a walk's pace. */
 const INTRO_WALK_SPEED = 115; // px/sec, against PLAYER_SPEED's 220
-/** How long he stands and looks around before reaching for the sword. */
-const INTRO_SETTLE = 0.7; // seconds
+/** How long he stands before reaching for the sword. */
+const INTRO_SETTLE = 2; // seconds
+/**
+ * The frame he holds while waiting.
+ *
+ * Not idle, which is the pose that already has the sword out -- dropping into it
+ * here would hand him the blade a moment before he draws it. He holds the last
+ * frame of the walk instead, which is also as close as that cycle gets to both
+ * feet being under him: 41 px between his legs against 48 mid-stride.
+ */
+const INTRO_HOLD_FRAME = SPRITE_COLS - 1;
 
 type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn';
 
@@ -1773,9 +1782,19 @@ export default function App() {
       const midSwing = p.anim === 'attack' && oneShotBusy;
       const mayFlinch = damageToPlayer > 0 && !midSwing && hurtAnimGapRef.current <= 0;
 
+      // Standing between arriving and drawing: hold the walk's last frame rather
+      // than falling into idle, which is a pose with the sword already in hand.
+      if (p.introPhase === 'settle') {
+        p.anim = 'walk';
+        p.animSpeed = 1;
+        p.animTime = INTRO_HOLD_FRAME / ANIMS.walk.fps;
+      }
+
       let nextAnim: AnimName = p.anim;
       let restartAnim = false;
-      if (startDraw) {
+      if (p.introPhase === 'settle') {
+        // nothing else gets a say while he waits
+      } else if (startDraw) {
         // The one moment the entrance overrides everything. Nothing else is
         // happening on the field yet, so there is nothing for it to trample.
         nextAnim = 'spawn';
