@@ -46,3 +46,11 @@ yarn-error.*
 # Raw sprite art (~15 MB of 1920x1024 sheets). The game ships the downscaled
 # output of tools/build-sprites.mjs under assets/sprites instead. See tools/README.md.
 Grafik/
+
+# Raw sound pack (~42 MB of 96 kHz/24-bit masters). The game ships the trimmed
+# output of tools/build-sounds.mjs under assets/sounds instead.
+Lyde/
+
+# Generated EQ tuning page -- rebuilt by "npm run build:eq", and it embeds the
+# audio, so there is no reason to version it.
+tools/eq-preview.html

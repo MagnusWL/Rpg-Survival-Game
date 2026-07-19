@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -59,6 +60,24 @@ const ANIMS: Record<AnimName, AnimDef> = {
 };
 
 const animDuration = (anim: AnimName) => SPRITE_COLS / ANIMS[anim].fps;
+
+// --- Sound ---------------------------------------------------------------
+// Built by tools/build-sounds.mjs from the raw pack in Lyde/. Tone shaping is
+// baked into the files rather than applied here: mobile has no equaliser, so
+// anything done at runtime would work on web only.
+const SFX_VOLUME = 0.6;
+
+/** Fire and forget. Audio is a garnish -- it must never break the game loop. */
+function playSfx(player: AudioPlayer | undefined) {
+  if (!player) return;
+  try {
+    // Rewind first: a finished clip will not restart from its own end.
+    player.seekTo(0);
+    player.play();
+  } catch {
+    // ignored on purpose
+  }
+}
 
 /** Column of the sheet to draw. One-shots stop on the last frame rather than wrapping. */
 function animColumn(anim: AnimName, animTime: number) {
@@ -640,6 +659,15 @@ export default function App() {
   const [equipped, setEquipped] = useState<Slot[]>(new Array(EQUIP_SLOTS).fill(null));
   const [bag, setBag] = useState<Slot[]>(new Array(BAG_SLOTS).fill(null));
   const [materials, setMaterials] = useState(0);
+  // Three sword variants picked at random, so a swing every 0.8 s does not turn
+  // into an audible loop. One player each is enough: a clip runs 0.54 s and the
+  // cooldown is longer, so a variant never has to overlap itself.
+  const attackSounds = [
+    useAudioPlayer(require('./assets/sounds/attack-1.wav')),
+    useAudioPlayer(require('./assets/sounds/attack-2.wav')),
+    useAudioPlayer(require('./assets/sounds/attack-3.wav')),
+  ];
+
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -668,6 +696,11 @@ export default function App() {
   const screenRef = useRef(screen);
   // Any overlay (menu or tooltip) being open pauses the simulation.
   const overlayOpenRef = useRef(false);
+  // The game loop is created once, so it reaches the players through a ref like
+  // everything else it touches rather than closing over the first render's array.
+  const attackSoundsRef = useRef(attackSounds);
+  attackSoundsRef.current = attackSounds;
+
   playerRef.current = player;
   mobsRef.current = mobs;
   alliesRef.current = allies;
@@ -992,6 +1025,12 @@ export default function App() {
   };
 
   useEffect(() => {
+    for (const s of attackSoundsRef.current) {
+      if (s) s.volume = SFX_VOLUME;
+    }
+  }, []);
+
+  useEffect(() => {
     const step = (time: number) => {
       if (screenRef.current !== 'game' || gameOverRef.current || overlayOpenRef.current) {
         lastTimeRef.current = null;
@@ -1290,6 +1329,11 @@ export default function App() {
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
 
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
+
+      if (playerAttacked) {
+        const pool = attackSoundsRef.current;
+        playSfx(pool[Math.floor(Math.random() * pool.length)]);
+      }
 
       // Turn to face what he is hitting, but only from a standstill. While
       // moving, the movement block owns facing -- otherwise he slides one way
