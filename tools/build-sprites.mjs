@@ -246,10 +246,13 @@ const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
 /**
  * Darkening and corner shading, for a source that arrives ungraded.
  *
- * Both are off for Remaster.jpg, which was graded by hand before it got here --
- * ours would land on top of that rather than instead of it. The other
- * candidates in the folder are raw and would want them back: brightness 0.85 and
- * a vignette of 0.55 from 45% out is where the first one ended up.
+ * Chosen by comparing the two side by side in the game: this one lands at 38.2
+ * in the middle and 6.5 in the corners, against the remaster's 48.6 and 11.6.
+ * Darker throughout, and the corners fall away far more, which is what won.
+ *
+ * Turn both off (brightness 1, strength 0) for a source that was graded before
+ * it got here -- Remaster.jpg was, and ours would land on top of that rather
+ * than instead of it. The build then copies rather than re-encoding.
  */
 const BG_BRIGHTNESS = 0.85;
 const BG_VIGNETTE = { start: 0.45, strength: 0.55 };
