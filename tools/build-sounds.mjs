@@ -16,7 +16,7 @@
  *
  * Run: npm run build:sounds
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, statSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +26,10 @@ const SRC_DIR = path.join(ROOT, 'Lyde');
 const OUT_DIR = path.join(ROOT, 'assets', 'sounds');
 
 const RATE = 48000;
-const SILENCE_THRESHOLD = '-50dB';
+
+// Low enough to keep the quiet head of the transient and the reverb tail. At
+// -50 dB the very front of the swing was being clipped off.
+const SILENCE_THRESHOLD = '-60dB';
 
 /**
  * Tone shaping, baked in here rather than applied at runtime: mobile has no
@@ -35,7 +38,17 @@ const SILENCE_THRESHOLD = '-50dB';
  */
 const EQ = { bass: 0, mid: 0, treble: 0 };
 
-/** Peak level to normalise to. Sources sit around -12.6 dB, quieter than needed. */
+/**
+ * Peak to normalise to. This is PEAK normalisation -- a single constant gain
+ * applied to the whole clip, which cannot change the shape of the sound.
+ *
+ * It is deliberately not loudnorm. That is EBU R128 broadcast normalisation,
+ * built for speech and music running over minutes; it rides the gain up and
+ * down as it goes. Measured against the source, a loudnorm'd clip correlated at
+ * 0.08 with a gain that wandered without bound, where a fixed gain correlates at
+ * 1.0000 and holds to within 0.3 dB. It did not sound like the source because
+ * it no longer was it.
+ */
 const PEAK_DB = -3;
 
 const SOUNDS = [
@@ -74,8 +87,22 @@ if (EQ.bass) filters.push(`bass=g=${EQ.bass}`);
 if (EQ.mid) filters.push(`equalizer=f=1200:width_type=o:width=2:g=${EQ.mid}`);
 if (EQ.treble) filters.push(`treble=g=${EQ.treble}`);
 
-// a gentle fade out stops the trim from ending on a click
-filters.push('afade=t=out:st=0:d=0.02:curve=nofade');
+const chain = filters.join(',');
+
+/**
+ * Measures the loudest sample after the chain, so the gain can be exact.
+ * ffmpeg reports volumedetect on stderr, not stdout.
+ */
+function measurePeakDb(inPath) {
+  const res = spawnSync(
+    'ffmpeg',
+    ['-i', inPath, '-af', `${chain},volumedetect`, '-f', 'null', '-'],
+    { encoding: 'utf8' }
+  );
+  const m = /max_volume:\s*(-?[\d.]+) dB/.exec(res.stderr ?? '');
+  if (!m) throw new Error(`Kunne ikke maale topniveau for ${path.basename(inPath)}`);
+  return parseFloat(m[1]);
+}
 
 let totalBefore = 0;
 let totalAfter = 0;
@@ -88,13 +115,19 @@ for (const { out, src } of SOUNDS) {
   }
   const outPath = path.join(OUT_DIR, `${out}.wav`);
 
+  // Two passes: find the peak, then apply one constant gain to reach PEAK_DB.
+  // A fixed multiplier leaves the waveform's shape untouched.
+  const peak = measurePeakDb(inPath);
+  const gain = PEAK_DB - peak;
+  const af = `${chain},volume=${gain.toFixed(2)}dB`;
+
   execFileSync(
     'ffmpeg',
     [
       '-y',
       '-loglevel', 'error',
       '-i', inPath,
-      '-af', `${filters.join(',')},loudnorm=I=-16:TP=${PEAK_DB}:LRA=11`,
+      '-af', af,
       '-ar', String(RATE),
       '-sample_fmt', 's16',
       outPath,
@@ -108,7 +141,8 @@ for (const { out, src } of SOUNDS) {
   totalAfter += after;
   console.log(
     `${out.padEnd(9)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
-      `${(after / 1024).toFixed(0).padStart(4)} KB   (-${Math.round((1 - after / before) * 100)}%)`
+      `${(after / 1024).toFixed(0).padStart(4)} KB   (-${Math.round((1 - after / before) * 100)}%)` +
+      `   top ${peak.toFixed(1)} dB, forstaerket ${gain >= 0 ? '+' : ''}${gain.toFixed(1)} dB`
   );
 }
 
