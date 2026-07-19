@@ -56,12 +56,28 @@ type AnimDef = {
    * facings and spend their rows on variants instead.
    */
   rows?: number;
+  /** First column to play. Anything before it is skipped -- see ANIMS.attack. */
+  from?: number;
 };
+
+/** Frames an animation actually plays, once any skipped opening is taken off. */
+const animSpan = (a: AnimDef) => SPRITE_COLS - (a.from ?? 0);
+
+/**
+ * The swing skips its opening. Frames 0-4 of the melee sheet are pure wind-up --
+ * the sword drawn back with nothing moving -- and the blade only starts round at
+ * frame 5. Playing them made every blow feel like it arrived late. Starting at 5
+ * cuts the animation from 0.63 s to 0.42 s and puts the strike a tenth of a
+ * second after the button rather than a third.
+ */
+const ATTACK_FROM = 5;
+/** Absolute frame where the blade is fully round; frames 7-9 read as the strike. */
+const ATTACK_STRIKE_FRAME = 8;
 
 const ANIMS: Record<AnimName, AnimDef> = {
   idle: { sheet: require('./assets/sprites/knight/idle.png'), fps: 10, loop: true },
   run: { sheet: require('./assets/sprites/knight/run.png'), fps: 16, loop: true },
-  attack: { sheet: require('./assets/sprites/knight/melee.png'), fps: 24, loop: false },
+  attack: { sheet: require('./assets/sprites/knight/melee.png'), fps: 24, loop: false, from: ATTACK_FROM },
   hurt: { sheet: require('./assets/sprites/knight/takedamage.png'), fps: 22, loop: false },
 };
 
@@ -121,7 +137,7 @@ const ALL_SHEETS: number[] = [
 const MOB_SPRITE_SIZE = 128;
 const MOB_SPRITE_FOOT_OFFSET = 44;
 
-const animDuration = (a: AnimDef) => SPRITE_COLS / a.fps;
+const animDuration = (a: AnimDef) => animSpan(a) / a.fps;
 
 // --- Sound ---------------------------------------------------------------
 // Built by tools/build-sounds.mjs from the raw pack in Lyde/.
@@ -150,13 +166,15 @@ const GORE_SPLATTER_SPREAD = 32; // px around where the body fell
 /**
  * How long after a swing begins before its sound plays.
  *
- * The melee animation spends its first five frames drawing the sword back and
- * only brings the blade round at frames 7-9, around 300 ms in. Firing at frame
- * zero put the sound on the wind-up, well before anything visibly happened.
- * The clips reach full level about 40 ms in, so starting here lands the body of
- * the sound across the visible strike.
+ * Derived rather than picked, so it follows the animation instead of having to
+ * be re-tuned by hand: the strike is a known frame, and the clips take about
+ * 40 ms to reach full level, so they start that much ahead of it.
  */
-const SWING_SOUND_AT = 0.25; // seconds
+const SWING_SOUND_LEAD = 0.04; // seconds for a clip to reach full level
+const SWING_SOUND_AT = Math.max(
+  0,
+  (ATTACK_STRIKE_FRAME - ATTACK_FROM) / ANIMS.attack.fps - SWING_SOUND_LEAD
+);
 
 /**
  * Shortest gap between two flinch animations.
@@ -186,8 +204,10 @@ function playSfx(player: AudioPlayer | undefined) {
 
 /** Column of the sheet to draw. One-shots stop on the last frame rather than wrapping. */
 function animColumn(a: AnimDef, animTime: number) {
+  const from = a.from ?? 0;
+  const span = animSpan(a);
   const frame = Math.floor(animTime * a.fps);
-  return a.loop ? frame % SPRITE_COLS : Math.min(frame, SPRITE_COLS - 1);
+  return from + (a.loop ? frame % span : Math.min(frame, span - 1));
 }
 
 // Row order going down each sheet is E, SE, S, SW, W, NW, N, NE -- one 45 degree
@@ -860,6 +880,11 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/hurt-1.wav')),
   ];
 
+  // Music streams rather than being unpacked into memory, so length costs
+  // download size and nothing else. Levels are baked in, like everything else.
+  const menuMusic = useAudioPlayer(require('./assets/music/menu.mp3'));
+  const gameMusic = useAudioPlayer(require('./assets/music/game.mp3'));
+
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -949,6 +974,24 @@ export default function App() {
   useEffect(() => {
     Asset.loadAsync(ALL_SHEETS).catch(() => {});
   }, []);
+
+  // One track for the menu, another once a run is under way.
+  //
+  // Browsers refuse to start audio before the page has been interacted with, so
+  // the menu track may stay silent on a cold load until the first tap. Nothing
+  // to be done about that from here, and by the time anyone reaches the menu a
+  // second time they have long since clicked something.
+  useEffect(() => {
+    const playing = screen === 'game' ? gameMusic : menuMusic;
+    const quiet = screen === 'game' ? menuMusic : gameMusic;
+    try {
+      playing.loop = true;
+      quiet.pause();
+      playing.play();
+    } catch {
+      // music is decoration; never let it take the game down
+    }
+  }, [screen, gameMusic, menuMusic]);
 
   // ---- Tooltip helpers ----
   const tooltipOpenedAtRef = useRef(0);

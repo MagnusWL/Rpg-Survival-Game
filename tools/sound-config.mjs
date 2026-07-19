@@ -74,6 +74,32 @@ export const SOUNDS = [
   { out: 'hurt-1', src: 'deffend/620355__marb7e__whooshsword_hit-armor.wav' },
 ];
 
+// --- Music ---------------------------------------------------------------
+// Handled quite differently from the effects. A sword hit is half a second and
+// survives being shipped uncompressed; a two-and-a-half minute track does not,
+// so music is the one place a lossy codec earns its keep. 128 kbps MP3 plays
+// everywhere and is far more than background music needs.
+//
+// Memory is not a worry here: expo-audio uses an HTML audio element on web and
+// the platform players on native, so tracks stream rather than being unpacked
+// whole. Decoded in full, these two would have cost about 100 MB.
+export const MUSIC_BITRATE = '128k';
+
+/**
+ * Average level music is normalised to, in dB.
+ *
+ * Averages, not peaks. A hit is a spike -- loud peak, quiet average -- while
+ * music is dense, so matching their peaks would leave the music sitting on top
+ * of everything. Raw, these tracks average -14.7 dB against the effects' -22.9,
+ * i.e. already louder. -32 puts them roughly 10 dB under.
+ */
+export const MUSIC_RMS_DB = -32;
+
+export const MUSIC = [
+  { out: 'menu', src: 'Music/01 The Legend of Drakewood Castle.wav' },
+  { out: 'game', src: 'Music/04 Dungeon Crawl.wav' },
+];
+
 /**
  * Strips leading and trailing quiet. Beyond size, this is a timing fix: the
  * 0.18 s of silence at the front would delay a swing past a fifth of its

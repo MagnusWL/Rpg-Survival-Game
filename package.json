@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit",
     "build:sprites": "node tools/build-sprites.mjs",
     "build:sounds": "node tools/build-sounds.mjs",
+    "build:music": "node tools/build-music.mjs",
     "build:eq": "node tools/build-eq-tool.mjs",
     "build:preview": "eas build --profile preview --platform all",
     "build:production": "eas build --profile production --platform all",
