@@ -45,7 +45,7 @@ const PLAYER_SPRITE_SIZE = 128;
 // occupies the lower part of his 128px cell.
 const PLAYER_SPRITE_FOOT_OFFSET = 49;
 
-type AnimName = 'idle' | 'run' | 'attack' | 'hurt';
+type AnimName = 'idle' | 'run' | 'attack' | 'hurt' | 'spawn';
 
 type AnimDef = {
   sheet: ImageSourcePropType;
@@ -59,6 +59,11 @@ type AnimDef = {
   rows?: number;
   /** First column to play. Anything before it is skipped -- see ANIMS.attack. */
   from?: number;
+  /**
+   * Whether moving is allowed to cut this one-shot short. A swing has to finish;
+   * a flourish should get out of the way the moment the player wants to go.
+   */
+  interruptedByMoving?: boolean;
 };
 
 /** Frames an animation actually plays, once any skipped opening is taken off. */
@@ -80,6 +85,18 @@ const ANIMS: Record<AnimName, AnimDef> = {
   run: { sheet: require('./assets/sprites/knight/run.png'), fps: 16, loop: true },
   attack: { sheet: require('./assets/sprites/knight/melee.png'), fps: 24, loop: false, from: ATTACK_FROM },
   hurt: { sheet: require('./assets/sprites/knight/takedamage.png'), fps: 22, loop: false },
+  // How a run opens: he arrives empty-handed, reaches back for the hilt around
+  // frame 5, sweeps the blade out by 12 and settles into a guard that is nearly
+  // the idle pose already, so it hands over without a jump.
+  //
+  // Movement cuts it short. It is a flourish, not a cutscene, and a player who
+  // wants to move should not be made to watch it.
+  spawn: {
+    sheet: require('./assets/sprites/knight/unsheathsword.png'),
+    fps: 16,
+    loop: false,
+    interruptedByMoving: true,
+  },
 };
 
 // The zombie art arrives as loose frames per direction and is packed into the
@@ -681,8 +698,10 @@ function makePlayer(): PlayerState {
     attackCooldown: 0,
     abilityPoints: 1,
     hasteTimer: 0,
-    facing: 4, // south, i.e. facing the camera
-    anim: 'idle',
+    facing: 2, // south, i.e. facing the camera
+    // Every way into a run rebuilds the player from here, so each one opens with
+    // him drawing his sword.
+    anim: 'spawn',
     animTime: 0,
     animSpeed: 1,
   };
@@ -1687,8 +1706,11 @@ export default function App() {
       // instead of being cut off the moment the knight starts moving again.
       // Getting hit is the exception -- it interrupts anything, including
       // itself, so repeated blows keep flinching rather than freezing.
+      const current = ANIMS[p.anim];
       const oneShotBusy =
-        !ANIMS[p.anim].loop && p.animTime * p.animSpeed < animDuration(ANIMS[p.anim]);
+        !current.loop &&
+        p.animTime * p.animSpeed < animDuration(current) &&
+        !(current.interruptedByMoving && moving);
 
       // A flinch no longer barges in on a swing already under way, and cannot
       // follow another too closely. It used to win outright, which left the

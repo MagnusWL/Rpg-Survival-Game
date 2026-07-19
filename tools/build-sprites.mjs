@@ -40,7 +40,7 @@ const ROWS = 8;
 // Only what the game actually renders today. 'Walk' stays out because
 // PLAYER_SPEED is a constant 220 px/s with no slow-walk state; 'Die' stays out
 // because the game loop stops simulating on death, so it would freeze on frame 0.
-const SHEETS = ['Idle', 'Run', 'Melee', 'TakeDamage'];
+const SHEETS = ['Idle', 'Run', 'Melee', 'TakeDamage', 'UnSheathSword'];
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -238,7 +238,7 @@ const GLOW_SIZE = 256;
  * Others sitting there: Background.png (the first one), A.png, B.png, C.png,
  * D.png. Run tools/compare-backgrounds.mjs to see them side by side.
  */
-const BG_CHOICE = 'Remaster.jpg';
+const BG_CHOICE = 'Background.png';
 
 const BG_SRC = path.join(ROOT, 'Grafik', 'Baggrund', BG_CHOICE);
 const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
@@ -251,8 +251,8 @@ const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
  * candidates in the folder are raw and would want them back: brightness 0.85 and
  * a vignette of 0.55 from 45% out is where the first one ended up.
  */
-const BG_BRIGHTNESS = 1;
-const BG_VIGNETTE = { start: 0.45, strength: 0 };
+const BG_BRIGHTNESS = 0.85;
+const BG_VIGNETTE = { start: 0.45, strength: 0.55 };
 
 if (existsSync(BG_SRC)) {
   const meta = await sharp(BG_SRC).metadata();
