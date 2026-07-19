@@ -132,6 +132,17 @@ const SWING_SOUND_AT = 0.25; // seconds
  */
 const HURT_SFX_MIN_GAP = 0.45; // seconds
 
+/**
+ * Shortest gap between two flinch animations.
+ *
+ * A flinch used to outrank everything and lasts 0.68 s, so under any real
+ * pressure the knight never got to finish a swing: simulated against two mobs in
+ * contact he landed 25 blows and visibly swung once, spending the rest of the
+ * time twitching. With this and the mid-swing guard below, that goes back to
+ * about two thirds of blows showing a swing.
+ */
+const HURT_ANIM_MIN_GAP = 1.2; // seconds
+
 /** Fire and forget. Audio is a garnish -- it must never break the game loop. */
 function playSfx(player: AudioPlayer | undefined) {
   if (!player) return;
@@ -855,6 +866,7 @@ export default function App() {
   const hurtSoundsRef = useRef(hurtSounds);
   hurtSoundsRef.current = hurtSounds;
   const hurtSoundGapRef = useRef(0);
+  const hurtAnimGapRef = useRef(0);
 
   playerRef.current = player;
   mobsRef.current = mobs;
@@ -1535,30 +1547,6 @@ export default function App() {
         }
       }
 
-      if (playerAttacked) {
-        // Queue the sound rather than playing it now -- see SWING_SOUND_AT.
-        // Which clip it will be is decided here, while we still know whether
-        // this blow killed anything.
-        //
-        // A killing blow sometimes earns the heavier combo. It replaces the
-        // swing rather than layering over it: both at once just muddies, and
-        // the combo already opens on a strike of its own.
-        // Scaled with the animation, so the sound keeps landing on the strike
-        // however fast he is swinging.
-        swingSoundTimerRef.current = SWING_SOUND_AT / attackAnimSpeed;
-        swingSoundIsKillRef.current = anyMobDied && Math.random() < KILL_SFX_CHANCE;
-      }
-
-      if (swingSoundTimerRef.current > 0) {
-        swingSoundTimerRef.current -= dt;
-        if (swingSoundTimerRef.current <= 0) {
-          // Counted down on its own rather than read off the animation, so a
-          // swing that gets interrupted by a hit still makes its sound. In a
-          // scrum that interruption is constant, and silent swings felt broken.
-          const pool = swingSoundIsKillRef.current ? killSoundsRef.current : attackSoundsRef.current;
-          playSfx(pool[Math.floor(Math.random() * pool.length)]);
-        }
-      }
 
       // Turn to face what he is hitting, but only from a standstill. While
       // moving, the movement block owns facing -- otherwise he slides one way
@@ -1576,11 +1564,20 @@ export default function App() {
       // itself, so repeated blows keep flinching rather than freezing.
       const oneShotBusy =
         !ANIMS[p.anim].loop && p.animTime * p.animSpeed < animDuration(ANIMS[p.anim]);
+
+      // A flinch no longer barges in on a swing already under way, and cannot
+      // follow another too closely. It used to win outright, which left the
+      // knight twitching continuously and almost never landing a visible blow.
+      hurtAnimGapRef.current = Math.max(0, hurtAnimGapRef.current - dt);
+      const midSwing = p.anim === 'attack' && oneShotBusy;
+      const mayFlinch = damageToPlayer > 0 && !midSwing && hurtAnimGapRef.current <= 0;
+
       let nextAnim: AnimName = p.anim;
       let restartAnim = false;
-      if (damageToPlayer > 0) {
+      if (mayFlinch) {
         nextAnim = 'hurt';
         restartAnim = true;
+        hurtAnimGapRef.current = HURT_ANIM_MIN_GAP;
       } else if (!oneShotBusy) {
         nextAnim = playerAttacked ? 'attack' : moving ? 'run' : 'idle';
         // Any freshly triggered one-shot restarts, including a second swing
@@ -1593,8 +1590,35 @@ export default function App() {
         // Only the swing is rushed to keep up with attack speed. Everything else
         // runs at the rate its sheet was drawn for.
         p.animSpeed = nextAnim === 'attack' ? attackAnimSpeed : 1;
+
+        // The sword is heard only when it is seen. A blow still lands whenever
+        // the cooldown is ready, but if the knight is flinching instead of
+        // swinging there is no swing to hear -- getting hit outranks attacking
+        // in the state machine above, so in a crowd that happens often.
+        if (nextAnim === 'attack') {
+          // Held back until the blade comes round, and scaled with the
+          // animation so it keeps landing on the strike at any attack speed.
+          swingSoundTimerRef.current = SWING_SOUND_AT / attackAnimSpeed;
+          // Decided now, while it is still known whether this blow killed
+          // anything. A killing blow sometimes earns the heavier combo, which
+          // replaces the swing rather than layering over it: both at once just
+          // muddies, and the combo opens on a strike of its own.
+          swingSoundIsKillRef.current = anyMobDied && Math.random() < KILL_SFX_CHANCE;
+        } else {
+          // Interrupted before the strike, so it never happened as far as the
+          // eye is concerned. Drop the pending sound.
+          swingSoundTimerRef.current = 0;
+        }
       }
       p.anim = nextAnim;
+
+      if (swingSoundTimerRef.current > 0) {
+        swingSoundTimerRef.current -= dt;
+        if (swingSoundTimerRef.current <= 0) {
+          const pool = swingSoundIsKillRef.current ? killSoundsRef.current : attackSoundsRef.current;
+          playSfx(pool[Math.floor(Math.random() * pool.length)]);
+        }
+      }
 
       if (xpGain > 0) {
         p.xp += xpGain;
