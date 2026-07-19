@@ -326,6 +326,8 @@ type PlayerState = {
   facing: number; // 0-7, which row of the sprite sheet to draw
   anim: AnimName;
   animTime: number; // seconds spent in the current animation
+  /** Playback multiplier for the current animation; 1 is the sheet's own rate. */
+  animSpeed: number;
 };
 
 function dist(a: Vec, b: Vec) {
@@ -567,6 +569,7 @@ function makePlayer(): PlayerState {
     facing: 4, // south, i.e. facing the camera
     anim: 'idle',
     animTime: 0,
+    animSpeed: 1,
   };
 }
 
@@ -1283,6 +1286,16 @@ export default function App() {
       const attackCooldownDuration =
         (PLAYER_ATTACK_COOLDOWN * (p.hasteTimer > 0 ? 0.5 : 1)) / (1 + atkSpdBonusPct);
 
+      // Attack speed can outrun the swing animation: haste alone takes the
+      // interval to 0.4 s against an animation lasting 0.625 s, and with gear on
+      // top it reaches 0.27 s. The animation would then only restart once the
+      // previous had finished, so most blows landed with no visible swing at all.
+      //
+      // Playing the same frames faster keeps every swing whole and reads as what
+      // a haste buff should look like. Restarting it mid-swing instead would show
+      // the wind-up over and over and never the strike, which sits 60% in.
+      const attackAnimSpeed = Math.max(1, animDuration(ANIMS.attack) / attackCooldownDuration);
+
       let xpGain = 0;
 
       // Mob AI
@@ -1503,7 +1516,9 @@ export default function App() {
         // A killing blow sometimes earns the heavier combo. It replaces the
         // swing rather than layering over it: both at once just muddies, and
         // the combo already opens on a strike of its own.
-        swingSoundTimerRef.current = SWING_SOUND_AT;
+        // Scaled with the animation, so the sound keeps landing on the strike
+        // however fast he is swinging.
+        swingSoundTimerRef.current = SWING_SOUND_AT / attackAnimSpeed;
         swingSoundIsKillRef.current = anyMobDied && Math.random() < KILL_SFX_CHANCE;
       }
 
@@ -1532,7 +1547,8 @@ export default function App() {
       // instead of being cut off the moment the knight starts moving again.
       // Getting hit is the exception -- it interrupts anything, including
       // itself, so repeated blows keep flinching rather than freezing.
-      const oneShotBusy = !ANIMS[p.anim].loop && p.animTime < animDuration(ANIMS[p.anim]);
+      const oneShotBusy =
+        !ANIMS[p.anim].loop && p.animTime * p.animSpeed < animDuration(ANIMS[p.anim]);
       let nextAnim: AnimName = p.anim;
       let restartAnim = false;
       if (damageToPlayer > 0) {
@@ -1545,7 +1561,12 @@ export default function App() {
         // last frame, since the name alone has not changed.
         restartAnim = nextAnim !== p.anim || !ANIMS[nextAnim].loop;
       }
-      if (restartAnim) p.animTime = 0;
+      if (restartAnim) {
+        p.animTime = 0;
+        // Only the swing is rushed to keep up with attack speed. Everything else
+        // runs at the rate its sheet was drawn for.
+        p.animSpeed = nextAnim === 'attack' ? attackAnimSpeed : 1;
+      }
       p.anim = nextAnim;
 
       if (xpGain > 0) {
@@ -1852,7 +1873,7 @@ export default function App() {
           key="player"
           anims={ANIMS}
           anim={player.anim}
-          animTime={player.animTime}
+          animTime={player.animTime * player.animSpeed}
           facing={player.facing}
           size={PLAYER_SPRITE_SIZE}
           left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
