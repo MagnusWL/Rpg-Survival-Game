@@ -124,14 +124,34 @@ const ANIMS: Record<AnimName, AnimDef> = {
 
 // The zombie art arrives as loose frames per direction and is packed into the
 // same 15x8 grid by tools/build-sprites.mjs, so it shares everything above.
-type MobAnimName = 'walk' | 'attack' | 'attack2' | 'attack3';
+type MobAnimName = 'walk' | 'attack' | 'attack2' | 'attack3' | 'hurt';
 
 const MOB_ANIMS: Record<MobAnimName, AnimDef> = {
   walk: { sheet: require('./assets/sprites/zombie/walk.png'), fps: 12, loop: true },
   attack: { sheet: require('./assets/sprites/zombie/attack.png'), fps: 16, loop: false },
   attack2: { sheet: require('./assets/sprites/zombie/attack2.png'), fps: 16, loop: false },
   attack3: { sheet: require('./assets/sprites/zombie/attack3.png'), fps: 16, loop: false },
+  hurt: { sheet: require('./assets/sprites/zombie/hurt.png'), fps: 20, loop: false },
 };
+
+/**
+ * The red instant when a mob is struck.
+ *
+ * Kept very short. It is a punctuation mark, not a state -- long enough to
+ * register that the blow landed, gone before the next one.
+ */
+const MOB_FLASH_COLOR = '#ff4a3d';
+const MOB_FLASH_TIME = 0.12; // seconds
+const MOB_FLASH_STRENGTH = 0.75;
+
+/**
+ * Shortest gap between two flinches on the same mob.
+ *
+ * The same discipline the knight needed. The player swings roughly every 0.8 s
+ * and a flinch runs 0.75 s, so without this a mob under attack would twitch
+ * continuously and never be seen to swing back.
+ */
+const MOB_HURT_ANIM_MIN_GAP = 1.4; // seconds
 
 /** Picked at random per swing, so a crowd of zombies does not attack in lockstep. */
 const MOB_ATTACK_ANIMS: MobAnimName[] = ['attack', 'attack2', 'attack3'];
@@ -407,6 +427,9 @@ type Mob = {
   facing: number; // 0-7, same row order as the player
   anim: MobAnimName;
   animTime: number;
+  /** Seconds left of the red flash, and of the wait before another flinch. */
+  flashTime: number;
+  hurtGap: number;
 };
 
 type Ally = {
@@ -681,6 +704,7 @@ function SpriteSheet({
   size,
   left,
   top,
+  flash,
 }: {
   anims: Record<string, AnimDef>;
   anim: string;
@@ -689,7 +713,14 @@ function SpriteSheet({
   size: number;
   left: number;
   top: number;
+  /**
+   * A tint laid over the character for an instant, following its outline
+   * exactly, since it is the same frame drawn again in a single colour.
+   */
+  flash?: { color: string; opacity: number };
 }) {
+  const active = anims[anim];
+  const activeRows = active ? active.rows ?? SPRITE_ROWS : SPRITE_ROWS;
   return (
     <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
       {Object.entries(anims).map(([name, def]) => {
@@ -711,8 +742,45 @@ function SpriteSheet({
           />
         );
       })}
+
+      {/* The same frame again in one colour, laid on top. Only the active sheet
+          is drawn twice, and only while a flash is running. */}
+      {flash && flash.opacity > 0 && active && (
+        <Image
+          source={active.sheet}
+          style={{
+            position: 'absolute',
+            width: size * SPRITE_COLS,
+            height: size * activeRows,
+            left: -size * animColumn(active, animTime),
+            top: -size * Math.min(facing, activeRows - 1),
+            opacity: flash.opacity,
+            tintColor: flash.color,
+          }}
+        />
+      )}
     </View>
   );
+}
+
+/**
+ * Marks a mob as struck: the red instant always, and a flinch when it is free
+ * to take one.
+ *
+ * The flash and the flinch are deliberately separate. A flash on every blow
+ * reads as a hit landing; a flinch on every blow would leave anything under
+ * attack twitching without ever swinging back, which is exactly what the knight
+ * did before his own flinch was reined in.
+ */
+function hurtMob(m: Mob) {
+  m.flashTime = MOB_FLASH_TIME;
+  const def = MOB_ANIMS[m.anim];
+  const busy = !def.loop && m.animTime < animDuration(def);
+  if (!busy && m.hurtGap <= 0) {
+    m.anim = 'hurt';
+    m.animTime = 0;
+    m.hurtGap = MOB_HURT_ANIM_MIN_GAP;
+  }
 }
 
 function makePlayer(): PlayerState {
@@ -768,6 +836,8 @@ function spawnMob(type: MobType, wave: number): Mob {
     facing: 2, // south -- mobs spawn at the top edge walking down towards the player
     anim: 'walk',
     animTime: 0,
+    flashTime: 0,
+    hurtGap: 0,
   };
 }
 
@@ -1435,7 +1505,10 @@ export default function App() {
         if (now - pr.createdAt >= pr.duration) {
           if (pr.friendly && pr.targetKind === 'mob') {
             const target = currentMobs.find((m) => m.id === pr.targetId);
-            if (target && target.hp > 0) target.hp -= pr.damage;
+            if (target && target.hp > 0) {
+              target.hp -= pr.damage;
+              hurtMob(target);
+            }
             newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, DAMAGE_TEXT_COLOR, now));
           } else if (!pr.friendly && pr.targetKind === 'player') {
             damageToPlayer += pr.damage;
@@ -1533,6 +1606,8 @@ export default function App() {
       for (const m of currentMobs) {
         m.attackCooldown = Math.max(0, m.attackCooldown - dt);
         m.animTime += dt;
+        m.flashTime = Math.max(0, m.flashTime - dt);
+        m.hurtGap = Math.max(0, m.hurtGap - dt);
         // A swing owns the sprite until it finishes, exactly as the player's does.
         const mobBusy = !MOB_ANIMS[m.anim].loop && m.animTime < animDuration(MOB_ANIMS[m.anim]);
         const setMobAnim = (next: MobAnimName) => {
@@ -1657,6 +1732,7 @@ export default function App() {
           for (const m of currentMobs) {
             if (m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange + (m.radius - MOB_RADIUS)) {
               m.hp -= playerDamage;
+              hurtMob(m);
               hitAny = true;
               attackTargets.push({ ...m.pos });
               newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
@@ -1701,6 +1777,7 @@ export default function App() {
                   });
                 } else {
                   mob.hp -= a.damage;
+                  hurtMob(mob);
                   newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...mob.pos }, createdAt: now });
                   newFloatingTexts.push(makeFloatingText(`-${a.damage}`, mob.pos, DAMAGE_TEXT_COLOR, now));
                 }
@@ -2275,6 +2352,12 @@ export default function App() {
               size={MOB_SPRITE_SIZE}
               left={m.pos.x - MOB_SPRITE_SIZE / 2}
               top={m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE}
+              // Fades over its short life rather than switching off, so a hit
+              // reads as a pulse rather than a stutter.
+              flash={{
+                color: MOB_FLASH_COLOR,
+                opacity: (m.flashTime / MOB_FLASH_TIME) * MOB_FLASH_STRENGTH,
+              }}
             />
           ) : (
             <View

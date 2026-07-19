@@ -112,6 +112,7 @@ const ZOMBIE_ANIMS = [
   { out: 'attack', src: 'Attack1' },
   { out: 'attack2', src: 'Attack2' },
   { out: 'attack3', src: 'Attack3' },
+  { out: 'hurt', src: 'TakeDamage' },
 ];
 
 // Blood has no facings -- it is an effect seen from above. The five variants are
