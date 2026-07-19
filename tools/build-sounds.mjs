@@ -65,20 +65,40 @@ function measurePeakDb(inPath, chain) {
 let totalBefore = 0;
 let totalAfter = 0;
 
-for (const { out, src, level = 0, eq } of SOUNDS) {
+// Every clip is measured before any is written, because a group has to be
+// levelled as a whole and that cannot be known one file at a time.
+const jobs = [];
+for (const { out, src, level = 0, eq, group } of SOUNDS) {
   const inPath = path.join(SRC_DIR, src);
   if (!existsSync(inPath)) {
     console.error(`MANGLER: ${src}`);
     continue;
   }
-  const outPath = path.join(OUT_DIR, `${out}.wav`);
   const chain = chainFor(eq);
+  jobs.push({ out, src, level, eq, group, inPath, chain, peak: measurePeakDb(inPath, chain) });
+}
+
+/**
+ * One gain per group, set by its loudest member.
+ *
+ * Taking the smallest gain in the group is the same thing said backwards: the
+ * loudest clip needs the least lift, so that lift is what puts it on target and
+ * leaves every quieter clip below it, exactly as far below as it was recorded.
+ */
+const groupGain = {};
+for (const j of jobs) {
+  if (!j.group) continue;
+  const wants = PEAK_DB + j.level - j.peak;
+  groupGain[j.group] = Math.min(groupGain[j.group] ?? Infinity, wants);
+}
+
+for (const { out, src, level, eq, group, inPath, chain, peak } of jobs) {
+  const outPath = path.join(OUT_DIR, `${out}.wav`);
 
   // Two passes: find the peak, then apply one constant gain to reach the
   // target. A fixed multiplier leaves the waveform's shape untouched.
-  const peak = measurePeakDb(inPath, chain);
   const target = PEAK_DB + level;
-  const gain = target - peak;
+  const gain = group ? groupGain[group] : target - peak;
   const af = `${chain},volume=${gain.toFixed(2)}dB`;
 
   execFileSync(
@@ -102,9 +122,11 @@ for (const { out, src, level = 0, eq } of SOUNDS) {
   console.log(
     `${out.padEnd(9)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
       `${(after / 1024).toFixed(0).padStart(4)} KB   (-${Math.round((1 - after / before) * 100)}%)` +
-      `   top ${peak.toFixed(1)} -> ${target.toFixed(1)} dB` +
+      `   top ${peak.toFixed(1)} -> ${(peak + gain).toFixed(1)} dB` +
       (level ? `  (${level > 0 ? '+' : ''}${level} dB)` : '') +
-      (eq ? `  egen EQ: diskant ${eq.treble} dB` : '')
+      (group ? `  [${group}]` : '') +
+      (eq && (eq.bass || eq.mid || eq.treble) ? `  egen EQ: diskant ${eq.treble} dB` : '') +
+      (eq && !eq.bass && !eq.mid && !eq.treble ? '  uden EQ' : '')
   );
 }
 

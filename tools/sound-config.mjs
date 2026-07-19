@@ -53,6 +53,12 @@ const PACK = 'Sword Combat Sound Effects Pack FREE VERSION/Main Sounds';
  * A clip can also carry its own `eq`, replacing the shared one above. Most want
  * the house treatment; the odd one arrives with a balance of its own.
  *
+ * A `group` levels several clips as one. Normalising each file separately makes
+ * every clip equally loud, which is right when they are alternatives and wrong
+ * when they are a set: footsteps were rendered with their loudness differences
+ * deliberately left in, and flattening them would undo that work. Clips in a
+ * group share one gain, set by the loudest of them, so the differences survive.
+ *
  * Adjust here rather than in the game. There is no runtime volume any more.
  */
 export const SOUNDS = [
@@ -91,6 +97,22 @@ export const SOUNDS = [
     eq: { bass: 0, mid: 0, treble: -11 },
     level: -7,
   },
+
+  // His boots. These are not raw recordings like everything else above -- they
+  // were cut out of a longer take and balanced against each other by ear in
+  // footstep-tuner.html, so they arrive finished. Hence the group, which keeps
+  // that balance, and hence no EQ: the tone was decided in the tuner, and the
+  // house treatment would talk over it.
+  //
+  // Quiet on purpose. Two of these land every second for as long as anyone is
+  // moving, so they have to sit under the swords rather than beside them.
+  ...Array.from({ length: 11 }, (_, i) => ({
+    out: `footstep-${i + 1}`,
+    src: `footsteps sound/Amor walk 1/footstep-${i + 1}.wav`,
+    group: 'footstep',
+    level: -10,
+    eq: { bass: 0, mid: 0, treble: 0 },
+  })),
 ];
 
 // --- Music ---------------------------------------------------------------

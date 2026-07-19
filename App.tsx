@@ -52,16 +52,41 @@ const PLAYER_SPRITE_FOOT_OFFSET = 49;
 const INTRO_START_BELOW = 140;
 /** Where he stops, measured up from the bottom of the play area. */
 const INTRO_STOP_ABOVE_BOTTOM = 160;
-/**
- * He walks in rather than running, so the entrance moves at a walk's pace.
- *
- * The cycle slows with him. Legs keeping their old rhythm over less ground
- * skate, and 115 px/sec is where the sheet's own 12 fps was left standing -- so
- * it is the ratio between the two, not either number, that keeps his feet under
- * him when the pace changes.
- */
+/** He walks in rather than running, so the entrance moves at a walk's pace. */
 const INTRO_WALK_SPEED = 80; // px/sec, against PLAYER_SPEED's 220
-const INTRO_WALK_ANIM = INTRO_WALK_SPEED / 115;
+
+/**
+ * Steps drawn into one turn of a walk or run sheet.
+ *
+ * Two, in both. Established for the run by comparing every frame against the
+ * mirror of the one half a cycle later: the match is best at exactly half,
+ * because the far side of the cycle is the same pose on the other leg. The walk
+ * moves too little to answer that way -- its frames differ by 2% where the run's
+ * differ by 7%, and his shield swamps the rest -- but a cycle containing one
+ * step would never swap his legs over, which is a hop rather than a walk.
+ */
+const STEPS_PER_CYCLE = 2;
+
+/**
+ * The ground one step covers, and so how often his feet have to come round.
+ *
+ * A distance rather than a playback rate, because that is the thing that has to
+ * hold: however fast he is going, his legs have to keep up with the floor. Left
+ * as a rate it went wrong immediately -- slowing the entrance while holding the
+ * rate steady had him covering 72 px per step, more than his own height of 66,
+ * and he moonwalked. His feet reach 36 px apart at full stride, so 40 is a step
+ * he could actually be taking.
+ */
+const WALK_STRIDE = 40; // px
+
+/**
+ * Where in the cycle a foot lands, as a fraction of it.
+ *
+ * Measured off the run: his body sits lowest at frames 6 and 14 of 15, which is
+ * the weight going onto a foot. The walk is assumed to match, being too subtle
+ * to measure and by the same hand. One number moves both if it sounds early.
+ */
+const FOOTSTEP_PHASE = 0.4;
 /** How long he stands before reaching for the sword. */
 const INTRO_SETTLE = 2; // seconds
 /**
@@ -129,6 +154,16 @@ const ANIMS: Record<AnimName, AnimDef> = {
     interruptedByMoving: true,
   },
 };
+
+/**
+ * How fast to run the walk sheet so his feet hold the ground at INTRO_WALK_SPEED.
+ *
+ * Derived rather than typed in, so it stays right if the entrance is ever asked
+ * to speed up or slow down again. At 80 px/sec and a 40 px stride this comes out
+ * at 1.25 -- a step every half second, against the 0.9 he was taking.
+ */
+const INTRO_WALK_ANIM =
+  SPRITE_COLS / ANIMS.walk.fps / ((STEPS_PER_CYCLE * WALK_STRIDE) / INTRO_WALK_SPEED);
 
 // The zombie art arrives as loose frames per direction and is packed into the
 // same 15x8 grid by tools/build-sprites.mjs, so it shares everything above.
@@ -1223,6 +1258,26 @@ export default function App() {
   // a drawn sword sounds like.
   const drawSound = useAudioPlayer(require('./assets/sounds/draw.wav'));
 
+  // His boots. Eleven takes, because a step lands twice a second and hearing
+  // the same one twice inside a few paces is what makes footsteps sound fake.
+  //
+  // A player each rather than a shared pool: they run 0.4 to 1.1 s, longer than
+  // the gap between steps, so their tails overlap. That is what walking sounds
+  // like, and a shared player would cut each step off with the next.
+  const footstepSounds = [
+    useAudioPlayer(require('./assets/sounds/footstep-1.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-2.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-3.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-4.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-5.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-6.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-7.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-8.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-9.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-10.wav')),
+    useAudioPlayer(require('./assets/sounds/footstep-11.wav')),
+  ];
+
   // Music streams rather than being unpacked into memory, so length costs
   // download size and nothing else. Levels are baked in, like everything else.
   const menuMusic = useAudioPlayer(require('./assets/music/menu.mp3'));
@@ -1277,6 +1332,18 @@ export default function App() {
   hurtSoundsRef.current = hurtSounds;
   const drawSoundRef = useRef(drawSound);
   drawSoundRef.current = drawSound;
+  const footstepSoundsRef = useRef(footstepSounds);
+  footstepSoundsRef.current = footstepSounds;
+  /**
+   * Which step of the cycle he is on, or null when he is not on his feet.
+   *
+   * Null is what stops him stamping the moment he starts moving: the first
+   * frame back on foot records where the cycle stands without sounding it, and
+   * only a change after that is a step.
+   */
+  const footstepStepRef = useRef<number | null>(null);
+  /** So the same take never lands twice running. */
+  const lastFootstepRef = useRef(-1);
   const hurtAnimGapRef = useRef(0);
 
   playerRef.current = player;
@@ -2131,6 +2198,27 @@ export default function App() {
         }
       }
       p.anim = nextAnim;
+
+      // Boots. Read off where the animation has got to rather than kept on a
+      // timer of its own, so a step is heard on the frame his foot lands at any
+      // pace -- the same reason the walk's rate is tied to his stride and not
+      // set by hand. Nothing to reset between runs, and nothing to drift.
+      if (moving && (p.anim === 'walk' || p.anim === 'run')) {
+        const cycles = (p.animTime * p.animSpeed * ANIMS[p.anim].fps) / SPRITE_COLS;
+        const step = Math.floor((cycles - FOOTSTEP_PHASE) * STEPS_PER_CYCLE);
+        if (footstepStepRef.current === null) {
+          footstepStepRef.current = step; // just set off; note where he is, say nothing
+        } else if (step !== footstepStepRef.current) {
+          footstepStepRef.current = step;
+          const pool = footstepSoundsRef.current;
+          let pick = Math.floor(Math.random() * pool.length);
+          if (pick === lastFootstepRef.current) pick = (pick + 1) % pool.length;
+          lastFootstepRef.current = pick;
+          playSfx(pool[pick]);
+        }
+      } else {
+        footstepStepRef.current = null;
+      }
 
       if (swingSoundTimerRef.current > 0) {
         swingSoundTimerRef.current -= dt;
