@@ -40,9 +40,20 @@ const ROWS = 8;
 // Only what the game actually renders today. 'Die' stays out because the game
 // loop stops simulating on death, so it would freeze on frame 0.
 //
-// 'Walk' was left out for a long time -- movement was a single speed and there
-// was nothing to distinguish it from a run. The entrance gave it a job.
-const SHEETS = ['Idle', 'Walk', 'Run', 'Melee', 'TakeDamage', 'UnSheathSword'];
+// A plain string means the output takes the source's name in lower case; give
+// `out` when they need to differ.
+const SHEETS = [
+  'Idle',
+  // The sheathed walk, not the ordinary one. Walking only happens on the way in,
+  // before he has drawn -- carrying a visible sword there would contradict the
+  // flourish that follows. 'Walk.png' with the sword out is still in Grafik if a
+  // slow-walk state ever turns up in play.
+  { src: 'Walk no sword', out: 'walk' },
+  'Run',
+  'Melee',
+  'TakeDamage',
+  'UnSheathSword',
+];
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -53,9 +64,11 @@ const outH = Math.round(ROWS * SRC_CELL * scale);
 console.log(`Kilde : ${COLS}x${ROWS} celler a ${SRC_CELL}px  (${COLS * SRC_CELL}x${ROWS * SRC_CELL})`);
 console.log(`Ud    : ${COLS}x${ROWS} celler a ${OUT_CELL}px  (${outW}x${outH})\n`);
 
-for (const name of SHEETS) {
+for (const entry of SHEETS) {
+  const name = typeof entry === 'string' ? entry : entry.src;
+  const outName = typeof entry === 'string' ? entry.toLowerCase() : entry.out;
   const srcPath = path.join(SRC_DIR, `${name}.png`);
-  const outPath = path.join(OUT_DIR, `${name.toLowerCase()}.png`);
+  const outPath = path.join(OUT_DIR, `${outName}.png`);
 
   const meta = await sharp(srcPath).metadata();
   if (meta.width !== COLS * SRC_CELL || meta.height !== ROWS * SRC_CELL) {
