@@ -355,6 +355,27 @@ const onGroundY = (fy: number) => bgOffsetY + fy * bgDrawnH;
 /** What one pixel of the source image is worth on screen, once it is laid down. */
 const groundScale = bgDrawnH / BG_SOURCE_H;
 
+/**
+ * Whether someone standing here has their feet in water.
+ *
+ * The same spots the ripples use, read the other way round: each one carries
+ * how far the water reaches around it, so the puddles are the union of those
+ * circles. Squashed by half vertically, because the ground is seen at an angle
+ * and that is the shape a puddle is drawn as.
+ *
+ * Only asked when a foot lands -- twice a second at a walk -- so walking the
+ * whole list costs nothing worth measuring.
+ */
+function feetInWater(pos: Vec) {
+  for (const [fx, fy, room] of PUDDLE_SPOTS) {
+    const dx = pos.x - onGroundX(fx);
+    const dy = (pos.y - onGroundY(fy)) * 2;
+    const r = room * groundScale;
+    if (dx * dx + dy * dy < r * r) return true;
+  }
+  return false;
+}
+
 // Rings spreading where rain meets standing water. Each slot fires on its own
 // rhythm, and picks a fresh spot every time round, so nothing repeats visibly.
 // Tuned on the same page as the rain.
@@ -1367,6 +1388,21 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/footstep-11.wav')),
   ];
 
+  // The same steps taken in water, for the ones that land in a puddle.
+  const puddleSounds = [
+    useAudioPlayer(require('./assets/sounds/puddle-1.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-2.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-3.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-4.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-5.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-6.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-7.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-8.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-9.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-10.wav')),
+    useAudioPlayer(require('./assets/sounds/puddle-11.wav')),
+  ];
+
   // Music streams rather than being unpacked into memory, so length costs
   // download size and nothing else. Levels are baked in, like everything else.
   const menuMusic = useAudioPlayer(require('./assets/music/menu.mp3'));
@@ -1429,6 +1465,8 @@ export default function App() {
   drawSoundRef.current = drawSound;
   const footstepSoundsRef = useRef(footstepSounds);
   footstepSoundsRef.current = footstepSounds;
+  const puddleSoundsRef = useRef(puddleSounds);
+  puddleSoundsRef.current = puddleSounds;
   /**
    * Which step of the cycle he is on, or null when he is not on his feet.
    *
@@ -2318,7 +2356,9 @@ export default function App() {
           footstepStepRef.current = step; // just set off; note where he is, say nothing
         } else if (step !== footstepStepRef.current) {
           footstepStepRef.current = step;
-          const pool = footstepSoundsRef.current;
+          // Wet or dry, decided per step rather than per crossing -- he can put
+          // one foot in a puddle on his way past without both of them splashing.
+          const pool = feetInWater(p.pos) ? puddleSoundsRef.current : footstepSoundsRef.current;
           let pick = Math.floor(Math.random() * pool.length);
           if (pick === lastFootstepRef.current) pick = (pick + 1) % pool.length;
           lastFootstepRef.current = pick;

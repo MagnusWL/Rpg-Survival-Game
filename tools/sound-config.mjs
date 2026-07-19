@@ -106,14 +106,25 @@ export const SOUNDS = [
   //
   // Quiet on purpose. Two of these land every second for as long as anyone is
   // moving, so they have to sit under the swords rather than beside them.
-  // Wet ones, since it is always raining: he is splashing through puddles now
-  // rather than walking on dry stone. Same eleven names, so nothing downstream
-  // has to know they were swapped. A twelfth arrived with them and is left out
-  // -- at 3.5 s and 8 dB quieter on average it is not a footfall.
   ...Array.from({ length: 11 }, (_, i) => ({
     out: `footstep-${i + 1}`,
-    src: `footsteps sound/Amor walk 1/puddles-fx/puddle-fx-${i + 1}.wav`,
+    src: `footsteps sound/Amor walk 1/footstep-${i + 1}.wav`,
     group: 'footstep',
+    level: -10,
+    eq: { bass: 0, mid: 0, treble: 0 },
+  })),
+
+  // The same steps taken in water, for when he actually crosses one. A separate
+  // set rather than a replacement -- the ground is mostly dry, and he only
+  // splashes where the puddles are. Their own group, since they were balanced
+  // against each other and not against the dry ones.
+  //
+  // A twelfth arrived with them and is left out: at 3.5 s and 8 dB quieter on
+  // average it is not a footfall, whatever else it may be.
+  ...Array.from({ length: 11 }, (_, i) => ({
+    out: `puddle-${i + 1}`,
+    src: `footsteps sound/Amor walk 1/puddles-fx/puddle-fx-${i + 1}.wav`,
+    group: 'puddle',
     level: -10,
     eq: { bass: 0, mid: 0, treble: 0 },
   })),
