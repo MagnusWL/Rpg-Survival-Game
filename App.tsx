@@ -12,9 +12,10 @@ import {
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 const TOP_BAR_HEIGHT = 56;
-const HUD_HEIGHT = 92;
-const ABILITY_BAR_HEIGHT = 88;
-const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - HUD_HEIGHT - ABILITY_BAR_HEIGHT;
+const HUD_HEIGHT = 88;
+const INVENTORY_BAR_HEIGHT = 46;
+const ABILITY_BAR_HEIGHT = 96;
+const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - HUD_HEIGHT - INVENTORY_BAR_HEIGHT - ABILITY_BAR_HEIGHT;
 const BAR_WIDTH = 80;
 
 const PLAYER_RADIUS = 18;
@@ -26,7 +27,7 @@ const PLAYER_BASE_DAMAGE = 8;
 
 const MOB_RADIUS = 14;
 const MOB_SPEED = 60; // px/sec
-const MOB_CHASE_RANGE = 140;
+const MOB_CHASE_RANGE = 140; // detection range for allies (player uses their attack range instead)
 const MOB_ATTACK_RANGE = 40;
 const MOB_ATTACK_COOLDOWN = 1.2;
 const MOB_MAX_HP = 20; // wave 1 base
@@ -55,10 +56,16 @@ const ABILITY3_HASTE_DURATION = 5;
 const PROJECTILE_SPEED = 700; // px/sec
 const HIT_FLASH_DURATION = 150; // ms
 
+const INVENTORY_SIZE = 3;
+const ITEM_SIZE = 22;
+const ITEM_DESPAWN_MS = 10000;
+const ITEM_PICKUP_RADIUS = PLAYER_RADIUS + 14;
+
 let mobIdCounter = 0;
 let allyIdCounter = 0;
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
+let groundItemIdCounter = 0;
 
 type Vec = { x: number; y: number };
 
@@ -98,6 +105,20 @@ type Ability = { level: number; cooldown: number };
 type Abilities = Record<AbilityId, Ability>;
 
 type Target = { kind: 'player' | 'ally' | 'mob'; id?: number; pos: Vec };
+
+type ItemKind = 'dmg' | 'atkspd' | 'mana' | 'manaregen' | 'health' | 'healthregen';
+type GroundItem = { id: number; kind: ItemKind; pos: Vec; createdAt: number };
+type InventorySlot = ItemKind | null;
+
+const ITEM_META: Record<ItemKind, { label: string; color: string; bonus: number }> = {
+  dmg: { label: 'DMG', color: '#ff7043', bonus: 5 },
+  atkspd: { label: 'SPD', color: '#ffca28', bonus: 0.15 },
+  mana: { label: 'MP', color: '#42a5f5', bonus: 20 },
+  manaregen: { label: 'MPR', color: '#26c6da', bonus: 2 },
+  health: { label: 'HP', color: '#66bb6a', bonus: 20 },
+  healthregen: { label: 'HPR', color: '#9ccc65', bonus: 2 },
+};
+const ITEM_KINDS: ItemKind[] = ['dmg', 'atkspd', 'mana', 'manaregen', 'health', 'healthregen'];
 
 type PlayerState = {
   pos: Vec;
@@ -190,6 +211,10 @@ function mobCountForWave(wave: number) {
   return 4 + wave;
 }
 
+function sumInventoryBonus(inventory: InventorySlot[], kind: ItemKind) {
+  return inventory.filter((k) => k === kind).length * ITEM_META[kind].bonus;
+}
+
 function makePlayer(): PlayerState {
   return {
     pos: { x: SCREEN_W / 2, y: PLAY_H - 80 },
@@ -212,6 +237,10 @@ function makeAbilities(): Abilities {
     2: { level: 0, cooldown: 0 },
     3: { level: 0, cooldown: 0 },
   };
+}
+
+function makeInventory(): InventorySlot[] {
+  return new Array(INVENTORY_SIZE).fill(null);
 }
 
 function spawnMob(wave: number): Mob {
@@ -249,6 +278,21 @@ function makeAlliesForLevel(level: number, origin: Vec): Ally[] {
   return result;
 }
 
+function spawnRandomGroundItem(): GroundItem {
+  groundItemIdCounter += 1;
+  const kind = ITEM_KINDS[Math.floor(Math.random() * ITEM_KINDS.length)];
+  const margin = 30;
+  return {
+    id: groundItemIdCounter,
+    kind,
+    pos: {
+      x: margin + Math.random() * (SCREEN_W - margin * 2),
+      y: margin + Math.random() * (PLAY_H - margin * 2),
+    },
+    createdAt: Date.now(),
+  };
+}
+
 export default function App() {
   const [player, setPlayer] = useState<PlayerState>(makePlayer());
   const [mobs, setMobs] = useState<Mob[]>([]);
@@ -263,6 +307,8 @@ export default function App() {
   const [waveMobsSpawned, setWaveMobsSpawned] = useState(0);
   const [waveActive, setWaveActive] = useState(true);
   const [gameOver, setGameOver] = useState(false);
+  const [groundItems, setGroundItems] = useState<GroundItem[]>([]);
+  const [inventory, setInventory] = useState<InventorySlot[]>(makeInventory());
   const [, setTick] = useState(0);
 
   const playerRef = useRef(player);
@@ -276,6 +322,9 @@ export default function App() {
   const waveMobsSpawnedRef = useRef(waveMobsSpawned);
   const waveActiveRef = useRef(waveActive);
   const gameOverRef = useRef(gameOver);
+  const groundItemsRef = useRef(groundItems);
+  const inventoryRef = useRef(inventory);
+  const waveLootDroppedRef = useRef(false);
   playerRef.current = player;
   mobsRef.current = mobs;
   alliesRef.current = allies;
@@ -287,6 +336,8 @@ export default function App() {
   waveMobsSpawnedRef.current = waveMobsSpawned;
   waveActiveRef.current = waveActive;
   gameOverRef.current = gameOver;
+  groundItemsRef.current = groundItems;
+  inventoryRef.current = inventory;
 
   const spawnTimerRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
@@ -369,10 +420,39 @@ export default function App() {
     waveMobsToSpawnRef.current = mobCountForWave(nextWave);
     waveMobsSpawnedRef.current = 0;
     waveActiveRef.current = true;
+    waveLootDroppedRef.current = false;
     setWave(nextWave);
     setWaveMobsToSpawn(mobCountForWave(nextWave));
     setWaveMobsSpawned(0);
     setWaveActive(true);
+  };
+
+  const handleInventorySlotPress = (index: number) => {
+    if (gameOverRef.current) return;
+    const kind = inventoryRef.current[index];
+    if (!kind) return;
+    const p = playerRef.current;
+
+    const newInv = inventoryRef.current.slice();
+    newInv[index] = null;
+    inventoryRef.current = newInv;
+    setInventory(newInv);
+
+    const angle = Math.random() * Math.PI * 2;
+    const dropDist = ITEM_PICKUP_RADIUS + 20;
+    groundItemIdCounter += 1;
+    const dropped: GroundItem = {
+      id: groundItemIdCounter,
+      kind,
+      pos: {
+        x: Math.max(20, Math.min(SCREEN_W - 20, p.pos.x + Math.cos(angle) * dropDist)),
+        y: Math.max(20, Math.min(PLAY_H - 20, p.pos.y + Math.sin(angle) * dropDist)),
+      },
+      createdAt: Date.now(),
+    };
+    const newItems = [...groundItemsRef.current, dropped];
+    groundItemsRef.current = newItems;
+    setGroundItems(newItems);
   };
 
   const handleRetry = () => {
@@ -389,6 +469,9 @@ export default function App() {
     waveMobsSpawnedRef.current = 0;
     waveActiveRef.current = true;
     gameOverRef.current = false;
+    groundItemsRef.current = [];
+    inventoryRef.current = makeInventory();
+    waveLootDroppedRef.current = false;
     spawnTimerRef.current = 0;
     lastTimeRef.current = null;
 
@@ -405,6 +488,8 @@ export default function App() {
     setWaveMobsSpawned(0);
     setWaveActive(true);
     setGameOver(false);
+    setGroundItems([]);
+    setInventory(makeInventory());
   };
 
   useEffect(() => {
@@ -424,6 +509,15 @@ export default function App() {
       const currentAllies = alliesRef.current.map((a) => ({ ...a }));
       const newProjectiles: Projectile[] = [];
       const newFlashes: HitFlash[] = [];
+
+      const inv = inventoryRef.current;
+      const dmgBonus = sumInventoryBonus(inv, 'dmg');
+      const atkSpdBonusPct = sumInventoryBonus(inv, 'atkspd');
+      const manaBonus = sumInventoryBonus(inv, 'mana');
+      const manaRegenBonus = sumInventoryBonus(inv, 'manaregen');
+      const hpBonus = sumInventoryBonus(inv, 'health');
+      const hpRegenBonus = sumInventoryBonus(inv, 'healthregen');
+      const effectiveMaxMana = MANA_MAX + manaBonus;
 
       // Resolve in-flight projectiles: damage lands only on arrival
       const stillFlying: Projectile[] = [];
@@ -454,29 +548,58 @@ export default function App() {
       p.pos.x = Math.max(PLAYER_RADIUS, Math.min(SCREEN_W - PLAYER_RADIUS, p.pos.x));
       p.pos.y = Math.max(PLAYER_RADIUS, Math.min(PLAY_H - PLAYER_RADIUS, p.pos.y));
 
-      p.mana = Math.min(MANA_MAX, p.mana + MANA_REGEN_PER_SEC * dt);
+      p.mana = Math.min(effectiveMaxMana, p.mana + (MANA_REGEN_PER_SEC + manaRegenBonus) * dt);
+      p.hp = Math.min(p.maxHp + hpBonus, p.hp + hpRegenBonus * dt);
       p.attackCooldown = Math.max(0, p.attackCooldown - dt);
       p.hasteTimer = Math.max(0, p.hasteTimer - dt);
+
+      // Ground item pickup (walk into it)
+      const unexpiredItems = groundItemsRef.current.filter((it) => now - it.createdAt < ITEM_DESPAWN_MS);
+      const newInventory = inventoryRef.current.slice();
+      const remainingItems: GroundItem[] = [];
+      for (const it of unexpiredItems) {
+        if (dist(p.pos, it.pos) <= ITEM_PICKUP_RADIUS) {
+          const freeSlot = newInventory.indexOf(null);
+          if (freeSlot !== -1) {
+            newInventory[freeSlot] = it.kind;
+            continue;
+          }
+        }
+        remainingItems.push(it);
+      }
 
       const ability3Level = abilitiesRef.current[3].level;
       const isRangedAttack = ability3Level > 0;
       const playerAttackRange = isRangedAttack ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
-      const playerDamage = PLAYER_BASE_DAMAGE + ability3DamageBonus(ability3Level);
-      const attackCooldownDuration = PLAYER_ATTACK_COOLDOWN * (p.hasteTimer > 0 ? 0.5 : 1);
+      const playerDamage = PLAYER_BASE_DAMAGE + ability3DamageBonus(ability3Level) + dmgBonus;
+      const attackCooldownDuration =
+        (PLAYER_ATTACK_COOLDOWN * (p.hasteTimer > 0 ? 0.5 : 1)) / (1 + atkSpdBonusPct);
 
       let damageToPlayer = 0;
       let xpGain = 0;
 
-      // Mob AI: chase/attack nearest of player or allies
+      // Mob AI: chase/attack nearest of player (uses the player's attack range as detection range) or allies
       for (const m of currentMobs) {
         m.attackCooldown = Math.max(0, m.attackCooldown - dt);
-        const targets: Target[] = [
-          { kind: 'player', pos: p.pos },
-          ...currentAllies.filter((a) => a.hp > 0).map((a) => ({ kind: 'ally' as const, id: a.id, pos: a.pos })),
-        ];
-        const nearest = nearestTarget(m.pos, targets, MOB_CHASE_RANGE);
+
+        let nearest: Target | null = null;
+        let nearestDist = Infinity;
+        const dToPlayer = dist(m.pos, p.pos);
+        if (dToPlayer <= playerAttackRange) {
+          nearest = { kind: 'player', pos: p.pos };
+          nearestDist = dToPlayer;
+        }
+        for (const a of currentAllies) {
+          if (a.hp <= 0) continue;
+          const dToAlly = dist(m.pos, a.pos);
+          if (dToAlly <= MOB_CHASE_RANGE && dToAlly < nearestDist) {
+            nearest = { kind: 'ally', id: a.id, pos: a.pos };
+            nearestDist = dToAlly;
+          }
+        }
+
         if (nearest) {
-          const d = dist(m.pos, nearest.pos);
+          const d = nearestDist;
           if (d <= MOB_ATTACK_RANGE) {
             if (m.attackCooldown <= 0) {
               if (nearest.kind === 'player') {
@@ -598,7 +721,7 @@ export default function App() {
           p.level += 1;
           p.xpToNext = xpForLevel(p.level);
           p.maxHp += 10;
-          p.hp = p.maxHp;
+          p.hp = p.maxHp + hpBonus;
           p.abilityPoints += 1;
         }
       }
@@ -616,6 +739,12 @@ export default function App() {
         if (newWaveMobsSpawned >= waveMobsToSpawnRef.current) {
           newWaveActive = false;
         }
+      }
+
+      // Wave cleared: drop a random item once per wave
+      if (!newWaveActive && survivorMobs.length === 0 && !waveLootDroppedRef.current) {
+        remainingItems.push(spawnRandomGroundItem());
+        waveLootDroppedRef.current = true;
       }
 
       const newAbilities: Abilities = {
@@ -640,6 +769,8 @@ export default function App() {
       waveMobsSpawnedRef.current = newWaveMobsSpawned;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
+      groundItemsRef.current = remainingItems;
+      inventoryRef.current = newInventory;
       setPlayer(p);
       setMobs(survivorMobs);
       setAllies(survivorAllies);
@@ -649,6 +780,8 @@ export default function App() {
       setWaveMobsSpawned(newWaveMobsSpawned);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
+      setGroundItems(remainingItems);
+      setInventory(newInventory);
       setTick((t) => t + 1);
 
       rafRef.current = requestAnimationFrame(step);
@@ -662,8 +795,14 @@ export default function App() {
 
   const ability3Level = abilities[3].level;
   const playerAttackRange = ability3Level > 0 ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
-  const displayDamage = PLAYER_BASE_DAMAGE + ability3DamageBonus(ability3Level);
-  const displayAttackCooldown = PLAYER_ATTACK_COOLDOWN * (player.hasteTimer > 0 ? 0.5 : 1);
+  const dmgBonusDisplay = sumInventoryBonus(inventory, 'dmg');
+  const atkSpdBonusPctDisplay = sumInventoryBonus(inventory, 'atkspd');
+  const manaBonusDisplay = sumInventoryBonus(inventory, 'mana');
+  const hpBonusDisplay = sumInventoryBonus(inventory, 'health');
+  const effectiveMaxHp = player.maxHp + hpBonusDisplay;
+  const effectiveMaxMana = MANA_MAX + manaBonusDisplay;
+  const displayDamage = PLAYER_BASE_DAMAGE + ability3DamageBonus(ability3Level) + dmgBonusDisplay;
+  const displayAttackCooldown = (PLAYER_ATTACK_COOLDOWN * (player.hasteTimer > 0 ? 0.5 : 1)) / (1 + atkSpdBonusPctDisplay);
   const displayAtkSpeed = 1 / displayAttackCooldown;
 
   const abilityMeta: Record<AbilityId, { label: string; color: string }> = {
@@ -745,6 +884,21 @@ export default function App() {
           aimPreviewPoint &&
           renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
 
+        {groundItems.map((it) => {
+          const meta = ITEM_META[it.kind];
+          return (
+            <View
+              key={it.id}
+              style={[
+                styles.groundItem,
+                { left: it.pos.x - ITEM_SIZE / 2, top: it.pos.y - ITEM_SIZE / 2, backgroundColor: meta.color },
+              ]}
+            >
+              <Text style={styles.groundItemText}>{meta.label}</Text>
+            </View>
+          );
+        })}
+
         {allies.map((a) => (
           <View key={a.id}>
             <View
@@ -788,20 +942,23 @@ export default function App() {
         <View style={styles.hudBarsRow}>
           <View style={styles.hudBarColumn}>
             <Text style={styles.hudBarLabel}>Lv {player.level}</Text>
+            <Text style={styles.hudBarValue}>{player.xp}/{player.xpToNext}</Text>
             <View style={styles.barBg}>
               <View style={[styles.barFillXp, { width: BAR_WIDTH * (player.xp / player.xpToNext) }]} />
             </View>
           </View>
           <View style={styles.hudBarColumn}>
             <Text style={styles.hudBarLabel}>HP</Text>
+            <Text style={styles.hudBarValue}>{Math.round(player.hp)}/{Math.round(effectiveMaxHp)}</Text>
             <View style={styles.barBg}>
-              <View style={[styles.barFillHp, { width: BAR_WIDTH * (player.hp / player.maxHp) }]} />
+              <View style={[styles.barFillHp, { width: BAR_WIDTH * (player.hp / effectiveMaxHp) }]} />
             </View>
           </View>
           <View style={styles.hudBarColumn}>
             <Text style={styles.hudBarLabel}>MP</Text>
+            <Text style={styles.hudBarValue}>{Math.round(player.mana)}/{Math.round(effectiveMaxMana)}</Text>
             <View style={styles.barBg}>
-              <View style={[styles.barFillMana, { width: BAR_WIDTH * (player.mana / MANA_MAX) }]} />
+              <View style={[styles.barFillMana, { width: BAR_WIDTH * (player.mana / effectiveMaxMana) }]} />
             </View>
           </View>
         </View>
@@ -810,6 +967,18 @@ export default function App() {
           <Text style={styles.hudStatText}>DMG {displayDamage}</Text>
           <Text style={styles.hudStatText}>SPD {displayAtkSpeed.toFixed(1)}/s</Text>
         </View>
+      </View>
+
+      <View style={styles.inventoryBar}>
+        {inventory.map((slot, index) => (
+          <Pressable
+            key={index}
+            onPress={() => handleInventorySlotPress(index)}
+            style={[styles.inventorySlot, slot != null && { backgroundColor: ITEM_META[slot].color, borderColor: 'transparent' }]}
+          >
+            {slot != null && <Text style={styles.inventorySlotText}>{ITEM_META[slot].label}</Text>}
+          </Pressable>
+        ))}
       </View>
 
       <View style={styles.abilityBar}>
@@ -836,7 +1005,6 @@ export default function App() {
                   id === 3 && player.hasteTimer > 0 && styles.abilityHaste,
                 ]}
               >
-                <Text style={styles.abilityButtonText}>{id}</Text>
                 {onCooldown && (
                   <View style={styles.cooldownOverlay}>
                     <Text style={styles.cooldownText}>{Math.ceil(ab.cooldown)}</Text>
@@ -856,6 +1024,7 @@ export default function App() {
               )}
 
               <Text style={styles.abilityLabel}>{meta.label}</Text>
+              <Text style={styles.abilityCostText}>{cost} MP</Text>
             </View>
           );
         })}
@@ -960,13 +1129,25 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#ffffff',
   },
+  groundItem: {
+    position: 'absolute',
+    width: ITEM_SIZE,
+    height: ITEM_SIZE,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  groundItemText: {
+    color: '#1b1b2b',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
   hud: {
     height: HUD_HEIGHT,
     backgroundColor: '#111122',
     paddingVertical: 6,
     paddingHorizontal: 10,
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
   },
   hudBarsRow: {
     flexDirection: 'row',
@@ -981,6 +1162,10 @@ const styles = StyleSheet.create({
   hudBarLabel: {
     color: '#fff',
     fontSize: 11,
+  },
+  hudBarValue: {
+    color: '#ccc',
+    fontSize: 10,
     marginBottom: 2,
   },
   hudStatsRow: {
@@ -994,20 +1179,41 @@ const styles = StyleSheet.create({
   },
   barBg: {
     width: BAR_WIDTH,
-    height: 12,
+    height: 10,
     backgroundColor: '#333',
   },
   barFillXp: {
-    height: 12,
+    height: 10,
     backgroundColor: '#ffd54f',
   },
   barFillHp: {
-    height: 12,
+    height: 10,
     backgroundColor: '#e05555',
   },
   barFillMana: {
-    height: 12,
+    height: 10,
     backgroundColor: '#4fc3f7',
+  },
+  inventoryBar: {
+    height: INVENTORY_BAR_HEIGHT,
+    backgroundColor: '#0b0b18',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  inventorySlot: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  inventorySlotText: {
+    color: '#1b1b2b',
+    fontSize: 9,
+    fontWeight: 'bold',
   },
   abilityBar: {
     height: ABILITY_BAR_HEIGHT,
@@ -1039,11 +1245,6 @@ const styles = StyleSheet.create({
   abilityHaste: {
     borderWidth: 3,
     borderColor: '#69f0ae',
-  },
-  abilityButtonText: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
   },
   cooldownOverlay: {
     position: 'absolute',
@@ -1091,6 +1292,11 @@ const styles = StyleSheet.create({
     color: '#ccc',
     fontSize: 11,
     marginTop: 2,
+  },
+  abilityCostText: {
+    color: '#888',
+    fontSize: 9,
+    marginTop: 1,
   },
   gameOverOverlay: {
     position: 'absolute',
