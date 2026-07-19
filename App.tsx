@@ -45,6 +45,15 @@ const PLAYER_SPRITE_SIZE = 128;
 // occupies the lower part of his 128px cell.
 const PLAYER_SPRITE_FOOT_OFFSET = 49;
 
+/**
+ * The entrance. He starts this far below the play area -- clear of the bottom
+ * edge, since his sprite reaches 122 px above his feet -- and runs up to the
+ * usual starting spot, about a second at PLAYER_SPEED.
+ */
+const INTRO_START_BELOW = 140;
+/** How long he stands and looks around before reaching for the sword. */
+const INTRO_SETTLE = 0.8; // seconds
+
 type AnimName = 'idle' | 'run' | 'attack' | 'hurt' | 'spawn';
 
 type AnimDef = {
@@ -460,6 +469,13 @@ type PlayerState = {
   animTime: number; // seconds spent in the current animation
   /** Playback multiplier for the current animation; 1 is the sheet's own rate. */
   animSpeed: number;
+  /**
+   * The arrival. He runs in from below the screen, stands a moment, then draws.
+   * 'done' from the first tap onwards -- it is an entrance, not something to sit
+   * through, so wanting to move ends it.
+   */
+  introPhase: 'enter' | 'settle' | 'draw' | 'done';
+  introTimer: number;
 };
 
 function dist(a: Vec, b: Vec) {
@@ -687,8 +703,12 @@ function SpriteSheet({
 
 function makePlayer(): PlayerState {
   return {
-    pos: { x: SCREEN_W / 2, y: PLAY_H - 80 },
-    target: null,
+    // Below the bottom edge, out of sight, running for the spot he normally
+    // starts on. The ordinary movement code carries him there, which also turns
+    // him north on the way -- so he is already looking up the screen when he
+    // stops, and draws his sword facing that way.
+    pos: { x: SCREEN_W / 2, y: PLAY_H + INTRO_START_BELOW },
+    target: { x: SCREEN_W / 2, y: PLAY_H - 80 },
     hp: 100,
     maxHp: 100,
     mana: MANA_MAX,
@@ -698,12 +718,14 @@ function makePlayer(): PlayerState {
     attackCooldown: 0,
     abilityPoints: 1,
     hasteTimer: 0,
-    facing: 2, // south, i.e. facing the camera
-    // Every way into a run rebuilds the player from here, so each one opens with
-    // him drawing his sword.
-    anim: 'spawn',
+    facing: 6, // north, the way he is about to run
+    anim: 'run',
     animTime: 0,
     animSpeed: 1,
+    // Every way into a run rebuilds the player from here, so each one opens
+    // with the entrance.
+    introPhase: 'enter',
+    introTimer: 0,
   };
 }
 
@@ -1204,7 +1226,9 @@ export default function App() {
       setAimPreviewPoint({ x: locationX, y: locationY });
       return;
     }
-    setPlayer((p) => ({ ...p, target: { x: locationX, y: locationY } }));
+    // Wanting to move ends the entrance. It is a flourish to watch, not
+    // something to wait out.
+    setPlayer((p) => ({ ...p, target: { x: locationX, y: locationY }, introPhase: 'done' }));
   };
 
   const handlePlayAreaMove = (e: GestureResponderEvent) => {
@@ -1427,8 +1451,12 @@ export default function App() {
       // and incoming damage are known.
       p.animTime += dt;
 
-      p.pos.x = Math.max(PLAYER_RADIUS, Math.min(SCREEN_W - PLAYER_RADIUS, p.pos.x));
-      p.pos.y = Math.max(PLAYER_RADIUS, Math.min(PLAY_H - PLAYER_RADIUS, p.pos.y));
+      // Not while running in: he starts below the bottom edge on purpose, and
+      // this would snap him into view before he has taken a step.
+      if (p.introPhase !== 'enter') {
+        p.pos.x = Math.max(PLAYER_RADIUS, Math.min(SCREEN_W - PLAYER_RADIUS, p.pos.x));
+        p.pos.y = Math.max(PLAYER_RADIUS, Math.min(PLAY_H - PLAYER_RADIUS, p.pos.y));
+      }
 
       p.mana = Math.min(effectiveMaxMana, p.mana + (MANA_REGEN_PER_SEC + manaRegenBonus) * dt);
       p.hp = Math.min(p.maxHp + hpBonus, p.hp + hpRegenBonus * dt);
@@ -1706,6 +1734,25 @@ export default function App() {
       // instead of being cut off the moment the knight starts moving again.
       // Getting hit is the exception -- it interrupts anything, including
       // itself, so repeated blows keep flinching rather than freezing.
+      // The entrance, one step at a time. Running in is just the ordinary
+      // movement code, so all this has to do is notice he has arrived, hold him
+      // still a moment, and then start the draw.
+      let startDraw = false;
+      if (p.introPhase === 'enter') {
+        if (!p.target) {
+          p.introPhase = 'settle';
+          p.introTimer = INTRO_SETTLE;
+        }
+      } else if (p.introPhase === 'settle') {
+        p.introTimer -= dt;
+        if (p.introTimer <= 0) {
+          p.introPhase = 'draw';
+          startDraw = true;
+        }
+      } else if (p.introPhase === 'draw' && p.anim !== 'spawn') {
+        p.introPhase = 'done';
+      }
+
       const current = ANIMS[p.anim];
       const oneShotBusy =
         !current.loop &&
@@ -1721,7 +1768,12 @@ export default function App() {
 
       let nextAnim: AnimName = p.anim;
       let restartAnim = false;
-      if (mayFlinch) {
+      if (startDraw) {
+        // The one moment the entrance overrides everything. Nothing else is
+        // happening on the field yet, so there is nothing for it to trample.
+        nextAnim = 'spawn';
+        restartAnim = true;
+      } else if (mayFlinch) {
         nextAnim = 'hurt';
         restartAnim = true;
         hurtAnimGapRef.current = HURT_ANIM_MIN_GAP;
