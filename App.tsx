@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   GestureResponderEvent,
+  Image,
+  ImageSourcePropType,
   Pressable,
   StyleSheet,
   Text,
@@ -21,6 +23,39 @@ const BAR_WIDTH = 80;
 
 const PLAYER_RADIUS = 18;
 const PLAYER_SPEED = 220; // px/sec
+
+// --- Knight sprite sheets -------------------------------------------------
+// Built by tools/build-sprites.mjs from the raw art in Grafik/Knight.
+// Each sheet is a 15x8 grid: columns are animation frames, rows are facings.
+const SPRITE_FRAME = 96; // must match OUT_CELL in tools/build-sprites.mjs
+const SPRITE_COLS = 15;
+const SPRITE_ROWS = 8;
+
+type AnimName = 'idle' | 'run';
+
+const KNIGHT_SHEETS: Record<AnimName, ImageSourcePropType> = {
+  idle: require('./assets/sprites/knight/idle.png'),
+  run: require('./assets/sprites/knight/run.png'),
+};
+
+const ANIM_FPS: Record<AnimName, number> = { idle: 10, run: 16 };
+
+// Row order going down each sheet is N, NW, W, SW, S, SE, E, NE. Read off the
+// art rather than guessed: rows 2 and 6 are the narrow side-on silhouettes, and
+// since the shield rides on the knight's left arm it is fully visible on row 2
+// (facing west) and hidden behind him on row 6 (facing east). That fixes the
+// east/west pair, which leaves north and south on rows 0 and 4 -- and row 4 is
+// the one showing his face. See tools/check-rows.mjs and tools/check-facing.mjs.
+//
+// If he ever runs the wrong way on screen, this is the only value to change.
+const SPRITE_ROW_FOR_EAST = 6;
+
+function facingFromDelta(dx: number, dy: number) {
+  // atan2 is 0 at east and grows clockwise on screen, since y points down.
+  // The sheet's rows run the other way round, hence the subtraction.
+  const eighths = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
+  return (((SPRITE_ROW_FOR_EAST - eighths) % SPRITE_ROWS) + SPRITE_ROWS) % SPRITE_ROWS;
+}
 const PLAYER_ATTACK_RANGE = 60;
 const RANGED_ATTACK_RANGE = 240;
 const PLAYER_ATTACK_COOLDOWN = 0.8; // sec
@@ -158,6 +193,9 @@ type PlayerState = {
   attackCooldown: number;
   abilityPoints: number;
   hasteTimer: number;
+  facing: number; // 0-7, which row of the sprite sheet to draw
+  anim: AnimName;
+  animTime: number; // seconds spent in the current animation
 };
 
 function dist(a: Vec, b: Vec) {
@@ -344,6 +382,9 @@ function makePlayer(): PlayerState {
     attackCooldown: 0,
     abilityPoints: 1,
     hasteTimer: 0,
+    facing: 4, // south, i.e. facing the camera
+    anim: 'idle',
+    animTime: 0,
   };
 }
 
@@ -956,6 +997,7 @@ export default function App() {
       }
 
       // Player movement toward target
+      let moving = false;
       if (p.target) {
         const d = dist(p.pos, p.target);
         if (d < 4) {
@@ -966,8 +1008,16 @@ export default function App() {
           const step = PLAYER_SPEED * dt;
           const ratio = Math.min(1, step / d);
           p.pos = { x: p.pos.x + dx * ratio, y: p.pos.y + dy * ratio };
+          p.facing = facingFromDelta(dx, dy);
+          moving = true;
         }
       }
+
+      // Advance the sprite animation. Restarting the clock on a change keeps a
+      // switch from landing mid-cycle on a frame the new animation never uses.
+      const nextAnim: AnimName = moving ? 'run' : 'idle';
+      p.animTime = p.anim === nextAnim ? p.animTime + dt : 0;
+      p.anim = nextAnim;
 
       p.pos.x = Math.max(PLAYER_RADIUS, Math.min(SCREEN_W - PLAYER_RADIUS, p.pos.x));
       p.pos.y = Math.max(PLAYER_RADIUS, Math.min(PLAY_H - PLAYER_RADIUS, p.pos.y));
@@ -1518,7 +1568,29 @@ export default function App() {
           </View>
         ))}
 
-        <View style={[styles.player, { left: player.pos.x - PLAYER_RADIUS, top: player.pos.y - PLAYER_RADIUS }]} />
+        <View
+          style={[
+            styles.playerSprite,
+            {
+              // Anchored on the sprite's feet rather than its centre, so the
+              // knight stands on pos instead of hovering over it. Every anim
+              // shares the same 96px box, so he does not jump when it changes.
+              left: player.pos.x - SPRITE_FRAME / 2,
+              top: player.pos.y + PLAYER_RADIUS - SPRITE_FRAME,
+            },
+          ]}
+        >
+          <Image
+            source={KNIGHT_SHEETS[player.anim]}
+            style={{
+              position: 'absolute',
+              width: SPRITE_FRAME * SPRITE_COLS,
+              height: SPRITE_FRAME * SPRITE_ROWS,
+              left: -SPRITE_FRAME * (Math.floor(player.animTime * ANIM_FPS[player.anim]) % SPRITE_COLS),
+              top: -SPRITE_FRAME * player.facing,
+            }}
+          />
+        </View>
 
         {mobs.map((m) => {
           const meta = MOB_TYPE_META[m.type];
@@ -1894,12 +1966,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.25)',
     backgroundColor: 'transparent',
   },
-  player: {
+  playerSprite: {
     position: 'absolute',
-    width: PLAYER_RADIUS * 2,
-    height: PLAYER_RADIUS * 2,
-    borderRadius: PLAYER_RADIUS,
-    backgroundColor: '#4fc3f7',
+    width: SPRITE_FRAME,
+    height: SPRITE_FRAME,
+    overflow: 'hidden', // clips the sheet down to the single current frame
   },
   ally: {
     position: 'absolute',

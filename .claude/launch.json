@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "expo-web",
-      "runtimeExecutable": "C:\\Program Files\\nvm\\v22.15.0\\node.exe",
+      "runtimeExecutable": "node",
       "runtimeArgs": ["node_modules/expo/bin/cli", "start", "--web"],
       "port": 8081
     }

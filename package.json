@@ -27,6 +27,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "build:sprites": "node tools/build-sprites.mjs",
     "build:preview": "eas build --profile preview --platform all",
     "build:production": "eas build --profile production --platform all",
     "submit:android": "eas submit --platform android --latest",
