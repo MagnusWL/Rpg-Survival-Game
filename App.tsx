@@ -52,8 +52,16 @@ const PLAYER_SPRITE_FOOT_OFFSET = 49;
 const INTRO_START_BELOW = 140;
 /** Where he stops, measured up from the bottom of the play area. */
 const INTRO_STOP_ABOVE_BOTTOM = 160;
-/** He walks in rather than running, so the entrance moves at a walk's pace. */
-const INTRO_WALK_SPEED = 115; // px/sec, against PLAYER_SPEED's 220
+/**
+ * He walks in rather than running, so the entrance moves at a walk's pace.
+ *
+ * The cycle slows with him. Legs keeping their old rhythm over less ground
+ * skate, and 115 px/sec is where the sheet's own 12 fps was left standing -- so
+ * it is the ratio between the two, not either number, that keeps his feet under
+ * him when the pace changes.
+ */
+const INTRO_WALK_SPEED = 80; // px/sec, against PLAYER_SPEED's 220
+const INTRO_WALK_ANIM = INTRO_WALK_SPEED / 115;
 /** How long he stands before reaching for the sword. */
 const INTRO_SETTLE = 2; // seconds
 /**
@@ -955,7 +963,11 @@ function makePlayer(): PlayerState {
     facing: 6, // north, the way he is about to run
     anim: 'walk',
     animTime: 0,
-    animSpeed: 1,
+    // Set here rather than left to the animation code, which only revisits the
+    // rate when an animation changes -- and the entrance never changes it. He
+    // opens walking and keeps walking, so the walk is never restarted and the
+    // rate would stay at the sheet's own while his pace was not.
+    animSpeed: INTRO_WALK_ANIM,
     // Every way into a run rebuilds the player from here, so each one opens
     // with the entrance.
     introPhase: 'enter',
@@ -2072,9 +2084,15 @@ export default function App() {
       }
       if (restartAnim) {
         p.animTime = 0;
-        // Only the swing is rushed to keep up with attack speed. Everything else
-        // runs at the rate its sheet was drawn for.
-        p.animSpeed = nextAnim === 'attack' ? attackAnimSpeed : 1;
+        // Two animations run at anything but the rate their sheet was drawn
+        // for: the swing, rushed to keep up with attack speed, and the entrance
+        // walk, slowed to stay in step with the ground he covers.
+        p.animSpeed =
+          nextAnim === 'attack'
+            ? attackAnimSpeed
+            : p.introPhase === 'enter' && nextAnim === 'walk'
+              ? INTRO_WALK_ANIM
+              : 1;
 
         // The sword is heard only when it is seen. A blow still lands whenever
         // the cooldown is ready, but if the knight is flinching instead of
