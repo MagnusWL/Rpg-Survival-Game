@@ -2162,50 +2162,66 @@ export default function App() {
       ),
     })),
     {
+      // Its own entry rather than sitting inside the knight's, so that it ends
+      // up a direct child of the play area alongside the ground.
+      //
+      // Blending only reaches as far as the nearest stacking context, and
+      // react-native-web gives every positioned view a z-index, which creates
+      // one. Wrapped with the knight, the glow could only blend against him --
+      // the mode changed and nothing looked different. Out here it can reach the
+      // ground it is supposed to be lighting.
+      //
+      // Same y as the knight and listed first, so a stable sort keeps it under
+      // him while anyone standing in front still covers it.
+      key: 'player-glow',
+      y: player.pos.y,
+      node: (
+        // Deaf to touches, or it would swallow taps in the one spot the player
+        // aims at most -- right where their own character is. The wrapper
+        // carries that, since neither Image nor ImageStyle takes it.
+        <View
+          key="player-glow"
+          style={{
+            position: 'absolute',
+            left: player.pos.x - glowSize / 2,
+            top: player.pos.y + glow.foot - glowSize / 2,
+            width: glowSize,
+            height: glowSize,
+            pointerEvents: 'none',
+            // 'screen' and its kin only lighten, which is how light behaves and
+            // lets the stone show through it.
+            mixBlendMode: glow.blend,
+          }}
+        >
+          <Image
+            source={GLOW}
+            style={{
+              width: glowSize,
+              height: glowSize,
+              opacity: glow.opacity,
+              tintColor: glow.color,
+            }}
+          />
+        </View>
+      ),
+    },
+    {
       key: 'player',
       y: player.pos.y,
       node: (
-        <View key="player">
-          {/* Under his feet, so anyone standing in front of him covers it too.
-              Deaf to touches, or it would swallow taps in the one spot the
-              player aims at most -- right where their own character is. The
-              wrapper carries that, since neither Image nor ImageStyle takes it. */}
-          <View
-            style={{
-              position: 'absolute',
-              left: player.pos.x - glowSize / 2,
-              top: player.pos.y + glow.foot - glowSize / 2,
-              width: glowSize,
-              height: glowSize,
-              pointerEvents: 'none',
-              // How it mixes with the ground beneath. 'screen' and its kin only
-              // lighten, which is how light behaves and lets the stone through.
-              mixBlendMode: glow.blend,
-            }}
-          >
-            <Image
-              source={GLOW}
-              style={{
-                width: glowSize,
-                height: glowSize,
-                opacity: glow.opacity,
-                tintColor: glow.color,
-              }}
-            />
-          </View>
-          {/* Anchored on the sprite's feet rather than its centre, so the knight
-              stands on pos instead of hovering over it. Every animation shares
-              the same cell size, so he does not jump when it changes. */}
-          <SpriteSheet
-            anims={ANIMS}
-            anim={player.anim}
-            animTime={player.animTime * player.animSpeed}
-            facing={player.facing}
-            size={PLAYER_SPRITE_SIZE}
-            left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
-            top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
-          />
-        </View>
+        // Anchored on the sprite's feet rather than its centre, so the knight
+        // stands on pos instead of hovering over it. Every animation shares the
+        // same cell size, so he does not jump when it changes.
+        <SpriteSheet
+          key="player"
+          anims={ANIMS}
+          anim={player.anim}
+          animTime={player.animTime * player.animSpeed}
+          facing={player.facing}
+          size={PLAYER_SPRITE_SIZE}
+          left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
+          top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
+        />
       ),
     },
     ...mobs.map((m) => ({
