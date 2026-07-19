@@ -31,6 +31,17 @@ camera, not when he faces west.
 
 If a future sheet ever disagrees, drive it rather than squinting at it.
 
+## Enemies
+
+The zombie pack ships **loose frames in one folder per named direction**
+(`N`, `NE`, `E`, …), 15 frames each, at the same 128x128 as the knight.
+`build:sprites` packs them into the same 15x8 sheet so both share one code path.
+
+Those folder names are worth noting: they state outright that the layout used
+here — east first, then clockwise — is the convention this art follows, which is
+the same order the knight's rows turned out to use. Packed art hides that;
+named folders do not.
+
 ## Sound
 
 The raw pack in `Lyde/` is 96 kHz / 24-bit studio masters, ~830 KB per clip, and

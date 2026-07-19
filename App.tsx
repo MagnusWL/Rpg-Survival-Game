@@ -59,7 +59,23 @@ const ANIMS: Record<AnimName, AnimDef> = {
   hurt: { sheet: require('./assets/sprites/knight/takedamage.png'), fps: 22, loop: false },
 };
 
-const animDuration = (anim: AnimName) => SPRITE_COLS / ANIMS[anim].fps;
+// The zombie art arrives as loose frames per direction and is packed into the
+// same 15x8 grid by tools/build-sprites.mjs, so it shares everything above.
+type MobAnimName = 'walk' | 'attack';
+
+const MOB_ANIMS: Record<MobAnimName, AnimDef> = {
+  walk: { sheet: require('./assets/sprites/zombie/walk.png'), fps: 12, loop: true },
+  attack: { sheet: require('./assets/sprites/zombie/attack.png'), fps: 16, loop: false },
+};
+
+// Drawn the same size as the knight, both being human-sized. The foot offset is
+// smaller because a mob's collision circle is smaller (14 against 18), and it
+// comes from measurement rather than taste: the zombie leaves 19 px of empty
+// cell below its feet where the knight leaves 17.
+const MOB_SPRITE_SIZE = 128;
+const MOB_SPRITE_FOOT_OFFSET = 44;
+
+const animDuration = (a: AnimDef) => SPRITE_COLS / a.fps;
 
 // --- Sound ---------------------------------------------------------------
 // Built by tools/build-sounds.mjs from the raw pack in Lyde/. Tone shaping is
@@ -80,9 +96,9 @@ function playSfx(player: AudioPlayer | undefined) {
 }
 
 /** Column of the sheet to draw. One-shots stop on the last frame rather than wrapping. */
-function animColumn(anim: AnimName, animTime: number) {
-  const frame = Math.floor(animTime * ANIMS[anim].fps);
-  return ANIMS[anim].loop ? frame % SPRITE_COLS : Math.min(frame, SPRITE_COLS - 1);
+function animColumn(a: AnimDef, animTime: number) {
+  const frame = Math.floor(animTime * a.fps);
+  return a.loop ? frame % SPRITE_COLS : Math.min(frame, SPRITE_COLS - 1);
 }
 
 // Row order going down each sheet is E, SE, S, SW, W, NW, N, NE -- one 45 degree
@@ -190,6 +206,9 @@ type Mob = {
   damage: number;
   radius: number;
   attackCooldown: number;
+  facing: number; // 0-7, same row order as the player
+  anim: MobAnimName;
+  animTime: number;
 };
 
 type Ally = {
@@ -477,6 +496,9 @@ function spawnMob(type: MobType, wave: number): Mob {
     damage: stats.damage,
     radius: meta.radius,
     attackCooldown: 0,
+    facing: 2, // south -- mobs spawn at the top edge walking down towards the player
+    anim: 'walk',
+    animTime: 0,
   };
 }
 
@@ -1148,6 +1170,14 @@ export default function App() {
       // Mob AI
       for (const m of currentMobs) {
         m.attackCooldown = Math.max(0, m.attackCooldown - dt);
+        m.animTime += dt;
+        // A swing owns the sprite until it finishes, exactly as the player's does.
+        const mobBusy = !MOB_ANIMS[m.anim].loop && m.animTime < animDuration(MOB_ANIMS[m.anim]);
+        const setMobAnim = (next: MobAnimName) => {
+          if (mobBusy) return;
+          if (next !== m.anim || !MOB_ANIMS[next].loop) m.animTime = 0;
+          m.anim = next;
+        };
         const detect = m.type === 'boss' ? 99999 : m.type === 'ranged' ? 260 : RANGED_ATTACK_RANGE;
 
         let nearest: Target | null = null;
@@ -1167,9 +1197,16 @@ export default function App() {
         }
 
         if (!nearest) {
+          // Nobody in sight: shamble down the screen, facing that way.
           m.pos = { x: m.pos.x, y: m.pos.y + MOB_SPEED * 0.5 * dt };
+          m.facing = facingFromDelta(0, 1);
+          setMobAnim('walk');
           continue;
         }
+
+        // Always face whatever it is chasing or hitting. Unlike the player,
+        // there is no tap-to-move to conflict with, so this can be unconditional.
+        m.facing = facingFromDelta(nearest.pos.x - m.pos.x, nearest.pos.y - m.pos.y);
 
         if (m.type === 'ranged') {
           if (nearestDist <= MOB_RANGED_FIRE_RANGE) {
@@ -1212,6 +1249,7 @@ export default function App() {
                 }
               }
               m.attackCooldown = MOB_ATTACK_COOLDOWN;
+              setMobAnim('attack');
             }
           } else {
             const dx = nearest.pos.x - m.pos.x;
@@ -1219,6 +1257,7 @@ export default function App() {
             const step = MOB_SPEED * dt;
             const ratio = Math.min(1, step / nearestDist);
             m.pos = { x: m.pos.x + dx * ratio, y: m.pos.y + dy * ratio };
+            setMobAnim('walk');
           }
         }
       }
@@ -1349,7 +1388,7 @@ export default function App() {
       // instead of being cut off the moment the knight starts moving again.
       // Getting hit is the exception -- it interrupts anything, including
       // itself, so repeated blows keep flinching rather than freezing.
-      const oneShotBusy = !ANIMS[p.anim].loop && p.animTime < animDuration(p.anim);
+      const oneShotBusy = !ANIMS[p.anim].loop && p.animTime < animDuration(ANIMS[p.anim]);
       let nextAnim: AnimName = p.anim;
       let restartAnim = false;
       if (damageToPlayer > 0) {
@@ -1716,7 +1755,7 @@ export default function App() {
               // the clip box and the art renders pixel-for-pixel.
               width: PLAYER_SPRITE_SIZE * SPRITE_COLS,
               height: PLAYER_SPRITE_SIZE * SPRITE_ROWS,
-              left: -PLAYER_SPRITE_SIZE * animColumn(player.anim, player.animTime),
+              left: -PLAYER_SPRITE_SIZE * animColumn(ANIMS[player.anim], player.animTime),
               top: -PLAYER_SPRITE_SIZE * player.facing,
             }}
           />
@@ -1724,19 +1763,45 @@ export default function App() {
 
         {mobs.map((m) => {
           const meta = MOB_TYPE_META[m.type];
+          // Only the plain melee mob has art so far. Ranged and boss stay as
+          // circles, which also keeps them easy to tell apart at a glance.
+          const anim = m.type === 'melee' ? MOB_ANIMS[m.anim] : null;
           return (
             <View key={m.id}>
-              <View
-                style={{
-                  position: 'absolute',
-                  left: m.pos.x - m.radius,
-                  top: m.pos.y - m.radius,
-                  width: m.radius * 2,
-                  height: m.radius * 2,
-                  borderRadius: m.radius,
-                  backgroundColor: meta.color,
-                }}
-              />
+              {anim ? (
+                <View
+                  style={[
+                    styles.mobSprite,
+                    {
+                      left: m.pos.x - MOB_SPRITE_SIZE / 2,
+                      top: m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE,
+                    },
+                  ]}
+                >
+                  <Image
+                    source={anim.sheet}
+                    style={{
+                      position: 'absolute',
+                      width: MOB_SPRITE_SIZE * SPRITE_COLS,
+                      height: MOB_SPRITE_SIZE * SPRITE_ROWS,
+                      left: -MOB_SPRITE_SIZE * animColumn(anim, m.animTime),
+                      top: -MOB_SPRITE_SIZE * m.facing,
+                    }}
+                  />
+                </View>
+              ) : (
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: m.pos.x - m.radius,
+                    top: m.pos.y - m.radius,
+                    width: m.radius * 2,
+                    height: m.radius * 2,
+                    borderRadius: m.radius,
+                    backgroundColor: meta.color,
+                  }}
+                />
+              )}
               <View style={[styles.mobHpBarBg, { left: m.pos.x - m.radius, top: m.pos.y - m.radius - 8, width: m.radius * 2 }]}>
                 <View style={[styles.mobHpBarFill, { width: m.radius * 2 * (m.hp / m.maxHp) }]} />
               </View>
@@ -2101,6 +2166,12 @@ const styles = StyleSheet.create({
     width: PLAYER_SPRITE_SIZE,
     height: PLAYER_SPRITE_SIZE,
     overflow: 'hidden', // clips the sheet down to the single current frame
+  },
+  mobSprite: {
+    position: 'absolute',
+    width: MOB_SPRITE_SIZE,
+    height: MOB_SPRITE_SIZE,
+    overflow: 'hidden',
   },
   ally: {
     position: 'absolute',

@@ -12,13 +12,21 @@
  * Run: node tools/build-sprites.mjs
  */
 import sharp from 'sharp';
-import { mkdirSync, statSync } from 'node:fs';
+import { mkdirSync, statSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_DIR = path.join(ROOT, 'Grafik', 'Knight');
 const OUT_DIR = path.join(ROOT, 'assets', 'sprites', 'knight');
+
+/**
+ * Row order every sheet in this game uses, top to bottom. The knight's art
+ * arrived already packed this way; the zombies arrive as one folder per named
+ * direction, so packing them in this order lets both share the rendering code
+ * and facingFromDelta in App.tsx.
+ */
+const DIR_ORDER = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
 
 const SRC_CELL = 128;
 // Output at source resolution. Downscaling to 96 only bought 16-25% on file
@@ -72,3 +80,67 @@ for (const name of SHEETS) {
 }
 
 console.log(`\nSkrevet til ${path.relative(ROOT, OUT_DIR)}`);
+
+// --- Enemies -------------------------------------------------------------
+// The zombie pack ships loose frames in one folder per direction rather than a
+// packed sheet, so these get assembled into the same 15x8 grid the knight uses.
+
+const ZOMBIE_SRC = path.join(
+  ROOT, 'Grafik', 'Enemies', '2D HD Zombie individual sprites', 'ZombieMale2'
+);
+const ZOMBIE_OUT = path.join(ROOT, 'assets', 'sprites', 'zombie');
+
+// Start with what the mob AI already does: walk towards the player, and hit him.
+const ZOMBIE_ANIMS = [
+  { out: 'walk', src: 'Walk' },
+  { out: 'attack', src: 'Attack1' },
+];
+
+async function packDirectionFolders(srcDir, outPath) {
+  const tiles = [];
+  for (const [row, dir] of DIR_ORDER.entries()) {
+    const dirPath = path.join(srcDir, dir);
+    if (!existsSync(dirPath)) throw new Error(`Mangler retningsmappe: ${dirPath}`);
+    // Filenames are zero-padded, so plain sorting is already frame order.
+    const frames = readdirSync(dirPath).filter((f) => f.endsWith('.png')).sort();
+    if (frames.length !== COLS) {
+      throw new Error(`${dirPath} har ${frames.length} billeder, forventede ${COLS}`);
+    }
+    for (const [col, file] of frames.entries()) {
+      const meta = await sharp(path.join(dirPath, file)).metadata();
+      if (meta.width !== SRC_CELL || meta.height !== SRC_CELL) {
+        throw new Error(`${file} er ${meta.width}x${meta.height}, forventede ${SRC_CELL}x${SRC_CELL}`);
+      }
+      tiles.push({
+        input: path.join(dirPath, file),
+        left: col * OUT_CELL,
+        top: row * OUT_CELL,
+      });
+    }
+  }
+
+  await sharp({
+    create: { width: outW, height: outH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite(tiles)
+    .png({ compressionLevel: 9, palette: false })
+    .toFile(outPath);
+
+  return tiles.length;
+}
+
+if (!existsSync(ZOMBIE_SRC)) {
+  console.log('\n(Springer fjender over -- Grafik/Enemies findes ikke)');
+} else {
+  mkdirSync(ZOMBIE_OUT, { recursive: true });
+  console.log('\nFjender: samler loese billeder til ark');
+  for (const { out, src } of ZOMBIE_ANIMS) {
+    const outPath = path.join(ZOMBIE_OUT, `${out}.png`);
+    const count = await packDirectionFolders(path.join(ZOMBIE_SRC, src), outPath);
+    console.log(
+      `${out.padEnd(7)} ${String(count).padStart(3)} billeder  ->  ` +
+        `${(statSync(outPath).size / 1024).toFixed(0).padStart(4)} KB`
+    );
+  }
+  console.log(`Skrevet til ${path.relative(ROOT, ZOMBIE_OUT)}`);
+}
