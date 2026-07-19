@@ -11,11 +11,11 @@ import {
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-const TOP_BAR_HEIGHT = 56;
-const HUD_HEIGHT = 88;
-const INVENTORY_BAR_HEIGHT = 46;
-const ABILITY_BAR_HEIGHT = 96;
-const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - HUD_HEIGHT - INVENTORY_BAR_HEIGHT - ABILITY_BAR_HEIGHT;
+const TOP_BAR_HEIGHT = 50;
+const QUICK_CAST_BAR_HEIGHT = 66;
+const HUD_HEIGHT = 84;
+const MENU_BAR_HEIGHT = 58;
+const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - QUICK_CAST_BAR_HEIGHT - HUD_HEIGHT - MENU_BAR_HEIGHT;
 const BAR_WIDTH = 80;
 
 const PLAYER_RADIUS = 18;
@@ -26,13 +26,15 @@ const PLAYER_ATTACK_COOLDOWN = 0.8; // sec
 const PLAYER_BASE_DAMAGE = 8;
 
 const MOB_RADIUS = 14;
+const BOSS_RADIUS = 26;
 const MOB_SPEED = 60; // px/sec
-const MOB_CHASE_RANGE = 140; // detection range for allies (player uses their attack range instead)
 const MOB_ATTACK_RANGE = 40;
+const MOB_RANGED_FIRE_RANGE = 170;
 const MOB_ATTACK_COOLDOWN = 1.2;
 const MOB_MAX_HP = 20; // wave 1 base
 const MOB_DAMAGE = 5; // wave 1 base
 const MOB_XP_REWARD = 15;
+const BOSS_XP_REWARD = 120;
 
 const WAVE_SPAWN_INTERVAL = 0.5; // sec between mob spawns within a wave
 const MANA_REGEN_PER_SEC = 4;
@@ -56,25 +58,31 @@ const ABILITY3_HASTE_DURATION = 5;
 const PROJECTILE_SPEED = 700; // px/sec
 const HIT_FLASH_DURATION = 150; // ms
 
-const INVENTORY_SIZE = 3;
-const ITEM_SIZE = 22;
+const EQUIP_SLOTS = 3;
+const BAG_SLOTS = 9;
+const ITEM_SIZE = 24;
 const ITEM_DESPAWN_MS = 10000;
 const ITEM_PICKUP_RADIUS = PLAYER_RADIUS + 14;
+const INV_DRAG_THRESHOLD = 14;
 
 let mobIdCounter = 0;
 let allyIdCounter = 0;
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
-let groundItemIdCounter = 0;
+let itemIdCounter = 0;
 
 type Vec = { x: number; y: number };
 
+type MobType = 'melee' | 'ranged' | 'boss';
+
 type Mob = {
   id: number;
+  type: MobType;
   pos: Vec;
   hp: number;
   maxHp: number;
   damage: number;
+  radius: number;
   attackCooldown: number;
 };
 
@@ -96,6 +104,8 @@ type Projectile = {
   duration: number;
   color: string;
   damage: number;
+  friendly: boolean; // true = player/ally shooting a mob; false = mob shooting player/ally
+  targetKind: 'mob' | 'player' | 'ally';
   targetId: number;
 };
 type HitFlash = { id: number; pos: Vec; createdAt: number };
@@ -107,18 +117,29 @@ type Abilities = Record<AbilityId, Ability>;
 type Target = { kind: 'player' | 'ally' | 'mob'; id?: number; pos: Vec };
 
 type ItemKind = 'dmg' | 'atkspd' | 'mana' | 'manaregen' | 'health' | 'healthregen';
-type GroundItem = { id: number; kind: ItemKind; pos: Vec; createdAt: number };
-type InventorySlot = ItemKind | null;
+type Item = { id: number; kind: ItemKind; level: number };
+type GroundItem = { item: Item; pos: Vec; createdAt: number };
+type Slot = Item | null;
+type TooltipState = { key: string; text: string; x: number; y: number } | null;
 
-const ITEM_META: Record<ItemKind, { label: string; color: string; bonus: number }> = {
-  dmg: { label: 'DMG', color: '#ff7043', bonus: 5 },
-  atkspd: { label: 'SPD', color: '#ffca28', bonus: 0.15 },
-  mana: { label: 'MP', color: '#42a5f5', bonus: 20 },
-  manaregen: { label: 'MPR', color: '#26c6da', bonus: 2 },
-  health: { label: 'HP', color: '#66bb6a', bonus: 20 },
-  healthregen: { label: 'HPR', color: '#9ccc65', bonus: 2 },
+const ITEM_DEFS: Record<
+  ItemKind,
+  { name: string; color: string; perLevel: number; format: (total: number) => string }
+> = {
+  dmg: { name: 'Blade', color: '#ff7043', perLevel: 2, format: (t) => `+${t} damage` },
+  atkspd: { name: 'Gloves', color: '#ffca28', perLevel: 0.03, format: (t) => `+${Math.round(t * 100)}% attack speed` },
+  mana: { name: 'Crystal', color: '#42a5f5', perLevel: 6, format: (t) => `+${t} max mana` },
+  manaregen: { name: 'Sigil', color: '#26c6da', perLevel: 1, format: (t) => `+${t} mana regen/s` },
+  health: { name: 'Armor', color: '#66bb6a', perLevel: 8, format: (t) => `+${t} max health` },
+  healthregen: { name: 'Amulet', color: '#9ccc65', perLevel: 1, format: (t) => `+${t} health regen/s` },
 };
 const ITEM_KINDS: ItemKind[] = ['dmg', 'atkspd', 'mana', 'manaregen', 'health', 'healthregen'];
+
+const MOB_TYPE_META: Record<MobType, { name: string; color: string; radius: number }> = {
+  melee: { name: 'Melee', color: '#e05555', radius: MOB_RADIUS },
+  ranged: { name: 'Ranged', color: '#ff9800', radius: MOB_RADIUS },
+  boss: { name: 'Boss', color: '#ab47bc', radius: BOSS_RADIUS },
+};
 
 type PlayerState = {
   pos: Vec;
@@ -199,6 +220,42 @@ function rangedTargetCount(ability3Level: number) {
   return ability3Level >= 4 ? 2 : 1;
 }
 
+function abilityDescription(id: AbilityId, level: number): string {
+  if (level <= 0) {
+    const names: Record<AbilityId, string> = { 1: 'Summon', 2: 'Cone', 3: 'Ranged' };
+    return `${names[id]}: locked. Spend an ability point to unlock it.`;
+  }
+  if (id === 1) {
+    const stats = ability1Stats(level);
+    const count = level;
+    const rangedNote = level >= 4 ? ' (2 melee, 2 ranged)' : '';
+    return `Summon: calls ${count} allied mob${count > 1 ? 's' : ''}${rangedNote} that fight for you. Each has ${stats.hp} HP and deals ${stats.damage} damage.`;
+  }
+  if (id === 2) {
+    return `Cone: deals ${ability2Damage(level)} damage to enemies in a widening cone toward where you aim.`;
+  }
+  const hitNote = level >= 4 ? ', hitting 2 enemies at once' : '';
+  return `Ranged: passively turns your attacks ranged with +${ability3DamageBonus(level)} damage${hitNote}. Tap to gain +50% attack speed for 5s.`;
+}
+
+function abilityStatsSuffix(id: AbilityId): string {
+  return `\nCost: ${ABILITY_MANA_COST[id]} MP  ·  Cooldown: ${ABILITY_COOLDOWN_TIME[id]}s`;
+}
+
+function itemBonus(item: Item) {
+  return ITEM_DEFS[item.kind].perLevel * item.level;
+}
+
+function itemTooltip(item: Item): string {
+  const def = ITEM_DEFS[item.kind];
+  return `${def.name} · iLvl ${item.level}\n${def.format(Math.round(itemBonus(item) * 100) / 100)}`;
+}
+
+function makeItem(kind: ItemKind, level: number): Item {
+  itemIdCounter += 1;
+  return { id: itemIdCounter, kind, level };
+}
+
 function mobHpForWave(wave: number) {
   return MOB_MAX_HP + (wave - 1) * 8;
 }
@@ -211,8 +268,50 @@ function mobCountForWave(wave: number) {
   return 4 + wave;
 }
 
-function sumInventoryBonus(inventory: InventorySlot[], kind: ItemKind) {
-  return inventory.filter((k) => k === kind).length * ITEM_META[kind].bonus;
+function bossTierForWave(wave: number) {
+  return wave >= 10 && wave % 5 === 0 ? Math.floor((wave - 10) / 5) + 1 : 0;
+}
+
+function rangedCountForWave(wave: number) {
+  if (wave < 3) return 0;
+  return Math.min(Math.floor(mobCountForWave(wave) / 2), wave - 2);
+}
+
+function mobTypeStats(type: MobType, wave: number): { hp: number; damage: number } {
+  const meleeHp = mobHpForWave(wave);
+  const meleeDmg = mobDamageForWave(wave);
+  if (type === 'melee') return { hp: meleeHp, damage: meleeDmg };
+  if (type === 'ranged') return { hp: Math.round(meleeHp * 0.7), damage: meleeDmg };
+  const tier = Math.max(1, bossTierForWave(wave));
+  return { hp: 500 * tier + wave * 10, damage: 15 + tier * 6 };
+}
+
+// Composition of a wave, for the Mob Stats overlay
+function waveComposition(wave: number): { type: MobType; count: number }[] {
+  const total = mobCountForWave(wave);
+  const ranged = rangedCountForWave(wave);
+  const melee = total - ranged;
+  const rows: { type: MobType; count: number }[] = [];
+  if (melee > 0) rows.push({ type: 'melee', count: melee });
+  if (ranged > 0) rows.push({ type: 'ranged', count: ranged });
+  if (bossTierForWave(wave) > 0) rows.push({ type: 'boss', count: 1 });
+  return rows;
+}
+
+function buildWaveQueue(wave: number): MobType[] {
+  const total = mobCountForWave(wave);
+  const ranged = rangedCountForWave(wave);
+  const melee = total - ranged;
+  const queue: MobType[] = [];
+  for (let i = 0; i < melee; i++) queue.push('melee');
+  for (let i = 0; i < ranged; i++) queue.push('ranged');
+  // shuffle melee/ranged so ranged are mixed in
+  for (let i = queue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [queue[i], queue[j]] = [queue[j], queue[i]];
+  }
+  if (bossTierForWave(wave) > 0) queue.push('boss'); // boss arrives last
+  return queue;
 }
 
 function makePlayer(): PlayerState {
@@ -239,20 +338,19 @@ function makeAbilities(): Abilities {
   };
 }
 
-function makeInventory(): InventorySlot[] {
-  return new Array(INVENTORY_SIZE).fill(null);
-}
-
-function spawnMob(wave: number): Mob {
+function spawnMob(type: MobType, wave: number): Mob {
   mobIdCounter += 1;
-  const margin = MOB_RADIUS + 4;
-  const hp = mobHpForWave(wave);
+  const meta = MOB_TYPE_META[type];
+  const stats = mobTypeStats(type, wave);
+  const margin = meta.radius + 4;
   return {
     id: mobIdCounter,
-    pos: { x: margin + Math.random() * (SCREEN_W - margin * 2), y: MOB_RADIUS },
-    hp,
-    maxHp: hp,
-    damage: mobDamageForWave(wave),
+    type,
+    pos: { x: margin + Math.random() * (SCREEN_W - margin * 2), y: meta.radius },
+    hp: stats.hp,
+    maxHp: stats.hp,
+    damage: stats.damage,
+    radius: meta.radius,
     attackCooldown: 0,
   };
 }
@@ -278,19 +376,26 @@ function makeAlliesForLevel(level: number, origin: Vec): Ally[] {
   return result;
 }
 
-function spawnRandomGroundItem(): GroundItem {
-  groundItemIdCounter += 1;
+function spawnLoot(wave: number): GroundItem {
+  const level = Math.max(1, wave + (Math.floor(Math.random() * 5) - 2));
   const kind = ITEM_KINDS[Math.floor(Math.random() * ITEM_KINDS.length)];
   const margin = 30;
   return {
-    id: groundItemIdCounter,
-    kind,
+    item: makeItem(kind, level),
     pos: {
       x: margin + Math.random() * (SCREEN_W - margin * 2),
       y: margin + Math.random() * (PLAY_H - margin * 2),
     },
     createdAt: Date.now(),
   };
+}
+
+function equippedBonus(equipped: Slot[], kind: ItemKind) {
+  let total = 0;
+  for (const it of equipped) {
+    if (it && it.kind === kind) total += itemBonus(it);
+  }
+  return total;
 }
 
 export default function App() {
@@ -302,13 +407,18 @@ export default function App() {
   const [aimPreviewPoint, setAimPreviewPoint] = useState<Vec | null>(null);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
-  const [wave, setWave] = useState(1);
-  const [waveMobsToSpawn, setWaveMobsToSpawn] = useState(mobCountForWave(1));
-  const [waveMobsSpawned, setWaveMobsSpawned] = useState(0);
-  const [waveActive, setWaveActive] = useState(true);
+  const [wave, setWave] = useState(0);
+  const [waveActive, setWaveActive] = useState(false);
   const [gameOver, setGameOver] = useState(false);
   const [groundItems, setGroundItems] = useState<GroundItem[]>([]);
-  const [inventory, setInventory] = useState<InventorySlot[]>(makeInventory());
+  const [equipped, setEquipped] = useState<Slot[]>(new Array(EQUIP_SLOTS).fill(null));
+  const [bag, setBag] = useState<Slot[]>(new Array(BAG_SLOTS).fill(null));
+  const [materials, setMaterials] = useState(0);
+  const [tooltip, setTooltip] = useState<TooltipState>(null);
+  const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
+  const [invMenuOpen, setInvMenuOpen] = useState(false);
+  const [mobStatsOpen, setMobStatsOpen] = useState(false);
+  const [dragging, setDragging] = useState<{ kind: ItemKind; level: number; x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
 
   const playerRef = useRef(player);
@@ -318,12 +428,12 @@ export default function App() {
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
   const waveRef = useRef(wave);
-  const waveMobsToSpawnRef = useRef(waveMobsToSpawn);
-  const waveMobsSpawnedRef = useRef(waveMobsSpawned);
   const waveActiveRef = useRef(waveActive);
   const gameOverRef = useRef(gameOver);
   const groundItemsRef = useRef(groundItems);
-  const inventoryRef = useRef(inventory);
+  const equippedRef = useRef(equipped);
+  const bagRef = useRef(bag);
+  const waveQueueRef = useRef<MobType[]>([]);
   const waveLootDroppedRef = useRef(false);
   playerRef.current = player;
   mobsRef.current = mobs;
@@ -332,17 +442,131 @@ export default function App() {
   projectilesRef.current = projectiles;
   hitFlashesRef.current = hitFlashes;
   waveRef.current = wave;
-  waveMobsToSpawnRef.current = waveMobsToSpawn;
-  waveMobsSpawnedRef.current = waveMobsSpawned;
   waveActiveRef.current = waveActive;
   gameOverRef.current = gameOver;
   groundItemsRef.current = groundItems;
-  inventoryRef.current = inventory;
+  equippedRef.current = equipped;
+  bagRef.current = bag;
 
   const spawnTimerRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  // ---- Tooltip helpers ----
+  const showOrToggleTooltip = (key: string, text: string, e: GestureResponderEvent) => {
+    const { pageX, pageY } = e.nativeEvent;
+    setTooltip((cur) => (cur && cur.key === key ? null : { key, text, x: pageX, y: pageY }));
+  };
+  const dismissTooltip = () => setTooltip(null);
+
+  // ---- Inventory drag between slots ----
+  const slotRectsRef = useRef<Record<string, { x: number; y: number; w: number; h: number }>>({});
+  const slotNodesRef = useRef<Record<string, any>>({});
+  const dragRef = useRef<{ fromKey: string; item: Item; startX: number; startY: number; moved: boolean } | null>(null);
+
+  const registerSlot = (key: string) => ({
+    ref: (n: any) => {
+      slotNodesRef.current[key] = n;
+    },
+    onLayout: () => {
+      const n = slotNodesRef.current[key];
+      if (n && n.measureInWindow) {
+        n.measureInWindow((x: number, y: number, w: number, h: number) => {
+          slotRectsRef.current[key] = { x, y, w, h };
+        });
+      }
+    },
+  });
+
+  const itemAtKey = (key: string): Item | null => {
+    if (key.startsWith('equip-')) return equippedRef.current[+key.slice(6)] ?? null;
+    if (key.startsWith('bag-')) return bagRef.current[+key.slice(4)] ?? null;
+    return null;
+  };
+
+  const keyAtPoint = (px: number, py: number): string | null => {
+    for (const key of Object.keys(slotRectsRef.current)) {
+      const r = slotRectsRef.current[key];
+      if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return key;
+    }
+    return null;
+  };
+
+  const commitInventory = (newEquipped: Slot[], newBag: Slot[]) => {
+    equippedRef.current = newEquipped;
+    bagRef.current = newBag;
+    setEquipped(newEquipped);
+    setBag(newBag);
+  };
+
+  const applyMove = (fromKey: string, toKey: string) => {
+    if (fromKey === toKey) return;
+    const newEquipped = equippedRef.current.slice();
+    const newBag = bagRef.current.slice();
+    const get = (key: string): Item | null =>
+      key.startsWith('equip-') ? newEquipped[+key.slice(6)] : newBag[+key.slice(4)];
+    const set = (key: string, val: Item | null) => {
+      if (key.startsWith('equip-')) newEquipped[+key.slice(6)] = val;
+      else newBag[+key.slice(4)] = val;
+    };
+    const a = get(fromKey);
+    const b = get(toKey);
+    set(fromKey, b);
+    set(toKey, a);
+    commitInventory(newEquipped, newBag);
+  };
+
+  const applySalvage = (fromKey: string, item: Item) => {
+    const newEquipped = equippedRef.current.slice();
+    const newBag = bagRef.current.slice();
+    if (fromKey.startsWith('equip-')) newEquipped[+fromKey.slice(6)] = null;
+    else newBag[+fromKey.slice(4)] = null;
+    commitInventory(newEquipped, newBag);
+    setMaterials((m) => m + item.level);
+  };
+
+  const handleSlotGrant = (key: string, e: GestureResponderEvent) => {
+    const item = itemAtKey(key);
+    if (!item) {
+      dragRef.current = null;
+      return;
+    }
+    dragRef.current = { fromKey: key, item, startX: e.nativeEvent.pageX, startY: e.nativeEvent.pageY, moved: false };
+  };
+
+  const handleSlotMove = (e: GestureResponderEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.nativeEvent.pageX - d.startX;
+    const dy = e.nativeEvent.pageY - d.startY;
+    if (!d.moved && Math.hypot(dx, dy) > INV_DRAG_THRESHOLD) {
+      d.moved = true;
+      dismissTooltip();
+    }
+    if (d.moved) {
+      setDragging({ kind: d.item.kind, level: d.item.level, x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
+    }
+  };
+
+  const handleSlotRelease = (key: string, e: GestureResponderEvent) => {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragging(null);
+    if (!d) return;
+    const item = itemAtKey(key);
+    if (!d.moved) {
+      if (item) showOrToggleTooltip(`slot-${key}`, itemTooltip(item), e);
+      return;
+    }
+    const dropKey = keyAtPoint(e.nativeEvent.pageX, e.nativeEvent.pageY);
+    if (dropKey === 'salvage') {
+      applySalvage(d.fromKey, d.item);
+    } else if (dropKey && (dropKey.startsWith('equip-') || dropKey.startsWith('bag-'))) {
+      applyMove(d.fromKey, dropKey);
+    }
+  };
+
+  // ---- Play area input ----
   const handlePlayAreaGrant = (e: GestureResponderEvent) => {
     if (gameOverRef.current) return;
     const { locationX, locationY } = e.nativeEvent;
@@ -417,60 +641,31 @@ export default function App() {
     const nextWave = waveRef.current + 1;
     spawnTimerRef.current = 0;
     waveRef.current = nextWave;
-    waveMobsToSpawnRef.current = mobCountForWave(nextWave);
-    waveMobsSpawnedRef.current = 0;
+    waveQueueRef.current = buildWaveQueue(nextWave);
     waveActiveRef.current = true;
     waveLootDroppedRef.current = false;
     setWave(nextWave);
-    setWaveMobsToSpawn(mobCountForWave(nextWave));
-    setWaveMobsSpawned(0);
     setWaveActive(true);
-  };
-
-  const handleInventorySlotPress = (index: number) => {
-    if (gameOverRef.current) return;
-    const kind = inventoryRef.current[index];
-    if (!kind) return;
-    const p = playerRef.current;
-
-    const newInv = inventoryRef.current.slice();
-    newInv[index] = null;
-    inventoryRef.current = newInv;
-    setInventory(newInv);
-
-    const angle = Math.random() * Math.PI * 2;
-    const dropDist = ITEM_PICKUP_RADIUS + 20;
-    groundItemIdCounter += 1;
-    const dropped: GroundItem = {
-      id: groundItemIdCounter,
-      kind,
-      pos: {
-        x: Math.max(20, Math.min(SCREEN_W - 20, p.pos.x + Math.cos(angle) * dropDist)),
-        y: Math.max(20, Math.min(PLAY_H - 20, p.pos.y + Math.sin(angle) * dropDist)),
-      },
-      createdAt: Date.now(),
-    };
-    const newItems = [...groundItemsRef.current, dropped];
-    groundItemsRef.current = newItems;
-    setGroundItems(newItems);
   };
 
   const handleRetry = () => {
     const freshPlayer = makePlayer();
     const freshAbilities = makeAbilities();
+    const freshEquipped = new Array(EQUIP_SLOTS).fill(null);
+    const freshBag = new Array(BAG_SLOTS).fill(null);
     playerRef.current = freshPlayer;
     mobsRef.current = [];
     alliesRef.current = [];
     abilitiesRef.current = freshAbilities;
     projectilesRef.current = [];
     hitFlashesRef.current = [];
-    waveRef.current = 1;
-    waveMobsToSpawnRef.current = mobCountForWave(1);
-    waveMobsSpawnedRef.current = 0;
-    waveActiveRef.current = true;
+    waveRef.current = 0;
+    waveActiveRef.current = false;
     gameOverRef.current = false;
     groundItemsRef.current = [];
-    inventoryRef.current = makeInventory();
+    equippedRef.current = freshEquipped;
+    bagRef.current = freshBag;
+    waveQueueRef.current = [];
     waveLootDroppedRef.current = false;
     spawnTimerRef.current = 0;
     lastTimeRef.current = null;
@@ -483,13 +678,18 @@ export default function App() {
     setAimPreviewPoint(null);
     setProjectiles([]);
     setHitFlashes([]);
-    setWave(1);
-    setWaveMobsToSpawn(mobCountForWave(1));
-    setWaveMobsSpawned(0);
-    setWaveActive(true);
+    setWave(0);
+    setWaveActive(false);
     setGameOver(false);
     setGroundItems([]);
-    setInventory(makeInventory());
+    setEquipped(freshEquipped);
+    setBag(freshBag);
+    setMaterials(0);
+    setTooltip(null);
+    setSkillsMenuOpen(false);
+    setInvMenuOpen(false);
+    setMobStatsOpen(false);
+    setDragging(null);
   };
 
   useEffect(() => {
@@ -510,21 +710,30 @@ export default function App() {
       const newProjectiles: Projectile[] = [];
       const newFlashes: HitFlash[] = [];
 
-      const inv = inventoryRef.current;
-      const dmgBonus = sumInventoryBonus(inv, 'dmg');
-      const atkSpdBonusPct = sumInventoryBonus(inv, 'atkspd');
-      const manaBonus = sumInventoryBonus(inv, 'mana');
-      const manaRegenBonus = sumInventoryBonus(inv, 'manaregen');
-      const hpBonus = sumInventoryBonus(inv, 'health');
-      const hpRegenBonus = sumInventoryBonus(inv, 'healthregen');
+      const eq = equippedRef.current;
+      const dmgBonus = equippedBonus(eq, 'dmg');
+      const atkSpdBonusPct = equippedBonus(eq, 'atkspd');
+      const manaBonus = equippedBonus(eq, 'mana');
+      const manaRegenBonus = equippedBonus(eq, 'manaregen');
+      const hpBonus = equippedBonus(eq, 'health');
+      const hpRegenBonus = equippedBonus(eq, 'healthregen');
       const effectiveMaxMana = MANA_MAX + manaBonus;
+
+      let damageToPlayer = 0;
 
       // Resolve in-flight projectiles: damage lands only on arrival
       const stillFlying: Projectile[] = [];
       for (const pr of projectilesRef.current) {
         if (now - pr.createdAt >= pr.duration) {
-          const target = currentMobs.find((m) => m.id === pr.targetId);
-          if (target && target.hp > 0) target.hp -= pr.damage;
+          if (pr.friendly && pr.targetKind === 'mob') {
+            const target = currentMobs.find((m) => m.id === pr.targetId);
+            if (target && target.hp > 0) target.hp -= pr.damage;
+          } else if (!pr.friendly && pr.targetKind === 'player') {
+            damageToPlayer += pr.damage;
+          } else if (!pr.friendly && pr.targetKind === 'ally') {
+            const ally = currentAllies.find((a) => a.id === pr.targetId);
+            if (ally) ally.hp -= pr.damage;
+          }
           newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...pr.to }, createdAt: now });
         } else {
           stillFlying.push(pr);
@@ -553,15 +762,24 @@ export default function App() {
       p.attackCooldown = Math.max(0, p.attackCooldown - dt);
       p.hasteTimer = Math.max(0, p.hasteTimer - dt);
 
-      // Ground item pickup (walk into it)
+      // Ground item pickup (walk into it) -> first free equipped slot, else bag
       const unexpiredItems = groundItemsRef.current.filter((it) => now - it.createdAt < ITEM_DESPAWN_MS);
-      const newInventory = inventoryRef.current.slice();
+      let newEquipped: Slot[] | null = null;
+      let newBag: Slot[] | null = null;
       const remainingItems: GroundItem[] = [];
       for (const it of unexpiredItems) {
         if (dist(p.pos, it.pos) <= ITEM_PICKUP_RADIUS) {
-          const freeSlot = newInventory.indexOf(null);
-          if (freeSlot !== -1) {
-            newInventory[freeSlot] = it.kind;
+          const eqArr = newEquipped || equippedRef.current;
+          const bagArr = newBag || bagRef.current;
+          const ei = eqArr.indexOf(null);
+          const bi = bagArr.indexOf(null);
+          if (ei !== -1 || bi !== -1) {
+            if (!newEquipped) {
+              newEquipped = equippedRef.current.slice();
+              newBag = bagRef.current.slice();
+            }
+            if (newEquipped.indexOf(null) !== -1) newEquipped[newEquipped.indexOf(null)] = it.item;
+            else newBag![newBag!.indexOf(null)] = it.item;
             continue;
           }
         }
@@ -575,32 +793,61 @@ export default function App() {
       const attackCooldownDuration =
         (PLAYER_ATTACK_COOLDOWN * (p.hasteTimer > 0 ? 0.5 : 1)) / (1 + atkSpdBonusPct);
 
-      let damageToPlayer = 0;
       let xpGain = 0;
 
-      // Mob AI: chase/attack nearest of player (uses the player's attack range as detection range) or allies
+      // Mob AI
       for (const m of currentMobs) {
         m.attackCooldown = Math.max(0, m.attackCooldown - dt);
+        const detect = m.type === 'boss' ? 99999 : m.type === 'ranged' ? 260 : RANGED_ATTACK_RANGE;
 
         let nearest: Target | null = null;
         let nearestDist = Infinity;
         const dToPlayer = dist(m.pos, p.pos);
-        if (dToPlayer <= playerAttackRange) {
+        if (dToPlayer <= detect) {
           nearest = { kind: 'player', pos: p.pos };
           nearestDist = dToPlayer;
         }
         for (const a of currentAllies) {
           if (a.hp <= 0) continue;
           const dToAlly = dist(m.pos, a.pos);
-          if (dToAlly <= MOB_CHASE_RANGE && dToAlly < nearestDist) {
+          if (dToAlly <= detect && dToAlly < nearestDist) {
             nearest = { kind: 'ally', id: a.id, pos: a.pos };
             nearestDist = dToAlly;
           }
         }
 
-        if (nearest) {
-          const d = nearestDist;
-          if (d <= MOB_ATTACK_RANGE) {
+        if (!nearest) {
+          m.pos = { x: m.pos.x, y: m.pos.y + MOB_SPEED * 0.5 * dt };
+          continue;
+        }
+
+        if (m.type === 'ranged') {
+          if (nearestDist <= MOB_RANGED_FIRE_RANGE) {
+            if (m.attackCooldown <= 0) {
+              newProjectiles.push({
+                id: ++projectileIdCounter,
+                from: { ...m.pos },
+                to: { ...nearest.pos },
+                createdAt: now,
+                duration: Math.max(80, (nearestDist / PROJECTILE_SPEED) * 1000),
+                color: '#ff8a80',
+                damage: m.damage,
+                friendly: false,
+                targetKind: nearest.kind === 'player' ? 'player' : 'ally',
+                targetId: nearest.id ?? -1,
+              });
+              m.attackCooldown = MOB_ATTACK_COOLDOWN;
+            }
+          } else {
+            const dx = nearest.pos.x - m.pos.x;
+            const dy = nearest.pos.y - m.pos.y;
+            const step = MOB_SPEED * dt;
+            const ratio = Math.min(1, step / nearestDist);
+            m.pos = { x: m.pos.x + dx * ratio, y: m.pos.y + dy * ratio };
+          }
+        } else {
+          const contact = MOB_ATTACK_RANGE + (m.radius - MOB_RADIUS);
+          if (nearestDist <= contact) {
             if (m.attackCooldown <= 0) {
               if (nearest.kind === 'player') {
                 damageToPlayer += m.damage;
@@ -618,11 +865,9 @@ export default function App() {
             const dx = nearest.pos.x - m.pos.x;
             const dy = nearest.pos.y - m.pos.y;
             const step = MOB_SPEED * dt;
-            const ratio = Math.min(1, step / d);
+            const ratio = Math.min(1, step / nearestDist);
             m.pos = { x: m.pos.x + dx * ratio, y: m.pos.y + dy * ratio };
           }
-        } else {
-          m.pos = { x: m.pos.x, y: m.pos.y + MOB_SPEED * 0.5 * dt };
         }
       }
 
@@ -643,6 +888,8 @@ export default function App() {
                 duration: Math.max(80, (dist(p.pos, target.pos) / PROJECTILE_SPEED) * 1000),
                 color: '#e1f5fe',
                 damage: playerDamage,
+                friendly: true,
+                targetKind: 'mob',
                 targetId: target.id,
               });
             }
@@ -651,7 +898,7 @@ export default function App() {
         } else {
           let hitAny = false;
           for (const m of currentMobs) {
-            if (m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange) {
+            if (m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange + (m.radius - MOB_RADIUS)) {
               m.hp -= playerDamage;
               hitAny = true;
               newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
@@ -661,7 +908,7 @@ export default function App() {
         }
       }
 
-      // Ally AI: chase/attack nearest mob
+      // Ally AI
       for (const a of currentAllies) {
         if (a.hp <= 0) continue;
         a.attackCooldown = Math.max(0, a.attackCooldown - dt);
@@ -686,6 +933,8 @@ export default function App() {
                     duration: Math.max(80, (dist(a.pos, mob.pos) / PROJECTILE_SPEED) * 1000),
                     color: '#d1c4e9',
                     damage: a.damage,
+                    friendly: true,
+                    targetKind: 'mob',
                     targetId: mob.id,
                   });
                 } else {
@@ -708,7 +957,7 @@ export default function App() {
       const survivorMobs: Mob[] = [];
       for (const m of currentMobs) {
         if (m.hp > 0) survivorMobs.push(m);
-        else xpGain += MOB_XP_REWARD;
+        else xpGain += m.type === 'boss' ? BOSS_XP_REWARD : MOB_XP_REWARD;
       }
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
 
@@ -726,24 +975,21 @@ export default function App() {
         }
       }
 
-      // Wave spawning: burst of mobs, then a break until the player starts the next wave
-      let newWaveMobsSpawned = waveMobsSpawnedRef.current;
+      // Wave spawning from queue
       let newWaveActive = waveActiveRef.current;
-      if (waveActiveRef.current && newWaveMobsSpawned < waveMobsToSpawnRef.current) {
+      if (waveActiveRef.current && waveQueueRef.current.length > 0) {
         spawnTimerRef.current += dt;
         if (spawnTimerRef.current >= WAVE_SPAWN_INTERVAL) {
           spawnTimerRef.current = 0;
-          survivorMobs.push(spawnMob(waveRef.current));
-          newWaveMobsSpawned += 1;
+          const type = waveQueueRef.current.shift()!;
+          survivorMobs.push(spawnMob(type, waveRef.current));
         }
-        if (newWaveMobsSpawned >= waveMobsToSpawnRef.current) {
-          newWaveActive = false;
-        }
+        if (waveQueueRef.current.length === 0) newWaveActive = false;
       }
 
-      // Wave cleared: drop a random item once per wave
-      if (!newWaveActive && survivorMobs.length === 0 && !waveLootDroppedRef.current) {
-        remainingItems.push(spawnRandomGroundItem());
+      // Wave cleared: drop an item once per wave
+      if (waveRef.current > 0 && !newWaveActive && survivorMobs.length === 0 && !waveLootDroppedRef.current) {
+        remainingItems.push(spawnLoot(waveRef.current));
         waveLootDroppedRef.current = true;
       }
 
@@ -766,22 +1012,26 @@ export default function App() {
       abilitiesRef.current = newAbilities;
       projectilesRef.current = survivorProjectiles;
       hitFlashesRef.current = survivorFlashes;
-      waveMobsSpawnedRef.current = newWaveMobsSpawned;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
       groundItemsRef.current = remainingItems;
-      inventoryRef.current = newInventory;
+      if (newEquipped) {
+        equippedRef.current = newEquipped;
+        bagRef.current = newBag!;
+      }
       setPlayer(p);
       setMobs(survivorMobs);
       setAllies(survivorAllies);
       setAbilities(newAbilities);
       setProjectiles(survivorProjectiles);
       setHitFlashes(survivorFlashes);
-      setWaveMobsSpawned(newWaveMobsSpawned);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
       setGroundItems(remainingItems);
-      setInventory(newInventory);
+      if (newEquipped) {
+        setEquipped(newEquipped);
+        setBag(newBag!);
+      }
       setTick((t) => t + 1);
 
       rafRef.current = requestAnimationFrame(step);
@@ -795,10 +1045,10 @@ export default function App() {
 
   const ability3Level = abilities[3].level;
   const playerAttackRange = ability3Level > 0 ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
-  const dmgBonusDisplay = sumInventoryBonus(inventory, 'dmg');
-  const atkSpdBonusPctDisplay = sumInventoryBonus(inventory, 'atkspd');
-  const manaBonusDisplay = sumInventoryBonus(inventory, 'mana');
-  const hpBonusDisplay = sumInventoryBonus(inventory, 'health');
+  const dmgBonusDisplay = equippedBonus(equipped, 'dmg');
+  const atkSpdBonusPctDisplay = equippedBonus(equipped, 'atkspd');
+  const manaBonusDisplay = equippedBonus(equipped, 'mana');
+  const hpBonusDisplay = equippedBonus(equipped, 'health');
   const effectiveMaxHp = player.maxHp + hpBonusDisplay;
   const effectiveMaxMana = MANA_MAX + manaBonusDisplay;
   const displayDamage = PLAYER_BASE_DAMAGE + ability3DamageBonus(ability3Level) + dmgBonusDisplay;
@@ -810,6 +1060,13 @@ export default function App() {
     2: { label: 'Cone', color: '#ff8a50' },
     3: { label: 'Ranged', color: '#26a69a' },
   };
+
+  function tooltipPositionStyle(x: number, y: number) {
+    const width = 240;
+    const left = Math.max(10, Math.min(SCREEN_W - width - 10, x - width / 2));
+    const bottom = Math.max(10, SCREEN_H - y + 14);
+    return { left, width, bottom };
+  }
 
   function renderCone(angleDeg: number) {
     const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
@@ -846,12 +1103,38 @@ export default function App() {
     );
   }
 
+  const shownWave = waveActive ? wave : wave + 1;
+  const bagCount = bag.filter((s) => s != null).length;
+
+  function renderInvSlot(key: string, item: Item | null, sizeStyle: any) {
+    const def = item ? ITEM_DEFS[item.kind] : null;
+    return (
+      <View
+        key={key}
+        {...registerSlot(key)}
+        onStartShouldSetResponder={() => true}
+        onResponderGrant={(e) => handleSlotGrant(key, e)}
+        onResponderMove={handleSlotMove}
+        onResponderRelease={(e) => handleSlotRelease(key, e)}
+        style={[sizeStyle, styles.invSlotEmpty, def && { backgroundColor: def.color, borderColor: 'transparent' }]}
+      >
+        {item && def && (
+          <>
+            <Text style={styles.invSlotName}>{def.name}</Text>
+            <Text style={styles.invSlotLevel}>{item.level}</Text>
+          </>
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.root}>
       <View style={styles.topBar}>
-        <Text style={styles.topBarText}>Wave {wave}</Text>
-        <Text style={styles.topBarText}>Mob HP {mobHpForWave(wave)}</Text>
-        <Text style={styles.topBarText}>Mob DMG {mobDamageForWave(wave)}</Text>
+        <Text style={styles.topBarText}>Wave {shownWave}</Text>
+        <Pressable onPress={() => setMobStatsOpen(true)} style={styles.topBarButton}>
+          <Text style={styles.topBarButtonText}>Mob Stats</Text>
+        </Pressable>
         {!waveActive && !gameOver && (
           <Pressable onPress={handleStartNextWave} style={styles.startWaveButton}>
             <Text style={styles.startWaveText}>Start Wave {wave + 1}</Text>
@@ -885,16 +1168,16 @@ export default function App() {
           renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
 
         {groundItems.map((it) => {
-          const meta = ITEM_META[it.kind];
+          const def = ITEM_DEFS[it.item.kind];
           return (
             <View
-              key={it.id}
+              key={it.item.id}
               style={[
                 styles.groundItem,
-                { left: it.pos.x - ITEM_SIZE / 2, top: it.pos.y - ITEM_SIZE / 2, backgroundColor: meta.color },
+                { left: it.pos.x - ITEM_SIZE / 2, top: it.pos.y - ITEM_SIZE / 2, backgroundColor: def.color },
               ]}
             >
-              <Text style={styles.groundItemText}>{meta.label}</Text>
+              <Text style={styles.groundItemText}>{it.item.level}</Text>
             </View>
           );
         })}
@@ -915,14 +1198,27 @@ export default function App() {
 
         <View style={[styles.player, { left: player.pos.x - PLAYER_RADIUS, top: player.pos.y - PLAYER_RADIUS }]} />
 
-        {mobs.map((m) => (
-          <View key={m.id}>
-            <View style={[styles.mob, { left: m.pos.x - MOB_RADIUS, top: m.pos.y - MOB_RADIUS }]} />
-            <View style={[styles.mobHpBarBg, { left: m.pos.x - MOB_RADIUS, top: m.pos.y - MOB_RADIUS - 8 }]}>
-              <View style={[styles.mobHpBarFill, { width: (MOB_RADIUS * 2) * (m.hp / m.maxHp) }]} />
+        {mobs.map((m) => {
+          const meta = MOB_TYPE_META[m.type];
+          return (
+            <View key={m.id}>
+              <View
+                style={{
+                  position: 'absolute',
+                  left: m.pos.x - m.radius,
+                  top: m.pos.y - m.radius,
+                  width: m.radius * 2,
+                  height: m.radius * 2,
+                  borderRadius: m.radius,
+                  backgroundColor: meta.color,
+                }}
+              />
+              <View style={[styles.mobHpBarBg, { left: m.pos.x - m.radius, top: m.pos.y - m.radius - 8, width: m.radius * 2 }]}>
+                <View style={[styles.mobHpBarFill, { width: m.radius * 2 * (m.hp / m.maxHp) }]} />
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
 
         {projectiles.map((pr) => {
           const progress = Math.min(1, (Date.now() - pr.createdAt) / pr.duration);
@@ -936,6 +1232,43 @@ export default function App() {
           const opacity = Math.max(0, 1 - age / HIT_FLASH_DURATION);
           return <View key={f.id} style={[styles.hitFlash, { left: f.pos.x - 10, top: f.pos.y - 10, opacity }]} />;
         })}
+      </View>
+
+      <View style={styles.quickCastBar}>
+        {([1, 2, 3] as AbilityId[])
+          .filter((id) => abilities[id].level > 0)
+          .map((id) => {
+            const ab = abilities[id];
+            const meta = abilityMeta[id];
+            const cost = ABILITY_MANA_COST[id];
+            const onCooldown = ab.cooldown > 0;
+            const canCast = !onCooldown && player.mana >= cost;
+            const isAiming = aimingAbility === id;
+
+            return (
+              <View key={id} style={styles.quickCastSlot}>
+                <Pressable
+                  onPress={() => handleAbilityPress(id)}
+                  style={[
+                    styles.quickCastButton,
+                    { backgroundColor: meta.color },
+                    !canCast && styles.abilityDim,
+                    isAiming && styles.abilityAiming,
+                    id === 3 && player.hasteTimer > 0 && styles.abilityHaste,
+                  ]}
+                >
+                  {onCooldown && (
+                    <View style={styles.quickCastCooldownOverlay}>
+                      <Text style={styles.cooldownText}>{Math.ceil(ab.cooldown)}</Text>
+                    </View>
+                  )}
+                </Pressable>
+                <Text style={styles.abilityCostText}>
+                  {cost} MP · {ABILITY_COOLDOWN_TIME[id]}s
+                </Text>
+              </View>
+            );
+          })}
       </View>
 
       <View style={styles.hud}>
@@ -963,72 +1296,201 @@ export default function App() {
           </View>
         </View>
         <View style={styles.hudStatsRow}>
-          <Text style={styles.hudStatText}>AP {player.abilityPoints}</Text>
           <Text style={styles.hudStatText}>DMG {displayDamage}</Text>
           <Text style={styles.hudStatText}>SPD {displayAtkSpeed.toFixed(1)}/s</Text>
         </View>
       </View>
 
-      <View style={styles.inventoryBar}>
-        {inventory.map((slot, index) => (
-          <Pressable
-            key={index}
-            onPress={() => handleInventorySlotPress(index)}
-            style={[styles.inventorySlot, slot != null && { backgroundColor: ITEM_META[slot].color, borderColor: 'transparent' }]}
-          >
-            {slot != null && <Text style={styles.inventorySlotText}>{ITEM_META[slot].label}</Text>}
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={styles.abilityBar}>
-        {([1, 2, 3] as AbilityId[]).map((id) => {
-          const ab = abilities[id];
-          const meta = abilityMeta[id];
-          const cost = ABILITY_MANA_COST[id];
-          const locked = ab.level <= 0;
-          const onCooldown = ab.cooldown > 0;
-          const canCast = !locked && !onCooldown && player.mana >= cost;
-          const isAiming = aimingAbility === id;
-          const canLevelUp = player.abilityPoints > 0 && ab.level < ABILITY_MAX_LEVEL;
-
-          return (
-            <View key={id} style={styles.abilitySlot}>
-              <Pressable
-                onPress={() => handleAbilityPress(id)}
-                style={[
-                  styles.abilityButton,
-                  { backgroundColor: meta.color },
-                  locked && styles.abilityLocked,
-                  !locked && !canCast && styles.abilityDim,
-                  isAiming && styles.abilityAiming,
-                  id === 3 && player.hasteTimer > 0 && styles.abilityHaste,
-                ]}
-              >
-                {onCooldown && (
-                  <View style={styles.cooldownOverlay}>
-                    <Text style={styles.cooldownText}>{Math.ceil(ab.cooldown)}</Text>
-                  </View>
-                )}
-                <View style={styles.pipsRow}>
-                  {[1, 2, 3, 4].map((pip) => (
-                    <View key={pip} style={[styles.pip, pip <= ab.level && styles.pipFilled]} />
-                  ))}
-                </View>
-              </Pressable>
-
-              {canLevelUp && (
-                <Pressable onPress={() => handleAbilityLevelUp(id)} style={styles.levelUpButton}>
-                  <Text style={styles.levelUpText}>+</Text>
-                </Pressable>
-              )}
-
-              <Text style={styles.abilityLabel}>{meta.label}</Text>
-              <Text style={styles.abilityCostText}>{cost} MP</Text>
+      <View style={styles.menuBar}>
+        <Pressable onPress={() => setSkillsMenuOpen(true)} style={styles.menuButton}>
+          <Text style={styles.menuButtonText}>Skills</Text>
+          {player.abilityPoints > 0 && (
+            <View style={styles.menuBadge}>
+              <Text style={styles.menuBadgeText}>{player.abilityPoints}</Text>
             </View>
-          );
-        })}
+          )}
+        </Pressable>
+        <Pressable onPress={() => setInvMenuOpen(true)} style={styles.menuButton}>
+          <Text style={styles.menuButtonText}>Inventory</Text>
+          {bagCount > 0 && (
+            <View style={[styles.menuBadge, { backgroundColor: '#90caf9' }]}>
+              <Text style={styles.menuBadgeText}>{bagCount}</Text>
+            </View>
+          )}
+        </Pressable>
       </View>
+
+      {/* ---- Skills menu ---- */}
+      {skillsMenuOpen && (
+        <View style={styles.menuOverlay}>
+          <Pressable
+            style={styles.menuBackdrop}
+            onPress={() => {
+              setSkillsMenuOpen(false);
+              dismissTooltip();
+            }}
+          />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle}>
+                Skills · {player.abilityPoints} point{player.abilityPoints === 1 ? '' : 's'} available
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setSkillsMenuOpen(false);
+                  dismissTooltip();
+                }}
+                style={styles.menuClose}
+              >
+                <Text style={styles.menuCloseText}>X</Text>
+              </Pressable>
+            </View>
+
+            {([1, 2, 3] as AbilityId[]).map((id) => {
+              const ab = abilities[id];
+              const meta = abilityMeta[id];
+              const locked = ab.level <= 0;
+              const canLevelUp = player.abilityPoints > 0 && ab.level < ABILITY_MAX_LEVEL;
+
+              return (
+                <View key={id} style={styles.listRow}>
+                  <View style={styles.listIconWrap}>
+                    <Pressable
+                      onPress={(e) =>
+                        showOrToggleTooltip(`skill-${id}`, abilityDescription(id, ab.level) + abilityStatsSuffix(id), e)
+                      }
+                      style={[styles.listIcon, { backgroundColor: meta.color }, locked && styles.abilityLocked]}
+                    >
+                      <View style={styles.pipsRow}>
+                        {[1, 2, 3, 4].map((pip) => (
+                          <View key={pip} style={[styles.pip, pip <= ab.level && styles.pipFilled]} />
+                        ))}
+                      </View>
+                    </Pressable>
+                    {canLevelUp && (
+                      <Pressable onPress={() => handleAbilityLevelUp(id)} style={styles.levelUpButton}>
+                        <Text style={styles.levelUpText}>+</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                  <View style={styles.listInfo}>
+                    <Text style={styles.listName}>
+                      {meta.label} · Lv {ab.level}/{ABILITY_MAX_LEVEL}
+                    </Text>
+                    <Text style={styles.listSub}>
+                      {ABILITY_MANA_COST[id]} MP · {ABILITY_COOLDOWN_TIME[id]}s CD
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* ---- Inventory menu ---- */}
+      {invMenuOpen && (
+        <View style={styles.menuOverlay}>
+          <Pressable
+            style={styles.menuBackdrop}
+            onPress={() => {
+              setInvMenuOpen(false);
+              dismissTooltip();
+            }}
+          />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle}>Inventory · Materials: {materials}</Text>
+              <Pressable
+                onPress={() => {
+                  setInvMenuOpen(false);
+                  dismissTooltip();
+                }}
+                style={styles.menuClose}
+              >
+                <Text style={styles.menuCloseText}>X</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.invSectionLabel}>Equipped</Text>
+            <View style={styles.equipRow}>
+              {equipped.map((item, i) => renderInvSlot(`equip-${i}`, item, styles.equipSlot))}
+            </View>
+
+            <View style={styles.invBottomRow}>
+              <View>
+                <Text style={styles.invSectionLabel}>Bag</Text>
+                <View style={styles.bagGrid}>
+                  {bag.map((item, i) => renderInvSlot(`bag-${i}`, item, styles.bagSlot))}
+                </View>
+              </View>
+
+              <View
+                {...registerSlot('salvage')}
+                style={styles.salvageArea}
+              >
+                <Text style={styles.salvageTitle}>Salvage</Text>
+                <Text style={styles.salvageSub}>drop item →{'\n'}materials = iLvl</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* ---- Mob Stats overlay ---- */}
+      {mobStatsOpen && (
+        <View style={styles.menuOverlay}>
+          <Pressable style={styles.menuBackdrop} onPress={() => setMobStatsOpen(false)} />
+          <View style={styles.menuPanel}>
+            <View style={styles.menuHeader}>
+              <Text style={styles.menuTitle}>Mob Stats · Wave {shownWave}</Text>
+              <Pressable onPress={() => setMobStatsOpen(false)} style={styles.menuClose}>
+                <Text style={styles.menuCloseText}>X</Text>
+              </Pressable>
+            </View>
+            {waveComposition(shownWave).map((row) => {
+              const meta = MOB_TYPE_META[row.type];
+              const stats = mobTypeStats(row.type, shownWave);
+              return (
+                <View key={row.type} style={styles.listRow}>
+                  <View style={[styles.mobSwatch, { backgroundColor: meta.color }]} />
+                  <View style={styles.listInfo}>
+                    <Text style={styles.listName}>
+                      {meta.name} · x{row.count}
+                    </Text>
+                    <Text style={styles.listSub}>
+                      HP {stats.hp} · DMG {stats.damage}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* ---- Dragging item ghost ---- */}
+      {dragging && (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.dragGhost,
+            { left: dragging.x - 20, top: dragging.y - 20, backgroundColor: ITEM_DEFS[dragging.kind].color },
+          ]}
+        >
+          <Text style={styles.invSlotName}>{ITEM_DEFS[dragging.kind].name}</Text>
+          <Text style={styles.invSlotLevel}>{dragging.level}</Text>
+        </View>
+      )}
+
+      {tooltip && (
+        <>
+          <Pressable style={styles.tooltipDismissOverlay} onPress={dismissTooltip} />
+          <View pointerEvents="none" style={[styles.tooltipBox, tooltipPositionStyle(tooltip.x, tooltip.y)]}>
+            <Text style={styles.tooltipText}>{tooltip.text}</Text>
+          </View>
+        </>
+      )}
 
       {gameOver && (
         <View style={styles.gameOverOverlay}>
@@ -1060,8 +1522,18 @@ const styles = StyleSheet.create({
   },
   topBarText: {
     color: '#fff',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
+  },
+  topBarButton: {
+    backgroundColor: '#37474f',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  topBarButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   startWaveButton: {
     backgroundColor: '#4caf50',
@@ -1092,13 +1564,6 @@ const styles = StyleSheet.create({
     borderRadius: PLAYER_RADIUS,
     backgroundColor: '#4fc3f7',
   },
-  mob: {
-    position: 'absolute',
-    width: MOB_RADIUS * 2,
-    height: MOB_RADIUS * 2,
-    borderRadius: MOB_RADIUS,
-    backgroundColor: '#e05555',
-  },
   ally: {
     position: 'absolute',
     width: ALLY_RADIUS * 2,
@@ -1108,7 +1573,6 @@ const styles = StyleSheet.create({
   },
   mobHpBarBg: {
     position: 'absolute',
-    width: MOB_RADIUS * 2,
     height: 4,
     backgroundColor: '#000',
   },
@@ -1138,8 +1602,86 @@ const styles = StyleSheet.create({
   },
   groundItemText: {
     color: '#1b1b2b',
-    fontSize: 8,
+    fontSize: 11,
     fontWeight: 'bold',
+  },
+  quickCastBar: {
+    height: QUICK_CAST_BAR_HEIGHT,
+    backgroundColor: '#111122',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  quickCastSlot: {
+    alignItems: 'center',
+  },
+  quickCastButton: {
+    width: 42,
+    height: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  quickCastCooldownOverlay: {
+    position: 'absolute',
+    width: 42,
+    height: 42,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  abilityLocked: {
+    opacity: 0.3,
+  },
+  abilityDim: {
+    opacity: 0.55,
+  },
+  abilityAiming: {
+    borderWidth: 3,
+    borderColor: '#ffeb3b',
+  },
+  abilityHaste: {
+    borderWidth: 3,
+    borderColor: '#69f0ae',
+  },
+  cooldownText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  pipsRow: {
+    position: 'absolute',
+    bottom: 3,
+    flexDirection: 'row',
+  },
+  pip: {
+    width: 6,
+    height: 6,
+    marginHorizontal: 1,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  pipFilled: {
+    backgroundColor: '#fff',
+  },
+  levelUpButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    backgroundColor: '#4caf50',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  levelUpText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  abilityCostText: {
+    color: '#888',
+    fontSize: 9,
+    marginTop: 3,
   },
   hud: {
     height: HUD_HEIGHT,
@@ -1194,109 +1736,216 @@ const styles = StyleSheet.create({
     height: 10,
     backgroundColor: '#4fc3f7',
   },
-  inventoryBar: {
-    height: INVENTORY_BAR_HEIGHT,
+  menuBar: {
+    height: MENU_BAR_HEIGHT,
     backgroundColor: '#0b0b18',
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
   },
-  inventorySlot: {
-    width: 32,
-    height: 32,
+  menuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#37474f',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  menuButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  menuBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ffd54f',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    paddingHorizontal: 4,
   },
-  inventorySlotText: {
+  menuBadgeText: {
     color: '#1b1b2b',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: 'bold',
   },
-  abilityBar: {
-    height: ABILITY_BAR_HEIGHT,
-    backgroundColor: '#0b0b18',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 22,
-  },
-  abilitySlot: {
-    alignItems: 'center',
-  },
-  abilityButton: {
-    width: 60,
-    height: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  abilityLocked: {
-    opacity: 0.3,
-  },
-  abilityDim: {
-    opacity: 0.55,
-  },
-  abilityAiming: {
-    borderWidth: 3,
-    borderColor: '#ffeb3b',
-  },
-  abilityHaste: {
-    borderWidth: 3,
-    borderColor: '#69f0ae',
-  },
-  cooldownOverlay: {
+  menuOverlay: {
     position: 'absolute',
-    width: 60,
-    height: 60,
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCREEN_H,
+  },
+  menuBackdrop: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCREEN_H,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  cooldownText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  pipsRow: {
+  menuPanel: {
     position: 'absolute',
-    bottom: 3,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#141428',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  menuHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  pip: {
-    width: 6,
-    height: 6,
-    marginHorizontal: 1,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+  menuTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
-  pipFilled: {
-    backgroundColor: '#fff',
+  menuClose: {
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#333',
   },
-  levelUpButton: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    width: 24,
-    height: 24,
-    backgroundColor: '#4caf50',
+  menuCloseText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 16,
+  },
+  listIconWrap: {
+    width: 56,
+    height: 56,
+  },
+  listIcon: {
+    width: 56,
+    height: 56,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  levelUpText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+  listInfo: {
+    flex: 1,
   },
-  abilityLabel: {
-    color: '#ccc',
+  listName: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  listSub: {
+    color: '#999',
     fontSize: 11,
     marginTop: 2,
   },
-  abilityCostText: {
-    color: '#888',
+  mobSwatch: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  invSectionLabel: {
+    color: '#bbb',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  equipRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 18,
+  },
+  invBottomRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  bagGrid: {
+    width: 3 * 52 + 2 * 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  invSlotEmpty: {
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  equipSlot: {
+    width: 56,
+    height: 56,
+  },
+  bagSlot: {
+    width: 52,
+    height: 52,
+  },
+  invSlotName: {
+    color: '#1b1b2b',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  invSlotLevel: {
+    color: '#1b1b2b',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  salvageArea: {
+    width: 96,
+    height: 3 * 52 + 2 * 8,
+    borderWidth: 2,
+    borderColor: '#ef5350',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239,83,80,0.08)',
+  },
+  salvageTitle: {
+    color: '#ef9a9a',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  salvageSub: {
+    color: '#c98',
     fontSize: 9,
-    marginTop: 1,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  dragGhost: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    opacity: 0.9,
+  },
+  tooltipDismissOverlay: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCREEN_H,
+  },
+  tooltipBox: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    padding: 10,
+  },
+  tooltipText: {
+    color: '#fff',
+    fontSize: 12,
   },
   gameOverOverlay: {
     position: 'absolute',
