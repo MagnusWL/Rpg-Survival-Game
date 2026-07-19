@@ -543,15 +543,23 @@ const MOB_COINS = 1;
 const BOSS_COINS = 5;
 
 /**
- * Where the sack sits, measured from the bottom left of the screen.
+ * Where the sack sits, measured from the bottom left of the screen. Nicolai's
+ * numbers, found with the sliders at a phone's width.
  *
- * Deliberately not inside one of the bars. The sack is 170 px tall and the
- * tallest bar is 84, and the engine crops rather than squashes when the box is
- * the wrong shape -- so it floats over them and its foot is placed by eye.
+ * It floats over the bars rather than sitting in one: the sack is 170 px tall
+ * at full size and the tallest bar is 84, and the engine crops rather than
+ * squashes when the box is the wrong shape. As placed, its foot is in the
+ * quick-cast bar and it reaches about 80 px up into the field.
+ *
+ * Two things these numbers carry with them. 165 puts the sack's middle at 195,
+ * which is the middle of a 390 px screen exactly -- so it is centred there and
+ * nowhere else. And 60 is below the 96 the kit asks for, so the art is scaled
+ * down and the pixel grid softens; the kit's own Doomscroller makes the same
+ * trade at 64, for the same reason, which is room.
  */
-const COINSACK_LEFT = 8;
-const COINSACK_BOTTOM = 8;
-const COINSACK_WIDTH = 96;
+const COINSACK_LEFT = 165;
+const COINSACK_BOTTOM = 181;
+const COINSACK_WIDTH = 60;
 
 // Temporary on-screen sliders for placing it. Set to false once the numbers are
 // settled; the panel and its state then cost nothing.
