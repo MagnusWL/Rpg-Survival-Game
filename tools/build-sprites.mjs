@@ -21,14 +21,18 @@ const SRC_DIR = path.join(ROOT, 'Grafik', 'Knight');
 const OUT_DIR = path.join(ROOT, 'assets', 'sprites', 'knight');
 
 const SRC_CELL = 128;
-const OUT_CELL = 96; // must match SPRITE_FRAME in App.tsx
+// Output at source resolution. Downscaling to 96 only bought 16-25% on file
+// size -- PNG does not shrink linearly with pixel count on art this detailed --
+// and cost sharpness at every display size. Lower this if bundle size ever
+// starts to matter more than crispness; App.tsx scales independently.
+const OUT_CELL = 128; // must match SPRITE_CELL in App.tsx
 const COLS = 15;
 const ROWS = 8;
 
-// Only what the game actually renders today. PLAYER_SPEED is a constant 220 px/s
-// with no slow-walk state, so 'Walk' would ship as dead weight -- add it back the
-// day movement gains a second speed. Add more here as animations get used.
-const SHEETS = ['Idle', 'Run'];
+// Only what the game actually renders today. 'Walk' stays out because
+// PLAYER_SPEED is a constant 220 px/s with no slow-walk state; 'Die' stays out
+// because the game loop stops simulating on death, so it would freeze on frame 0.
+const SHEETS = ['Idle', 'Run', 'Melee', 'TakeDamage'];
 
 mkdirSync(OUT_DIR, { recursive: true });
 

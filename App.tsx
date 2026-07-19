@@ -27,18 +27,37 @@ const PLAYER_SPEED = 220; // px/sec
 // --- Knight sprite sheets -------------------------------------------------
 // Built by tools/build-sprites.mjs from the raw art in Grafik/Knight.
 // Each sheet is a 15x8 grid: columns are animation frames, rows are facings.
-const SPRITE_FRAME = 96; // must match OUT_CELL in tools/build-sprites.mjs
+const SPRITE_CELL = 128; // must match OUT_CELL in tools/build-sprites.mjs
 const SPRITE_COLS = 15;
 const SPRITE_ROWS = 8;
 
-type AnimName = 'idle' | 'run';
+// How big the knight is drawn, independent of the art's resolution. Tune freely:
+// at 128 the sheets render pixel-for-pixel, above that they upscale.
+const PLAYER_SPRITE_SIZE = 128;
 
-const KNIGHT_SHEETS: Record<AnimName, ImageSourcePropType> = {
-  idle: require('./assets/sprites/knight/idle.png'),
-  run: require('./assets/sprites/knight/run.png'),
+type AnimName = 'idle' | 'run' | 'attack' | 'hurt';
+
+type AnimDef = {
+  sheet: ImageSourcePropType;
+  fps: number;
+  /** Looping animations repeat forever; one-shots hold their last frame. */
+  loop: boolean;
 };
 
-const ANIM_FPS: Record<AnimName, number> = { idle: 10, run: 16 };
+const ANIMS: Record<AnimName, AnimDef> = {
+  idle: { sheet: require('./assets/sprites/knight/idle.png'), fps: 10, loop: true },
+  run: { sheet: require('./assets/sprites/knight/run.png'), fps: 16, loop: true },
+  attack: { sheet: require('./assets/sprites/knight/melee.png'), fps: 24, loop: false },
+  hurt: { sheet: require('./assets/sprites/knight/takedamage.png'), fps: 22, loop: false },
+};
+
+const animDuration = (anim: AnimName) => SPRITE_COLS / ANIMS[anim].fps;
+
+/** Column of the sheet to draw. One-shots stop on the last frame rather than wrapping. */
+function animColumn(anim: AnimName, animTime: number) {
+  const frame = Math.floor(animTime * ANIMS[anim].fps);
+  return ANIMS[anim].loop ? frame % SPRITE_COLS : Math.min(frame, SPRITE_COLS - 1);
+}
 
 // Row order going down each sheet is E, SE, S, SW, W, NW, N, NE -- one 45 degree
 // step clockwise per row, starting at east. Established by driving the game and
@@ -1011,11 +1030,9 @@ export default function App() {
         }
       }
 
-      // Advance the sprite animation. Restarting the clock on a change keeps a
-      // switch from landing mid-cycle on a frame the new animation never uses.
-      const nextAnim: AnimName = moving ? 'run' : 'idle';
-      p.animTime = p.anim === nextAnim ? p.animTime + dt : 0;
-      p.anim = nextAnim;
+      // The animation itself is chosen further down, once this frame's attacks
+      // and incoming damage are known.
+      p.animTime += dt;
 
       p.pos.x = Math.max(PLAYER_RADIUS, Math.min(SCREEN_W - PLAYER_RADIUS, p.pos.x));
       p.pos.y = Math.max(PLAYER_RADIUS, Math.min(PLAY_H - PLAYER_RADIUS, p.pos.y));
@@ -1137,6 +1154,7 @@ export default function App() {
       }
 
       // Player attack: melee hits everything in range instantly, ranged fires projectiles
+      let playerAttacked = false;
       if (p.attackCooldown <= 0) {
         if (isRangedAttack) {
           const candidates = currentMobs
@@ -1159,6 +1177,7 @@ export default function App() {
               });
             }
             p.attackCooldown = attackCooldownDuration;
+            playerAttacked = true;
           }
         } else {
           let hitAny = false;
@@ -1170,7 +1189,10 @@ export default function App() {
               newFloatingTexts.push(makeFloatingText(`-${Math.round(playerDamage)}`, m.pos, DAMAGE_TEXT_COLOR, now));
             }
           }
-          if (hitAny) p.attackCooldown = attackCooldownDuration;
+          if (hitAny) {
+            p.attackCooldown = attackCooldownDuration;
+            playerAttacked = true;
+          }
         }
       }
 
@@ -1234,6 +1256,27 @@ export default function App() {
       const survivorAllies = currentAllies.filter((a) => a.hp > 0);
 
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
+
+      // Pick the animation now that this frame's attacks and damage are known.
+      // A one-shot owns the sprite until it finishes, so a swing plays out
+      // instead of being cut off the moment the knight starts moving again.
+      // Getting hit is the exception -- it interrupts anything, including
+      // itself, so repeated blows keep flinching rather than freezing.
+      const oneShotBusy = !ANIMS[p.anim].loop && p.animTime < animDuration(p.anim);
+      let nextAnim: AnimName = p.anim;
+      let restartAnim = false;
+      if (damageToPlayer > 0) {
+        nextAnim = 'hurt';
+        restartAnim = true;
+      } else if (!oneShotBusy) {
+        nextAnim = playerAttacked ? 'attack' : moving ? 'run' : 'idle';
+        // Any freshly triggered one-shot restarts, including a second swing
+        // straight after the first -- without this it would stay parked on the
+        // last frame, since the name alone has not changed.
+        restartAnim = nextAnim !== p.anim || !ANIMS[nextAnim].loop;
+      }
+      if (restartAnim) p.animTime = 0;
+      p.anim = nextAnim;
 
       if (xpGain > 0) {
         p.xp += xpGain;
@@ -1573,19 +1616,20 @@ export default function App() {
               // Anchored on the sprite's feet rather than its centre, so the
               // knight stands on pos instead of hovering over it. Every anim
               // shares the same 96px box, so he does not jump when it changes.
-              left: player.pos.x - SPRITE_FRAME / 2,
-              top: player.pos.y + PLAYER_RADIUS - SPRITE_FRAME,
+              left: player.pos.x - PLAYER_SPRITE_SIZE / 2,
+              top: player.pos.y + PLAYER_RADIUS - PLAYER_SPRITE_SIZE,
             },
           ]}
         >
           <Image
-            source={KNIGHT_SHEETS[player.anim]}
+            source={ANIMS[player.anim].sheet}
             style={{
               position: 'absolute',
-              width: SPRITE_FRAME * SPRITE_COLS,
-              height: SPRITE_FRAME * SPRITE_ROWS,
-              left: -SPRITE_FRAME * (Math.floor(player.animTime * ANIM_FPS[player.anim]) % SPRITE_COLS),
-              top: -SPRITE_FRAME * player.facing,
+              // The whole sheet is scaled, so one cell lands exactly on the clip box.
+              width: PLAYER_SPRITE_SIZE * SPRITE_COLS,
+              height: PLAYER_SPRITE_SIZE * SPRITE_ROWS,
+              left: -PLAYER_SPRITE_SIZE * animColumn(player.anim, player.animTime),
+              top: -PLAYER_SPRITE_SIZE * player.facing,
             }}
           />
         </View>
@@ -1966,8 +2010,8 @@ const styles = StyleSheet.create({
   },
   playerSprite: {
     position: 'absolute',
-    width: SPRITE_FRAME,
-    height: SPRITE_FRAME,
+    width: PLAYER_SPRITE_SIZE,
+    height: PLAYER_SPRITE_SIZE,
     overflow: 'hidden', // clips the sheet down to the single current frame
   },
   ally: {
