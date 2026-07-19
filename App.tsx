@@ -114,6 +114,17 @@ const SFX_VOLUME = 0.6;
  */
 const KILL_SFX_CHANCE = 0.3;
 
+/**
+ * How long after a swing begins before its sound plays.
+ *
+ * The melee animation spends its first five frames drawing the sword back and
+ * only brings the blade round at frames 7-9, around 300 ms in. Firing at frame
+ * zero put the sound on the wind-up, well before anything visibly happened.
+ * The clips reach full level about 40 ms in, so starting here lands the body of
+ * the sound across the visible strike.
+ */
+const SWING_SOUND_AT = 0.25; // seconds
+
 /** Fire and forget. Audio is a garnish -- it must never break the game loop. */
 function playSfx(player: AudioPlayer | undefined) {
   if (!player) return;
@@ -820,6 +831,12 @@ export default function App() {
   const killSoundsRef = useRef(killSounds);
   killSoundsRef.current = killSounds;
 
+  // A swing's sound is held back until the blade comes round. These carry that
+  // pending sound between frames. They are refs rather than player state because
+  // nothing about them belongs in a saved run.
+  const swingSoundTimerRef = useRef(0);
+  const swingSoundIsKillRef = useRef(false);
+
   playerRef.current = player;
   mobsRef.current = mobs;
   alliesRef.current = allies;
@@ -1479,12 +1496,26 @@ export default function App() {
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
 
       if (playerAttacked) {
+        // Queue the sound rather than playing it now -- see SWING_SOUND_AT.
+        // Which clip it will be is decided here, while we still know whether
+        // this blow killed anything.
+        //
         // A killing blow sometimes earns the heavier combo. It replaces the
-        // swing rather than layering over it -- both at once just muddies, and
+        // swing rather than layering over it: both at once just muddies, and
         // the combo already opens on a strike of its own.
-        const useKill = anyMobDied && Math.random() < KILL_SFX_CHANCE;
-        const pool = useKill ? killSoundsRef.current : attackSoundsRef.current;
-        playSfx(pool[Math.floor(Math.random() * pool.length)]);
+        swingSoundTimerRef.current = SWING_SOUND_AT;
+        swingSoundIsKillRef.current = anyMobDied && Math.random() < KILL_SFX_CHANCE;
+      }
+
+      if (swingSoundTimerRef.current > 0) {
+        swingSoundTimerRef.current -= dt;
+        if (swingSoundTimerRef.current <= 0) {
+          // Counted down on its own rather than read off the animation, so a
+          // swing that gets interrupted by a hit still makes its sound. In a
+          // scrum that interruption is constant, and silent swings felt broken.
+          const pool = swingSoundIsKillRef.current ? killSoundsRef.current : attackSoundsRef.current;
+          playSfx(pool[Math.floor(Math.random() * pool.length)]);
+        }
       }
 
       // Turn to face what he is hitting, but only from a standstill. While
