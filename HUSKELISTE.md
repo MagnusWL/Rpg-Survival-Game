@@ -180,3 +180,9 @@ kontakter (DEBUG_PERF i App.tsx) står klar til jagten.
   10 er i spillet (idle, walk, run, melee, takedamage, unsheath, kick, die,
   special1, special2). `Walk` (med sværd) er holdt ude fordi kun indgangen
   går, og der har han ikke trukket endnu.
+
+- **Melee2 er øremærket, ikke glemt** (Nicolai, 20. juli): gemt til "noget
+  kombo-halløj når helten bliver vildere" — altså sving-variation eller en
+  kombo-kæde, når den tid kommer. Det er hans næststørste ark (103×125 af
+  cellens 128, rører kanten — derfor beskæres celler aldrig), og møllen
+  tager den ind med én linje i `SHEETS`, når den skal bruges.
