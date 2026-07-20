@@ -81,6 +81,14 @@ ridderen.
 **Introen fortæller ikke at man kan trykke sig videre.** Det virker, men en
 spiller opdager det ikke af sig selv.
 
+**Et hak kan stadig snige sig ind selv med vejr OG fodtrinslyd slået fra**
+(Nicolais observation, 20. juli, under hak-jagten). Vejret var langt den
+største synder og er løst, men der er en rest. Mistænkte der endnu ikke er
+målt: møntsækkens matter.js-løkke (kører altid, også tom), affaldsindsamling
+fra spilløkkens objekter, zombie-ark der pakkes ud ved første møde med en ny
+fjendetype, og flash-laget der monteres ved træffere. Målepanelet og de to
+kontakter (DEBUG_PERF i App.tsx) står klar til jagten.
+
 ---
 
 ## Løst i mappen
