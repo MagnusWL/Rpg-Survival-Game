@@ -157,6 +157,13 @@ type AnimDef = {
    * a flourish should get out of the way the moment the player wants to go.
    */
   interruptedByMoving?: boolean;
+  /**
+   * Frames the animation dwells on: the picture holds for `seconds` on top of
+   * its ordinary 1/fps, then playback resumes at full rate. Frames count from
+   * 0 within the animation as played (after any skipped opening). Nicolai's
+   * tool for giving a cast its beats.
+   */
+  holds?: { frame: number; seconds: number }[];
 };
 
 /** Frames an animation actually plays, once any skipped opening is taken off. */
@@ -249,6 +256,12 @@ const ANIMS: Record<AnimName, AnimDef> = {
     fps: 18,
     loop: false,
     interruptedByMoving: true,
+    // Nicolai's beats, 20 July: a breath on the 7th picture and another on
+    // the 13th (frames 6 and 12 counted from 0) before the rest plays out.
+    holds: [
+      { frame: 6, seconds: 0.2 },
+      { frame: 12, seconds: 0.2 },
+    ],
   },
   ancestor: {
     sheet: require('./assets/sprites/knight/special2.png'),
@@ -868,7 +881,9 @@ const ALL_SHEETS: number[] = [
 const MOB_SPRITE_SIZE = 128;
 const MOB_SPRITE_FOOT_OFFSET = 44;
 
-const animDuration = (a: AnimDef) => animSpan(a) / a.fps;
+/** Seconds an animation takes to play once, any held frames included. */
+const animDuration = (a: AnimDef) =>
+  animSpan(a) / a.fps + (a.holds?.reduce((s, h) => s + h.seconds, 0) ?? 0);
 
 // --- Sound ---------------------------------------------------------------
 // Built by tools/build-sounds.mjs from the raw pack in Lyde/.
@@ -958,10 +973,26 @@ function playSfx(player: AudioPlayer | undefined) {
   }
 }
 
-/** Column of the sheet to draw. One-shots stop on the last frame rather than wrapping. */
+/**
+ * Column of the sheet to draw. One-shots stop on the last frame rather than
+ * wrapping. With `holds`, time is walked frame by frame -- each spends its
+ * 1/fps plus whatever hold it carries -- so a held picture simply lasts
+ * longer while everything before and after runs at the ordinary rate.
+ */
 function animColumn(a: AnimDef, animTime: number) {
   const from = a.from ?? 0;
   const span = animSpan(a);
+  if (a.holds?.length) {
+    let t = a.loop ? animTime % animDuration(a) : animTime;
+    let frame = 0;
+    while (frame < span - 1) {
+      const dwell = 1 / a.fps + (a.holds.find((h) => h.frame === frame)?.seconds ?? 0);
+      if (t < dwell) break;
+      t -= dwell;
+      frame++;
+    }
+    return from + frame;
+  }
   const frame = Math.floor(animTime * a.fps);
   return from + (a.loop ? frame % span : Math.min(frame, span - 1));
 }
