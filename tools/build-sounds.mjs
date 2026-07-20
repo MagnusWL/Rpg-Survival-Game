@@ -25,7 +25,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC_DIR = path.join(ROOT, 'Lyde');
 const OUT_DIR = path.join(ROOT, 'assets', 'sounds');
 
-import { RATE, PEAK_DB, EQ, SOUNDS, trimFilters, eqFilters } from './sound-config.mjs';
+import { RATE, PEAK_DB, EQ, SOUNDS, trimFilters, eqFilters, clipFilters } from './sound-config.mjs';
 
 function ffmpegAvailable() {
   try {
@@ -44,8 +44,13 @@ if (!ffmpegAvailable()) {
 
 mkdirSync(OUT_DIR, { recursive: true });
 
-/** The house treatment, unless a clip brought its own EQ. */
-const chainFor = (eq) => [...trimFilters(), ...eqFilters(eq ?? EQ)].join(',');
+/**
+ * The house treatment, unless a clip brought its own EQ.
+ *
+ * Any explicit cut comes first, so a source that is a long take gets reduced to
+ * the part that is wanted before anything else looks at it.
+ */
+const chainFor = (eq, clip) => [...clipFilters(clip), ...trimFilters(), ...eqFilters(eq ?? EQ)].join(',');
 
 /**
  * Measures the loudest sample after the chain, so the gain can be exact.
@@ -68,13 +73,13 @@ let totalAfter = 0;
 // Every clip is measured before any is written, because a group has to be
 // levelled as a whole and that cannot be known one file at a time.
 const jobs = [];
-for (const { out, src, level = 0, eq, group } of SOUNDS) {
+for (const { out, src, level = 0, eq, group, clip } of SOUNDS) {
   const inPath = path.join(SRC_DIR, src);
   if (!existsSync(inPath)) {
     console.error(`MANGLER: ${src}`);
     continue;
   }
-  const chain = chainFor(eq);
+  const chain = chainFor(eq, clip);
   jobs.push({ out, src, level, eq, group, inPath, chain, peak: measurePeakDb(inPath, chain) });
 }
 

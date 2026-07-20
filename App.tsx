@@ -1419,6 +1419,20 @@ export default function App() {
   // 22 s loop out of a 105 s field recording -- see AMBIENCE in sound-config.
   const rainAmbience = useAudioPlayer(require('./assets/music/rain.mp3'));
 
+  // Starting a run. All four sound together rather than one being chosen, which
+  // is why each is 6 dB down -- they are one sound in four pieces, not a pool.
+  const menuPressSounds = [
+    useAudioPlayer(require('./assets/sounds/menu-press-1.wav')),
+    useAudioPlayer(require('./assets/sounds/menu-press-2.wav')),
+    useAudioPlayer(require('./assets/sounds/menu-press-3.wav')),
+    useAudioPlayer(require('./assets/sounds/menu-press-4.wav')),
+  ];
+
+  /** The whole press, all four pieces struck together. */
+  const playMenuPress = () => {
+    for (const piece of menuPressSounds) playSfx(piece);
+  };
+
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
@@ -2641,15 +2655,31 @@ export default function App() {
         <View style={styles.menuScreen}>
           <Text style={styles.menuScreenTitle}>RPG Survival</Text>
           <Pressable
-            onPress={() => hasSaves && setScreen('continue')}
+            onPress={() => {
+              if (!hasSaves) return;
+              playMenuPress();
+              setScreen('continue');
+            }}
             style={[styles.menuBigButton, !hasSaves && styles.menuBigButtonDisabled]}
           >
             <Text style={styles.menuBigButtonText}>Continue Run{hasSaves ? ` (${savedRuns.length})` : ''}</Text>
           </Pressable>
-          <Pressable onPress={handleStartNewRun} style={styles.menuBigButton}>
+          <Pressable
+            onPress={() => {
+              playMenuPress();
+              handleStartNewRun();
+            }}
+            style={styles.menuBigButton}
+          >
             <Text style={styles.menuBigButtonText}>Start New Run</Text>
           </Pressable>
-          <Pressable onPress={handleStartTestRun} style={styles.menuBigButton}>
+          <Pressable
+            onPress={() => {
+              playMenuPress();
+              handleStartTestRun();
+            }}
+            style={styles.menuBigButton}
+          >
             <Text style={styles.menuBigButtonText}>Start Test Run</Text>
           </Pressable>
         </View>

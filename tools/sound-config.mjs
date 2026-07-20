@@ -147,6 +147,44 @@ export const SOUNDS = [
     level: -20,
     eq: { bass: 0, mid: 0, treble: 0 },
   })),
+
+  // Pressing RESCUE HER on the menu. All four sound at once, which is why they
+  // sit 6 dB down: four uncorrelated sounds together land about 6 dB above any
+  // one of them, so this puts the pile where a single clip would have been.
+  //
+  // Three arrived as long takes with the wanted part at the front, and said so
+  // in their filenames rather than their length -- "the first two seconds" on a
+  // sixty-nine second file is an instruction. Clipped accordingly. The fourth
+  // came ready.
+  {
+    out: 'menu-press-1',
+    src: 'menu/492254__soundflakes__tyrael-sword-slice-flesh-02.wav',
+    group: 'menu',
+    level: -6,
+  },
+  {
+    out: 'menu-press-2',
+    src: 'menu/første 2 sekunder.wav',
+    clip: { to: 2 },
+    group: 'menu',
+    level: -6,
+  },
+  {
+    out: 'menu-press-3',
+    src: 'menu/2 sekunder fade ud.wav',
+    clip: { to: 2, fade: 0.6 },
+    group: 'menu',
+    level: -6,
+  },
+  {
+    // Discrete hits with silence between them; the first is all of it that is
+    // wanted, and it is over inside a second.
+    out: 'menu-press-4',
+    src: 'menu/første bid af lyd.wav',
+    clip: { to: 1.2 },
+    group: 'menu',
+    level: -6,
+  },
 ];
 
 // --- Music ---------------------------------------------------------------
@@ -215,6 +253,21 @@ export const AMBIENCE = [
     crossfade: 3,
   },
 ];
+
+/**
+ * Takes a piece off the front of a recording, optionally fading it out.
+ *
+ * For sources that are long takes with the wanted sound at the start -- the
+ * menu press arrived as three files of 50 to 70 seconds whose names say which
+ * part to use. Runs before the silence trim, so "the first two seconds" means
+ * two seconds of the file and any quiet inside that still comes off.
+ */
+export function clipFilters(clip) {
+  if (!clip) return [];
+  const out = [`atrim=0:${clip.to}`, 'asetpts=PTS-STARTPTS'];
+  if (clip.fade) out.push(`afade=t=out:curve=qsin:st=${clip.to - clip.fade}:d=${clip.fade}`);
+  return out;
+}
 
 /**
  * Strips leading and trailing quiet. Beyond size, this is a timing fix: the
