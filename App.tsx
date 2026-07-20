@@ -131,6 +131,13 @@ type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn';
 
 type AnimDef = {
   sheet: ImageSourcePropType;
+  /**
+   * The rim light for this animation, frame for frame: white, with alpha
+   * carrying how strongly each pixel is lit. Built by tools/build-sprites.mjs
+   * from the sheet's own outline, so it can never reach past it. Only the
+   * knight has one; the mobs leave it out and are drawn without.
+   */
+  rim?: ImageSourcePropType;
   fps: number;
   /** Looping animations repeat forever; one-shots hold their last frame. */
   loop: boolean;
@@ -163,12 +170,38 @@ const ATTACK_FROM = 5;
 const ATTACK_STRIKE_FRAME = 8;
 
 const ANIMS: Record<AnimName, AnimDef> = {
-  idle: { sheet: require('./assets/sprites/knight/idle.png'), fps: 10, loop: true },
+  idle: {
+    sheet: require('./assets/sprites/knight/idle.png'),
+    rim: require('./assets/sprites/knight/idle-rim.png'),
+    fps: 10,
+    loop: true,
+  },
   // Only the entrance walks. Ordinary movement is a run, and always has been.
-  walk: { sheet: require('./assets/sprites/knight/walk.png'), fps: 12, loop: true },
-  run: { sheet: require('./assets/sprites/knight/run.png'), fps: 16, loop: true },
-  attack: { sheet: require('./assets/sprites/knight/melee.png'), fps: 24, loop: false, from: ATTACK_FROM },
-  hurt: { sheet: require('./assets/sprites/knight/takedamage.png'), fps: 22, loop: false },
+  walk: {
+    sheet: require('./assets/sprites/knight/walk.png'),
+    rim: require('./assets/sprites/knight/walk-rim.png'),
+    fps: 12,
+    loop: true,
+  },
+  run: {
+    sheet: require('./assets/sprites/knight/run.png'),
+    rim: require('./assets/sprites/knight/run-rim.png'),
+    fps: 16,
+    loop: true,
+  },
+  attack: {
+    sheet: require('./assets/sprites/knight/melee.png'),
+    rim: require('./assets/sprites/knight/melee-rim.png'),
+    fps: 24,
+    loop: false,
+    from: ATTACK_FROM,
+  },
+  hurt: {
+    sheet: require('./assets/sprites/knight/takedamage.png'),
+    rim: require('./assets/sprites/knight/takedamage-rim.png'),
+    fps: 22,
+    loop: false,
+  },
   // How a run opens: he arrives empty-handed, reaches back for the hilt around
   // frame 5, sweeps the blade out by 12 and settles into a guard that is nearly
   // the idle pose already, so it hands over without a jump.
@@ -177,6 +210,7 @@ const ANIMS: Record<AnimName, AnimDef> = {
   // wants to move should not be made to watch it.
   spawn: {
     sheet: require('./assets/sprites/knight/unsheathsword.png'),
+    rim: require('./assets/sprites/knight/unsheathsword-rim.png'),
     fps: 16,
     loop: false,
     interruptedByMoving: true,
@@ -286,6 +320,39 @@ const PLAYER_GLOW: GlowStyle = {
   foot: 6,
   blend: 'plus-lighter',
 };
+
+/**
+ * His other light: the moon, caught along the edge that faces it.
+ *
+ * The shape of it -- which edge, and how far in it reaches -- is baked into the
+ * -rim sheets by tools/build-sprites.mjs and needs a rebuild to change. What is
+ * here is what the game can decide as it draws, which is why it is these two
+ * that the tuning panel offers.
+ *
+ * Held as three numbers rather than a hex string only so a slider can take hold
+ * of each one.
+ */
+type RimStyle = {
+  /** Red, green, blue. The sheet is white, so this is the colour it becomes. */
+  color: [number, number, number];
+  /** 0 to 1, over and above the falloff already in the sheet's alpha. */
+  strength: number;
+  blend: BlendMode;
+};
+
+const RIM_STYLE: RimStyle = {
+  color: [198, 214, 255], // cold, against the warm glow at his feet
+  strength: 0.55,
+  // Screen only lightens, and reproduces exactly what baking the light into the
+  // sheet did: both come out at backdrop + strength x colour x (1 - backdrop).
+  blend: 'screen',
+};
+
+const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r}, ${g}, ${b})`;
+
+// On-screen sliders for the rim light, in the same spirit as the coin sack's:
+// on while the numbers are being decided, one word to switch off after.
+const DEBUG_RIM_TUNING = true;
 
 // --- Rain -----------------------------------------------------------------
 // Every drop is worked out from the clock rather than stored and stepped: given
@@ -497,6 +564,9 @@ const RETURN_MS = 560;
  */
 const ALL_SHEETS: number[] = [
   ...Object.values(ANIMS).map((a) => a.sheet),
+  // His light travels with him: pulled down with the sheet it belongs to, so a
+  // frame and its rim never arrive apart.
+  ...Object.values(ANIMS).flatMap((a) => (a.rim ? [a.rim] : [])),
   ...Object.values(MOB_ANIMS).map((a) => a.sheet),
   BLOOD_ANIM.sheet,
   BACKGROUND,
@@ -1036,6 +1106,7 @@ function SpriteSheet({
   left,
   top,
   flash,
+  rim,
 }: {
   anims: Record<string, AnimDef>;
   anim: string;
@@ -1049,6 +1120,11 @@ function SpriteSheet({
    * exactly, since it is the same frame drawn again in a single colour.
    */
   flash?: { color: string; opacity: number };
+  /**
+   * The moon on his edge. Only drawn for animations that were built with a rim
+   * sheet, which is the knight's and no one else's.
+   */
+  rim?: RimStyle;
 }) {
   const active = anims[anim];
   const activeRows = active ? active.rows ?? SPRITE_ROWS : SPRITE_ROWS;
@@ -1073,6 +1149,39 @@ function SpriteSheet({
           />
         );
       })}
+
+      {/* The light on his lit edge: the matching frame of the rim sheet, tinted
+          and faded as it is drawn. One more image, and only for whoever was
+          given rim sheets to begin with.
+
+          The blend goes on a wrapper rather than on the image, the way the
+          ground glow does it -- it has to mix with him, and an element that
+          blends is the one that has to hold the mode. */}
+      {rim && active?.rim && (
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: size,
+            height: size,
+            mixBlendMode: rim.blend,
+          }}
+        >
+          <Image
+            source={active.rim}
+            style={{
+              position: 'absolute',
+              width: size * SPRITE_COLS,
+              height: size * activeRows,
+              left: -size * animColumn(active, animTime),
+              top: -size * Math.min(facing, activeRows - 1),
+              opacity: rim.strength,
+              tintColor: rgb(rim.color),
+            }}
+          />
+        </View>
+      )}
 
       {/* The same frame again in one colour, laid on top. Only the active sheet
           is drawn twice, and only while a flash is running. */}
@@ -1424,6 +1533,16 @@ export default function App() {
   const [tuneSackLeft, setTuneSackLeft] = useState(COINSACK_LEFT);
   const [tuneSackBottom, setTuneSackBottom] = useState(COINSACK_BOTTOM);
   const [tuneSackWidth, setTuneSackWidth] = useState(COINSACK_WIDTH);
+
+  // Same arrangement for the rim light: the panel drives these while
+  // DEBUG_RIM_TUNING is on, and RIM_STYLE takes over when it goes off. Strength
+  // is held as a whole number because the slider deals in those.
+  const [tuneRimR, setTuneRimR] = useState(RIM_STYLE.color[0]);
+  const [tuneRimG, setTuneRimG] = useState(RIM_STYLE.color[1]);
+  const [tuneRimB, setTuneRimB] = useState(RIM_STYLE.color[2]);
+  const [tuneRimStrength, setTuneRimStrength] = useState(Math.round(RIM_STYLE.strength * 100));
+  const [tuneRimBlend, setTuneRimBlend] = useState<BlendMode>(RIM_STYLE.blend);
+
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
   const [waveActive, setWaveActive] = useState(false);
@@ -2913,6 +3032,13 @@ export default function App() {
   // say. Everything below reads from it.
   const glow = PLAYER_GLOW;
 
+  // And his moon edge, from the panel while it is up and from the constant
+  // after. Strength at zero simply draws nothing, so the sliders can take it
+  // away as well as set it.
+  const rim: RimStyle = DEBUG_RIM_TUNING
+    ? { color: [tuneRimR, tuneRimG, tuneRimB], strength: tuneRimStrength / 100, blend: tuneRimBlend }
+    : RIM_STYLE;
+
   // Breathes on the wall clock rather than the animation, so it keeps its own
   // slow rhythm whatever the knight happens to be doing.
   const glowSize =
@@ -3003,6 +3129,7 @@ export default function App() {
           size={PLAYER_SPRITE_SIZE}
           left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
           top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
+          rim={rim}
         />
       ),
     },
@@ -3321,7 +3448,9 @@ export default function App() {
 
       {/* --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING --- */}
       {DEBUG_COINSACK_TUNING && (
-        <View style={styles.tunePanel}>
+        // Swallows stray taps rather than letting them reach the field -- see
+        // the rim panel below.
+        <View style={styles.tunePanel} onStartShouldSetResponder={() => true}>
           <DebugSlider label="Fra venstre" value={tuneSackLeft} min={0} max={Math.round(SCREEN_W - 40)} onChange={setTuneSackLeft} />
           <DebugSlider label="Fra bunden" value={tuneSackBottom} min={-60} max={Math.round(SCREEN_H / 2)} onChange={setTuneSackBottom} />
           <DebugSlider label="Bredde" value={tuneSackWidth} min={48} max={260} onChange={setTuneSackWidth} />
@@ -3343,6 +3472,39 @@ export default function App() {
               (tuneSackWidth < SACK_MIN_W
                 ? `   <- under ${SACK_MIN_W}: hele billedet skaleres ned (${(tuneSackWidth / SACK_MIN_W).toFixed(2)}x)`
                 : '')}
+          </Text>
+        </View>
+      )}
+
+      {/* --- Temporary rim light tuning panel; delete with DEBUG_RIM_TUNING ---
+          Only colour and strength are here. Which edge the light falls on and
+          how far it reaches are the shape of the -rim sheets, and changing
+          those means running npm run build:sprites. */}
+      {DEBUG_RIM_TUNING && (
+        // Swallows anything that lands on it. Without this a tap on a label or
+        // on the panel's own background falls through to the field underneath
+        // and sends the knight walking off while his light is being set. The
+        // sliders inside still win, being deeper: the responder system offers
+        // the touch to the innermost view first.
+        <View style={styles.tunePanel} onStartShouldSetResponder={() => true}>
+          <DebugSlider label="Roed" value={tuneRimR} min={0} max={255} onChange={setTuneRimR} />
+          <DebugSlider label="Groen" value={tuneRimG} min={0} max={255} onChange={setTuneRimG} />
+          <DebugSlider label="Blaa" value={tuneRimB} min={0} max={255} onChange={setTuneRimB} />
+          <DebugSlider label="Styrke" value={tuneRimStrength} min={0} max={100} onChange={setTuneRimStrength} />
+          <View style={styles.tuneButtons}>
+            {(['screen', 'plus-lighter', 'normal'] as BlendMode[]).map((mode) => (
+              <Pressable
+                key={mode}
+                style={[styles.tuneButton, tuneRimBlend === mode && styles.tuneButtonOn]}
+                onPress={() => setTuneRimBlend(mode)}
+              >
+                <Text style={styles.tuneButtonText}>{mode}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={[styles.tuneSwatch, { backgroundColor: rgb([tuneRimR, tuneRimG, tuneRimB]) }]} />
+          <Text style={styles.tuneCode}>
+            {`color: [${tuneRimR}, ${tuneRimG}, ${tuneRimB}], strength: ${(tuneRimStrength / 100).toFixed(2)}, blend: '${tuneRimBlend}'`}
           </Text>
         </View>
       )}
@@ -4145,6 +4307,10 @@ const styles = StyleSheet.create({
   tuneValue: { width: 46, textAlign: 'right', color: '#fff', fontSize: 11, fontWeight: 'bold' },
   tuneButtons: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   tuneButton: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#3949ab' },
+  tuneButtonOn: { backgroundColor: '#4fc3f7' },
   tuneButtonText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  // The chosen colour on its own, since a rim two pixels wide is hard to read
+  // a slider against.
+  tuneSwatch: { height: 14, borderRadius: 4, marginTop: 6 },
   tuneCode: { marginTop: 6, color: '#ffe082', fontSize: 10 },
 });

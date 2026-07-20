@@ -56,20 +56,29 @@ const SHEETS = [
 ];
 
 /**
- * A rim light laid along the knight's lit edge, inside his own outline.
+ * The shape of the rim light on the knight -- where it falls, not what colour.
  *
- * Baked here rather than drawn by the game, because nothing the renderer can do
- * at runtime clips a layer to a sprite's silhouette. Blend modes do not -- they
- * change the colour where two layers meet but still paint where the one
- * underneath is empty -- so a runtime version would need a real mask, which is
- * web only. Baked, it costs nothing at all to draw and cannot spill.
+ * This writes a second sheet beside each of his, holding only the light: white,
+ * with the alpha channel carrying how strongly each pixel is lit. The game lays
+ * that over him and recolours it as it draws, which is what makes colour and
+ * strength adjustable while it runs.
+ *
+ * It is worked out here rather than at runtime because the light has to stay
+ * inside his outline, and nothing the renderer can do clips a layer to a
+ * sprite's silhouette -- blend modes change the colour where two layers meet
+ * but still paint where the one underneath is empty, so a live version would
+ * need a real mask, which is web only. Computed from his own alpha, the mask
+ * simply is his silhouette, so no clipping is needed at all.
  *
  * The light sits in the scene, not on him, so its direction is the same for
  * every one of the eight facings: he turns, the moon does not.
  *
+ * What lives where: direction and reach are baked into the shape below and need
+ * a rebuild. Colour and strength are the game's, in RIM_STYLE in App.tsx.
+ *
  * `toLight` points at the light in screen terms -- x right, y down -- so
  * [-1, -1] is over his left shoulder. `band` is how far the light reaches in
- * from the edge, in pixels at OUT_CELL. `strength` is 0 to 1.
+ * from the edge, in pixels at OUT_CELL.
  */
 const RIM = {
   enabled: true,
@@ -77,8 +86,6 @@ const RIM = {
   // He is only 35 to 42 px across inside the cell, so this is already a tenth
   // of his width. Four read as half of him being lit rather than an edge.
   band: 2,
-  color: [198, 214, 255], // cold, to read as moon against his warm ground glow
-  strength: 0.55,
   /**
    * What counts as him rather than as his shadow.
    *
@@ -102,21 +109,24 @@ const RIM = {
 };
 
 /**
- * Walks in from every lit edge and brightens what it passes, in place.
+ * Works out where the light falls and returns it as its own picture.
  *
  * For each pixel inside a figure it steps toward the light until it leaves the
  * figure. Leave within `band` pixels and the pixel is near a lit edge, so it is
- * lightened by how close it was; leave later, or not at all, and it is left
- * alone. That keeps the light strictly inside the outline -- it only ever
- * brightens pixels that were already the character -- so alpha is never touched
- * and the silhouette cannot grow.
+ * lit by how close it was; leave later, or not at all, and it stays dark. The
+ * result is white everywhere, with alpha carrying that strength -- so tinting
+ * it in the game gives the light a colour, and fading it gives it a level.
+ *
+ * Because every lit pixel was one of his to begin with, the mask can never
+ * reach past his outline however it is drawn.
  *
  * Steps that would cross into the neighbouring frame are treated as solid
  * rather than as empty space. A sheet is a grid of separate drawings, and
  * reading across the seam would light the edge of the cell instead of the edge
  * of the man standing in it.
  */
-function rimLight(data, width, height, cell, opts) {
+function rimMask(data, width, height, cell, opts) {
+  const mask = new Uint8ClampedArray(width * height * 4);
   const [lx, ly] = opts.toLight;
   const len = Math.hypot(lx, ly) || 1;
   const ux = lx / len;
@@ -149,16 +159,15 @@ function rimLight(data, width, height, cell, opts) {
       }
       if (!reach) continue;
 
-      // Brightest against the edge, gone by the far side of the band.
-      const amount = (1 - (reach - 1) / band) * opts.strength;
-      for (let c = 0; c < 3; c++) {
-        // Screen, which is how light adds: it can only lighten, and it cannot
-        // push past white however much of it lands.
-        const lit = opts.color[c] * amount;
-        data[i + c] = 255 - ((255 - data[i + c]) * (255 - lit)) / 255;
-      }
+      // Brightest against the edge, gone by the far side of the band. White,
+      // so whatever colour the game tints it with arrives undiluted.
+      mask[i] = 255;
+      mask[i + 1] = 255;
+      mask[i + 2] = 255;
+      mask[i + 3] = Math.round((1 - (reach - 1) / band) * 255);
     }
   }
+  return mask;
 }
 
 mkdirSync(OUT_DIR, { recursive: true });
@@ -186,19 +195,21 @@ for (const entry of SHEETS) {
   // Resize the whole sheet in one pass. Because every cell edge lands on an
   // exact multiple of OUT_CELL (128 -> 96 is a clean 3/4), no frame bleeds
   // into its neighbour.
-  let sheet = sharp(srcPath).resize(outW, outH, { kernel: 'lanczos3', fit: 'fill' });
+  const sheet = sharp(srcPath).resize(outW, outH, { kernel: 'lanczos3', fit: 'fill' });
+  await sheet.clone().png({ compressionLevel: 9, palette: false }).toFile(outPath);
 
-  // The rim goes on after the resize, so its band is measured in the pixels
-  // the game actually draws rather than in the source's.
+  // The light is read off the finished sheet, so its band is measured in the
+  // pixels the game actually draws rather than in the source's. He is left
+  // exactly as he was -- the light is a separate picture laid over him.
   if (RIM.enabled) {
-    const { data, info } = await sheet.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    rimLight(data, info.width, info.height, OUT_CELL, RIM);
-    sheet = sharp(data, {
-      raw: { width: info.width, height: info.height, channels: info.channels },
-    });
+    const { data, info } = await sheet.clone().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const mask = rimMask(data, info.width, info.height, OUT_CELL, RIM);
+    await sharp(Buffer.from(mask.buffer), {
+      raw: { width: info.width, height: info.height, channels: 4 },
+    })
+      .png({ compressionLevel: 9 })
+      .toFile(path.join(OUT_DIR, `${outName}-rim.png`));
   }
-
-  await sheet.png({ compressionLevel: 9, palette: false }).toFile(outPath);
 
   const before = statSync(srcPath).size;
   const after = statSync(outPath).size;
