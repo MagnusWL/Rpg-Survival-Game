@@ -91,14 +91,25 @@ export default function CoinSackView({
   left,
   bottom,
   width,
+  muted = false,
 }: {
   sackRef: { current: CoinSackHandle };
   left: number;
   bottom: number;
   width: number;
+  /**
+   * Silences the engine outright. Its soundOn flag alone is not enough -- the
+   * kit gates the clink, the spend and the chime on it but not the flip and
+   * landing samples -- so this also suspends its audio context, which carries
+   * every sound it makes.
+   */
+  muted?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<CoinSack | null>(null);
+  /** For the wake listener, which must not resume a deliberately muted sack. */
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
   const height = Math.round(width * SACK_ASPECT);
 
   useEffect(() => {
@@ -183,6 +194,10 @@ export default function CoinSackView({
      */
     const wake = () => {
       if (!sack) return;
+      // Not while deliberately muted -- this listener fires on every tap, and
+      // without the guard the first tap after muting would wake the sound
+      // straight back up.
+      if (mutedRef.current) return;
       sack._ensureAudio();
       if (sack.audio && sack.audio.state !== 'running') sack.audio.resume();
     };
@@ -206,6 +221,20 @@ export default function CoinSackView({
     if (Platform.OS !== 'web') return;
     engineRef.current?._resize();
   }, [width, height]);
+
+  // Belt and braces, per the note on the prop: the flag for the sounds that
+  // consult it, the suspended context for the ones that do not.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const sack = engineRef.current;
+    if (!sack) return;
+    sack.soundOn = !muted;
+    if (muted) {
+      sack.audio?.suspend();
+    } else if (sack.audio && sack.audio.state !== 'running') {
+      sack.audio.resume();
+    }
+  }, [muted]);
 
   if (Platform.OS !== 'web') return null;
 

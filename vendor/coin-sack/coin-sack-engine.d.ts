@@ -29,6 +29,13 @@ export declare class CoinSack {
    */
   _ensureAudio(): void;
 
-  readonly audio?: { state: string; resume(): Promise<void> };
+  /**
+   * The engine's own mute, from its options. It gates the clink, the spend
+   * and the chime -- but not the flip and landing samples, so muting for real
+   * also means suspending the audio context below.
+   */
+  soundOn: boolean;
+
+  readonly audio?: { state: string; resume(): Promise<void>; suspend(): Promise<void> };
   readonly _sampleBufs?: unknown[];
 }

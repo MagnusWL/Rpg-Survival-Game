@@ -1788,13 +1788,20 @@ export default function App() {
   // Music apart from the clips: it goes through its own players below, not
   // through playSfx, so it needs its own switch.
   const [musicOff, setMusicOff] = useState(false);
+  /**
+   * The master: everything at once. Clips, both music tracks, the rain
+   * ambience and the coin sack's own audio context -- the sack is the one
+   * the others cannot reach, since the kit plays through WebAudio of its own
+   * rather than through playSfx.
+   */
+  const [allSoundOff, setAllSoundOff] = useState(false);
   // The module flag follows the state rather than being set beside it, so the
   // two cannot drift apart -- a hot reload keeps module variables and resets
   // state, and setting both in the toggle left the label saying one thing and
   // playSfx doing the other.
   useEffect(() => {
-    SFX_KILLED = sfxOff;
-  }, [sfxOff]);
+    SFX_KILLED = sfxOff || allSoundOff;
+  }, [sfxOff, allSoundOff]);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
@@ -2075,9 +2082,9 @@ export default function App() {
     const quiet = screen === 'game' ? menuMusic : gameMusic;
     try {
       quiet.pause();
-      // The debug switch. Only the two music tracks -- the rain ambience below
-      // is weather, not music, and stays with the field.
-      if (musicOff) {
+      // The music switch takes the two tracks alone; the master takes those
+      // and everything below it too.
+      if (musicOff || allSoundOff) {
         playing.pause();
       } else {
         playing.loop = true;
@@ -2086,7 +2093,7 @@ export default function App() {
 
       // Weather belongs to the field, so it runs with a run and stops with it.
       // Nothing to cross-fade: it is quiet enough to simply start.
-      if (screen === 'game' && RAIN_ENABLED) {
+      if (screen === 'game' && RAIN_ENABLED && !allSoundOff) {
         rainAmbience.loop = true;
         rainAmbience.play();
       } else {
@@ -2095,7 +2102,7 @@ export default function App() {
     } catch {
       // music is decoration; never let it take the game down
     }
-  }, [screen, musicOff, gameMusic, menuMusic, rainAmbience]);
+  }, [screen, musicOff, allSoundOff, gameMusic, menuMusic, rainAmbience]);
 
   // ---- Tooltip helpers ----
   const tooltipOpenedAtRef = useRef(0);
@@ -3651,6 +3658,7 @@ export default function App() {
         left={DEBUG_COINSACK_TUNING ? tuneSackLeft : COINSACK_LEFT}
         bottom={DEBUG_COINSACK_TUNING ? tuneSackBottom : COINSACK_BOTTOM}
         width={DEBUG_COINSACK_TUNING ? tuneSackWidth : COINSACK_WIDTH}
+        muted={allSoundOff}
       />
 
       {/* --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING --- */}
@@ -3904,6 +3912,12 @@ export default function App() {
           whether the stutter left with it. Delete with DEBUG_PERF. */}
       {DEBUG_PERF && (
         <View style={styles.perfSwitchRow}>
+          <Pressable
+            onPress={() => setAllSoundOff((v) => !v)}
+            style={[styles.perfSwitch, allSoundOff && styles.perfSwitchOff]}
+          >
+            <Text style={styles.perfSwitchText}>{allSoundOff ? 'ALT LYD FRA' : 'alt lyd'}</Text>
+          </Pressable>
           <Pressable onPress={() => setSfxOff((v) => !v)} style={[styles.perfSwitch, sfxOff && styles.perfSwitchOff]}>
             <Text style={styles.perfSwitchText}>{sfxOff ? 'lyd FRA' : 'lyd til'}</Text>
           </Pressable>
