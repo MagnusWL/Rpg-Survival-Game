@@ -417,7 +417,10 @@ const RAIN_ENABLED = true;
  * instead of a flat sheet.
  */
 const RAIN = {
-  drops: 270,
+  // 270 until the fps hunt: 15% fewer bought frame budget nobody can see
+  // missing in the sky. Ours, like stepFps -- a fresh paste from build:rain
+  // brings 270 back.
+  drops: 230,
   tiltDeg: 2, // off vertical; the wind
   speedFar: 60, // px/sec
   speedNear: 200,
