@@ -113,18 +113,21 @@ export const SOUNDS = [
   //
   // Dry and wet share one group. The pack levelled them together on a single
   // gain, and levelling them apart would take out the difference it put in.
+  //
+  // Both the ground and the armour went up a fifteenth on 2026-07-20, which is
+  // +1.2 dB -- moved together, so the armour stays exactly 10 dB under the step.
   ...Array.from({ length: 6 }, (_, i) => ({
     out: `footstep-${i + 1}`,
     src: `footsteps sound/Amor walk 1/footsteps/footstep-${i + 1}.wav`,
     group: 'steps',
-    level: -10,
+    level: -8.8,
     eq: { bass: 0, mid: 0, treble: 0 },
   })),
   ...Array.from({ length: 6 }, (_, i) => ({
     out: `puddle-${i + 1}`,
     src: `footsteps sound/Amor walk 1/puddles/puddle-${i + 1}.wav`,
     group: 'steps',
-    level: -10,
+    level: -8.8,
     eq: { bass: 0, mid: 0, treble: 0 },
   })),
 
@@ -144,7 +147,7 @@ export const SOUNDS = [
     out: `armour-${i + 1}`,
     src: `footsteps sound/Amor walk 1/effects/effect-${i + 1}.wav`,
     group: 'armour',
-    level: -20,
+    level: -18.8,
     eq: { bass: 0, mid: 0, treble: 0 },
   })),
 
@@ -219,16 +222,16 @@ export const MUSIC = [
  * whole. Under the music on purpose -- it is the room, not an event.
  */
 /**
- * Halved from -40 on 2026-07-20, which is -6 dB: turning a volume control to
- * half its travel halves the amplitude, and halving amplitude is -6 dB.
+ * Down from -40 in two steps, both by ear: halved to -46, then another fifth
+ * off to -48.
  *
- * It was drowning things. The shimmer layered into every footstep sits 20.8 dB
- * under the step it rides on, which puts it around -38 dB once the steps are
- * levelled -- so rain running constantly at -40 dB average sat right on top of
- * it, and broadband noise is the most effective masker there is. At -46 the
- * rain is 8 dB under the shimmer instead of level with it.
+ * It was drowning things. The armour layered into every footstep sits about
+ * 10 dB under the step it rides on, and rain running constantly at -40 dB
+ * average sat right on top of it -- broadband noise being the most effective
+ * masker there is. Percentages are amplitude here, so halving is -6 dB and a
+ * fifth off is -1.9.
  */
-export const AMBIENCE_RMS_DB = -46;
+export const AMBIENCE_RMS_DB = -48;
 
 /**
  * A stretch cut out of the recording and folded back on itself so it loops.

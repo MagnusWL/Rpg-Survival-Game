@@ -74,6 +74,16 @@ const COIN_SAMPLES = [
 ];
 const FLIP_SAMPLE = require('./assets/coinsack/coin-flip.mp3');
 
+/**
+ * Everything the sack needs before it can exist, for pulling down early.
+ *
+ * The engine cannot be built until these have arrived -- it loads the art as
+ * images and fetches the sounds -- so a run that starts with them cold spends
+ * its first moments assembling the sack in front of the player. Fetched while
+ * the menu is up instead, they are in the browser's hands before the field is.
+ */
+export const COINSACK_ASSETS: number[] = [...Object.values(ART), ...COIN_SAMPLES, FLIP_SAMPLE];
+
 export type CoinSackHandle = { addCoin(): void } | null;
 
 export default function CoinSackView({
@@ -103,14 +113,17 @@ export default function CoinSackView({
     // be on the window before the sack is built.
     (window as unknown as { Matter: typeof Matter }).Matter = Matter;
 
-    // Sounds are fetch()ed by the engine and the art is loaded as images, so
-    // both need real URLs. Metro hands those out through expo-asset.
-    const modules = [...Object.values(ART), ...COIN_SAMPLES, FLIP_SAMPLE];
-    Asset.loadAsync(modules)
-      .then(() => {
-        if (dropped) return;
-        const url = (mod: number) => Asset.fromModule(mod).uri;
+    // Built at once rather than after waiting on the assets.
+    //
+    // It used to await loadAsync over the whole list before constructing, which
+    // meant the sack could not exist until fifteen coin sounds had arrived --
+    // measured at 1.7 seconds after the field appeared, which is the hitch.
+    // Nothing here needs the bytes: the engine is handed URLs and does its own
+    // loading, and on web a URL is known from the bundle without asking.
+    const url = (mod: number) => Asset.fromModule(mod).uri;
 
+    try {
+      if (!dropped) {
         // Verbatim from the kit's example, bar the theme and pointing the
         // sounds at bundled files rather than its inlined data URIs -- which
         // its README asks for, being smaller and cacheable.
@@ -153,10 +166,12 @@ export default function CoinSackView({
         });
         sackRef.current = sack;
         engineRef.current = sack;
-      })
-      .catch(() => {
-        // A sack that fails to build must not take the game down with it.
-      });
+      }
+    } catch (err) {
+      // A sack that fails to build must not take the game down with it -- but
+      // it should say why, rather than leaving a blank corner and no reason.
+      console.warn('[coin sack] failed to build:', err);
+    }
 
     /**
      * Browsers refuse sound until the page has been touched, and the engine

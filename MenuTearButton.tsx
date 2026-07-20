@@ -53,9 +53,11 @@ export default function MenuTearButton({
     if (!canvas) return;
     let dropped = false;
 
-    Asset.loadAsync([MENU_BUTTON])
-      .then(() => {
-        if (dropped) return;
+    // Built at once. Waiting on loadAsync first only delayed the plaque
+    // appearing -- the engine is handed a URL and loads the image itself, and
+    // on web a URL is known from the bundle without asking for it.
+    try {
+      if (!dropped) {
         const tear = new RescueTearButton({
           canvas,
           buttonSrc: Asset.fromModule(MENU_BUTTON).uri,
@@ -71,12 +73,12 @@ export default function MenuTearButton({
           autoReset: false,
         });
         tearRef.current = tear;
-      })
-      .catch((err) => {
-        // A menu that cannot tear is still a menu -- but say why. Swallowing
-        // this silently turned a plain failure into a long hunt once already.
-        console.warn('[menu] tear button failed to build:', err);
-      });
+      }
+    } catch (err) {
+      // A menu that cannot tear is still a menu -- but say why. Swallowing
+      // this silently turned a plain failure into a long hunt once already.
+      console.warn('[menu] tear button failed to build:', err);
+    }
 
     return () => {
       dropped = true;

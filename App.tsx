@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import CoinSackView, { CoinSackHandle, SACK_MIN_W } from './CoinSackView';
+import CoinSackView, { COINSACK_ASSETS, CoinSackHandle, SACK_MIN_W } from './CoinSackView';
 import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
@@ -1663,8 +1663,12 @@ export default function App() {
   // Pull the art down while the menu is up, so a run starts with everything
   // already in hand. Failures are ignored on purpose: a sheet that misses here
   // simply loads when it is first drawn, which is what used to happen anyway.
+  //
+  // The coin sack's art and coin sounds go with them. Its engine cannot be
+  // built until they have arrived, so leaving them until the run starts meant
+  // the sack assembled itself in front of the player.
   useEffect(() => {
-    Asset.loadAsync(ALL_SHEETS).catch(() => {});
+    Asset.loadAsync([...ALL_SHEETS, ...COINSACK_ASSETS]).catch(() => {});
   }, []);
 
   // One track for the menu, another once a run is under way.
