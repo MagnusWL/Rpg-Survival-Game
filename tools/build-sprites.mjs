@@ -501,3 +501,40 @@ if (existsSync(BLOOD_SRC)) {
       `${count} billeder  ->  ${(statSync(outPath).size / 1024).toFixed(0)} KB`
   );
 }
+
+// --- Menu ------------------------------------------------------------------
+// The title screen: the knight ringed by what he is about to fight, under the
+// game's name, and the plaque that starts a run.
+//
+// The background carries no alpha, so it goes to JPEG like the ground does --
+// indistinguishable at a glance and a fraction of the size. The plaque needs
+// its alpha, so it stays PNG, and is brought down to twice the width it is
+// drawn at, which is as much as a phone at 2x can show.
+const MENU_SRC = path.join(ROOT, 'Grafik', 'Menu', 'Mobile game menu buttons3', 'dropin', 'assets');
+const MENU_OUT = path.join(ROOT, 'assets', 'sprites', 'menu');
+const MENU_BUTTON_W = 720;
+
+if (existsSync(MENU_SRC)) {
+  mkdirSync(MENU_OUT, { recursive: true });
+
+  const bgIn = path.join(MENU_SRC, 'bg.png');
+  const bgOut = path.join(MENU_OUT, 'bg.jpg');
+  const bgMeta = await sharp(bgIn).metadata();
+  await sharp(bgIn).jpeg({ quality: 86, mozjpeg: true }).toFile(bgOut);
+
+  const btIn = path.join(MENU_SRC, 'button.png');
+  const btOut = path.join(MENU_OUT, 'button.png');
+  const btMeta = await sharp(btIn).metadata();
+  await sharp(btIn).resize(MENU_BUTTON_W).png({ compressionLevel: 9 }).toFile(btOut);
+  const btAfter = await sharp(btOut).metadata();
+
+  console.log(
+    `\nMenu: baggrund ${bgMeta.width}x${bgMeta.height}  ` +
+      `${(statSync(bgIn).size / 1024).toFixed(0)} KB -> ${(statSync(bgOut).size / 1024).toFixed(0)} KB JPEG ` +
+      `(-${Math.round((1 - statSync(bgOut).size / statSync(bgIn).size) * 100)}%)`
+  );
+  console.log(
+    `      knap ${btMeta.width}x${btMeta.height} -> ${btAfter.width}x${btAfter.height}  ` +
+      `${(statSync(btIn).size / 1024).toFixed(0)} KB -> ${(statSync(btOut).size / 1024).toFixed(0)} KB`
+  );
+}

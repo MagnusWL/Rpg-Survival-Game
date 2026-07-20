@@ -406,6 +406,25 @@ const RIPPLES = Array.from({ length: RIPPLE.slots }, (_, i) => ({
  */
 const BACKGROUND = require('./assets/sprites/background.jpg');
 
+// --- Menu ------------------------------------------------------------------
+// The title screen. The art carries the game's name, so nothing is drawn over
+// it -- only the plaque that starts a run sits on top.
+const MENU_BG = require('./assets/sprites/menu/bg.jpg');
+const MENU_BUTTON = require('./assets/sprites/menu/button.png');
+
+/**
+ * Where the plaque goes, taken from the kit's own layout: a 380x675 stage with
+ * the button at x 29, y 474, 322 by 115.
+ *
+ * Kept as fractions rather than pixels so it holds its place on any screen. The
+ * width is measured against the screen rather than against the drawn art on
+ * purpose -- a phone is narrower than the picture, so cover crops the sides,
+ * and following the art there would hang the plaque's ends off both edges.
+ */
+const MENU_BUTTON_TOP = 474 / 675;
+const MENU_BUTTON_WIDTH = 322 / 380;
+const MENU_BUTTON_ASPECT = 322 / 115;
+
 /**
  * Every sheet the game can draw, for loading up front.
  *
@@ -2652,37 +2671,52 @@ export default function App() {
     const hasSaves = runsLoaded && savedRuns.length > 0;
     return (
       <View style={styles.root}>
-        <View style={styles.menuScreen}>
-          <Text style={styles.menuScreenTitle}>RPG Survival</Text>
+        {/* The art carries the title, so nothing is drawn over it. Cover rather
+            than stretch, which crops the sides on a screen narrower than the
+            picture instead of squashing the knight. */}
+        <Image source={MENU_BG} style={styles.menuBg} resizeMode="cover" />
+
+        <Pressable
+          onPress={() => {
+            playMenuPress();
+            handleStartNewRun();
+          }}
+          style={{
+            position: 'absolute',
+            left: (SCREEN_W * (1 - MENU_BUTTON_WIDTH)) / 2,
+            top: SCREEN_H * MENU_BUTTON_TOP,
+            width: SCREEN_W * MENU_BUTTON_WIDTH,
+            height: (SCREEN_W * MENU_BUTTON_WIDTH) / MENU_BUTTON_ASPECT,
+          }}
+        >
+          <Image source={MENU_BUTTON} style={styles.menuButtonArt} resizeMode="contain" />
+        </Pressable>
+
+        {/* Temporary, and deliberately out of the way: the design has one
+            button and these two have nowhere to go yet. */}
+        <View style={styles.menuMinorRow}>
           <Pressable
             onPress={() => {
               if (!hasSaves) return;
               playMenuPress();
               setScreen('continue');
             }}
-            style={[styles.menuBigButton, !hasSaves && styles.menuBigButtonDisabled]}
           >
-            <Text style={styles.menuBigButtonText}>Continue Run{hasSaves ? ` (${savedRuns.length})` : ''}</Text>
+            <Text style={[styles.menuMinorText, !hasSaves && styles.menuMinorDisabled]}>
+              Continue{hasSaves ? ` (${savedRuns.length})` : ''}
+            </Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              playMenuPress();
-              handleStartNewRun();
-            }}
-            style={styles.menuBigButton}
-          >
-            <Text style={styles.menuBigButtonText}>Start New Run</Text>
-          </Pressable>
+          <Text style={styles.menuMinorText}>·</Text>
           <Pressable
             onPress={() => {
               playMenuPress();
               handleStartTestRun();
             }}
-            style={styles.menuBigButton}
           >
-            <Text style={styles.menuBigButtonText}>Start Test Run</Text>
+            <Text style={styles.menuMinorText}>Test run</Text>
           </Pressable>
         </View>
+
         <StatusBar style="auto" />
       </View>
     );
@@ -3794,6 +3828,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
   },
+  menuBg: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCREEN_H,
+  },
+  menuButtonArt: { width: '100%', height: '100%' },
+  // Temporary: the design has one button, and these two are parked out of the
+  // way until it is decided where they belong.
+  menuMinorRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 10,
+  },
+  menuMinorText: {
+    color: '#8a7f6d',
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  menuMinorDisabled: { opacity: 0.4 },
   menuScreen: {
     flex: 1,
     justifyContent: 'center',
