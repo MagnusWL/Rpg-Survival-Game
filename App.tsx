@@ -265,11 +265,12 @@ const ANIMS: Record<AnimName, AnimDef> = {
     fps: 18,
     loop: false,
     interruptedByMoving: true,
-    // Nicolai's beats, 20 July: a breath on the 7th picture and another on
-    // the 13th (frames 6 and 12 counted from 0) before the rest plays out.
+    // Nicolai's beats, 20 July: a breath on the 7th picture and a longer one
+    // -- twice the first, his call after seeing it -- on the 13th (frames 6
+    // and 12 counted from 0) before the rest plays out.
     holds: [
       { frame: 6, seconds: 0.2 },
-      { frame: 12, seconds: 0.2 },
+      { frame: 12, seconds: 0.4 },
     ],
   },
   ancestor: {

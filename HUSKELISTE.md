@@ -120,9 +120,10 @@ linjepar pr. sted). Kastes der i løb, springes posen over, og bevægelse
 afbryder den — samme regel som sparket.
 
 **Førstegæt til Nicolais øjne:** die 14 fps + 0,45 s hvil; begge kast 18 fps.
-Rupture holder desuden vejret **0,2 s på billede 7 og billede 13** (Nicolais
-beats, 20. juli) — tallene står i `holds` på `ANIMS.rupture` og kan flyttes
-frit til andre billeder eller længder; mekanikken virker for enhver animation.
+Rupture holder desuden vejret **0,2 s på billede 7 og 0,4 s på billede 13**
+(Nicolais beats; 13'eren fordoblet efter hans test samme aften) — tallene
+står i `holds` på `ANIMS.rupture` og kan flyttes frit til andre billeder
+eller længder; mekanikken virker for enhver animation.
 
 Ancestor spiller **frem → tilbage → frem igen** (`passes` på `ANIMS.ancestor`,
 Nicolais figur, 20. juli) og ender stående på sidste billede — 2,4 s i alt.
