@@ -104,6 +104,30 @@ kick-linjerne et `level` i `tools/sound-config.mjs` og kør
 
 ---
 
+## Tre nye ridder-animationer (20. juli, nat)
+
+**Die — faldet.** Spillet frøs før i samme sekund som det dræbende slag; nu
+får faldet sin scenetid: marken simulerer videre, mens han går ned (14 fps
+plus 0,45 s hvil på sidste billede, ~1,5 s i alt), og først derefter kommer
+game over-skærmen. Guld, gemmer og skærmen selv er urørte — de venter bare
+på faldet. Mens han falder: ingen ordrer, ingen sving, ingen regeneration.
+Slaget, der fældede ham, høres stadig.
+
+**Rupture (Special1) ved Cone** og **Ancestor (Special2) ved Summon** —
+Nicolais navne på kastene. Posen spilles i det øjeblik, skillen fyres af;
+selve skillens virkning er præcis som før (Magnus's kode — kun ét mærket
+linjepar pr. sted). Kastes der i løb, springes posen over, og bevægelse
+afbryder den — samme regel som sparket.
+
+**Førstegæt til Nicolais øjne:** die 14 fps + 0,45 s hvil; begge kast 18 fps.
+
+**ShieldBlockMid er IKKE bygget** — Nicolai: den skal trigge under et bestemt
+item, grenen findes senere. Kilden ligger klar i `Grafik/Knight`; den føjes
+til `SHEETS` i `tools/build-sprites.mjs`, når den får sin krog (et bygget
+ark er monteret altid og koster hukommelse, så den venter med vilje).
+
+---
+
 ## Kraniet er parkeret — godkendt, men venter på sin plads
 
 Kronekraniet (`Cranium-Coin-bag`) er inde, virker og er **godkendt af Nicolai**
@@ -148,11 +172,11 @@ kontakter (DEBUG_PERF i App.tsx) står klar til jagten.
 - `test.png` ligger i projektroden og er ikke i git. Formentlig affald.
 - Grenen `coinbag-first-attempt` findes stadig — det var det første forsøg på
   møntsækken, som blev kasseret.
-- **25 ridder-animationer i `Grafik/Knight` bygges ikke:** 180Turn, CastSpell,
-  CrouchIdle, CrouchRun, Die, FrontFlip, Idle2, Kick, Melee2, MeleeRun,
-  MeleeSpin, Pummel, Rolling, Run up No sword, RunBackwards, ShieldBlockMid,
-  ShieldBlockStart, Slide, SlideEnd, SlideStart, Special1, Special2,
-  StrafeLeft, StrafeRight, Walk.
-  Kun 6 er i spillet. `Die` er holdt ude med vilje — spilløkken stopper ved død,
-  så den ville fryse på første billede. `Walk` (med sværd) er holdt ude fordi kun
-  indgangen går, og der har han ikke trukket endnu.
+- **21 ridder-animationer i `Grafik/Knight` bygges ikke:** 180Turn, CastSpell,
+  CrouchIdle, CrouchRun, FrontFlip, Idle2, Melee2, MeleeRun, MeleeSpin,
+  Pummel, Rolling, Run up No sword, RunBackwards, ShieldBlockMid,
+  ShieldBlockStart, Slide, SlideEnd, SlideStart, StrafeLeft, StrafeRight,
+  Walk.
+  10 er i spillet (idle, walk, run, melee, takedamage, unsheath, kick, die,
+  special1, special2). `Walk` (med sværd) er holdt ude fordi kun indgangen
+  går, og der har han ikke trukket endnu.

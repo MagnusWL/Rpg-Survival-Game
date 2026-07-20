@@ -37,8 +37,7 @@ const OUT_CELL = 128; // must match SPRITE_CELL in App.tsx
 const COLS = 15;
 const ROWS = 8;
 
-// Only what the game actually renders today. 'Die' stays out because the game
-// loop stops simulating on death, so it would freeze on frame 0.
+// Only what the game actually renders today.
 //
 // A plain string means the output takes the source's name in lower case; give
 // `out` when they need to differ.
@@ -57,6 +56,14 @@ const SHEETS = [
   // crowd off him. The shove that used to ride on the invisible swing rides
   // on this instead.
   'Kick',
+  // The fall. It used to stay out because the loop froze on death; the loop
+  // now grants the fall its stage time before the game-over screen, so he
+  // goes down in motion and holds the last frame.
+  'Die',
+  // The two skill casts, named by Nicolai: Special1 answers Cone as "Rupture",
+  // Special2 answers Summon as "Ancestor".
+  'Special1',
+  'Special2',
 ];
 
 /**

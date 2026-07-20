@@ -131,7 +131,7 @@ const INTRO_SETTLE = 0.1; // seconds
  */
 const INTRO_HOLD_FRAME = SPRITE_COLS - 1;
 
-type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn' | 'kick';
+type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn' | 'kick' | 'die' | 'rupture' | 'ancestor';
 
 type AnimDef = {
   sheet: ImageSourcePropType;
@@ -229,6 +229,34 @@ const ANIMS: Record<AnimName, AnimDef> = {
     loop: false,
     interruptedByMoving: true,
   },
+  // The fall. Nothing interrupts it -- the dying branch sits at the very top
+  // of the animation chain -- and being a one-shot it holds its last frame
+  // while the field plays on, until the game-over screen takes over.
+  die: {
+    sheet: require('./assets/sprites/knight/die.png'),
+    rim: require('./assets/sprites/knight/die-rim.png'),
+    fps: 14,
+    loop: false,
+  },
+  // The two skill casts, named by Nicolai: Special1 answers Cone as
+  // "Rupture", Special2 answers Summon as "Ancestor". The skill's effect
+  // fires the instant the button is pressed -- these are the pose, not the
+  // effect, so cutting them short (or skipping them on the run) costs
+  // nothing but the look.
+  rupture: {
+    sheet: require('./assets/sprites/knight/special1.png'),
+    rim: require('./assets/sprites/knight/special1-rim.png'),
+    fps: 18,
+    loop: false,
+    interruptedByMoving: true,
+  },
+  ancestor: {
+    sheet: require('./assets/sprites/knight/special2.png'),
+    rim: require('./assets/sprites/knight/special2-rim.png'),
+    fps: 18,
+    loop: false,
+    interruptedByMoving: true,
+  },
 };
 
 /**
@@ -252,6 +280,14 @@ const KICK_ARC_COS = 0.5;
 const KICK_CONTACT_FRAME = 6;
 /** Chance a flinch is answered with the kick at all. */
 const KICK_CHANCE = 0.5;
+
+/**
+ * How long the death animation's last frame holds before the game-over screen
+ * takes over. The fall itself takes its length from the sheet; this is the
+ * beat of stillness after it, so the screen does not slam in on the final
+ * frame of the fall.
+ */
+const DIE_HOLD = 0.45;
 
 /** The screen-space direction a facing row looks in; row 0 is east, clockwise. */
 const facingVector = (facing: number): Vec => {
@@ -2294,6 +2330,15 @@ export default function App() {
   /** The boot's pending sound, aimed at the same frame the shove fires on. */
   const kickSoundTimerRef = useRef(0);
   const kickSoundPlayerRef = useRef<AudioPlayer | undefined>(undefined);
+  /**
+   * Seconds left of the death animation and its hold; null while he lives.
+   * While set, the knight takes no orders, swings nothing and regenerates
+   * nothing -- but the field keeps simulating around him, which is the whole
+   * point: he falls in motion instead of freezing mid-hit.
+   */
+  const dieTimerRef = useRef<number | null>(null);
+  /** A cast pose waiting for the animation chain, set the moment a skill fires. */
+  const pendingCastAnimRef = useRef<AnimName | null>(null);
   /** Where to throw extra blood when the pending sound turns out to be a gore one. */
   const swingSoundGorePosRef = useRef<Vec | null>(null);
   const hurtSoundsRef = useRef(hurtSounds);
@@ -2580,7 +2625,8 @@ export default function App() {
   // ---- Play area input ----
   // aimingAbility, when set, is the slot whose (Cone) skill is being aimed.
   const handlePlayAreaGrant = (e: GestureResponderEvent) => {
-    if (gameOverRef.current) return;
+    // The die-timer check is ours: a falling knight takes no orders.
+    if (gameOverRef.current || dieTimerRef.current != null) return;
     const { locationX, locationY } = e.nativeEvent;
     if (aimingAbility != null) {
       setAimPreviewPoint({ x: locationX, y: locationY });
@@ -2609,7 +2655,9 @@ export default function App() {
     const cost = SKILL_META.cone.mana;
     setAimingAbility(null);
     setAimPreviewPoint(null);
-    if (ab.skill !== 'cone' || p.mana < cost) return;
+    if (dieTimerRef.current != null || ab.skill !== 'cone' || p.mana < cost) return;
+    // Ours: the cast pose. The skill's own work below stays exactly as it was.
+    pendingCastAnimRef.current = 'rupture';
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
     const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
@@ -2623,7 +2671,8 @@ export default function App() {
   };
 
   const handleAbilityPress = (id: AbilityId) => {
-    if (gameOverRef.current) return;
+    // The die-timer check is ours: a falling knight casts nothing.
+    if (gameOverRef.current || dieTimerRef.current != null) return;
     const ab = abilitiesRef.current[id];
     const p = playerRef.current;
     const skill = ab.skill;
@@ -2636,8 +2685,12 @@ export default function App() {
     const cdScale = pv && pv.skill === 'cdreduce' ? 1 - cooldownReducePercent(pv.level) : 1;
 
     if (skill === 'summon') {
+      // Ours: the cast pose. The summon itself is untouched.
+      pendingCastAnimRef.current = 'ancestor';
       setAllies(makeAlliesForLevel(ab.level, p.pos));
     } else if (skill === 'cone') {
+      // Ours: the cast pose. The cone itself is untouched.
+      pendingCastAnimRef.current = 'rupture';
       // Fire at once, straight ahead of where the knight is facing.
       const dir = directionFromFacing(p.facing);
       const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
@@ -2749,6 +2802,8 @@ export default function App() {
     materialsRef.current = s.materials;
     spawnTimerRef.current = 0;
     lastTimeRef.current = null;
+    dieTimerRef.current = null;
+    pendingCastAnimRef.current = null;
 
     setPlayer(s.player);
     setMobs([]);
@@ -2946,9 +3001,10 @@ export default function App() {
         }
       }
 
-      // Player movement toward target
+      // Player movement toward target. The die-timer check is ours: a tap
+      // landing while he falls must not drag the corpse across the field.
       let moving = false;
-      if (p.target) {
+      if (p.target && dieTimerRef.current == null) {
         const d = dist(p.pos, p.target);
         if (d < 4) {
           p.target = null;
@@ -2977,7 +3033,9 @@ export default function App() {
       }
 
       p.mana = Math.min(effectiveMaxMana, p.mana + (MANA_REGEN_PER_SEC + manaRegenBonus) * dt);
-      p.hp = Math.min(p.maxHp + hpBonus, p.hp + hpRegenBonus * dt);
+      // No regeneration once the fall has begun (ours): a corpse that climbed
+      // back over zero would call the game over off mid-animation.
+      if (dieTimerRef.current == null) p.hp = Math.min(p.maxHp + hpBonus, p.hp + hpRegenBonus * dt);
       p.attackCooldown = Math.max(0, p.attackCooldown - dt);
       p.hasteTimer = Math.max(0, p.hasteTimer - dt);
 
@@ -3176,10 +3234,11 @@ export default function App() {
         hurtAnimGapRef.current - dt <= 0;
       const swingHidden = flinchWillWin || (preBusy && p.anim !== 'attack');
 
-      // Player attack: melee hits everything in range instantly, ranged fires projectiles
+      // Player attack: melee hits everything in range instantly, ranged fires
+      // projectiles. The die-timer check is ours: a dead man swings no sword.
       let playerAttacked = false;
       const attackTargets: Vec[] = [];
-      if (p.attackCooldown <= 0) {
+      if (p.attackCooldown <= 0 && dieTimerRef.current == null) {
         if (isRangedAttack) {
           // Always fire a single shot at the nearest enemy. Pierce (if equipped)
           // lets that one shot carry through further enemies along its line.
@@ -3328,6 +3387,37 @@ export default function App() {
 
       if (damageToPlayer > 0) p.hp = Math.max(0, p.hp - damageToPlayer);
 
+      // The fall (ours, for the Die animation). The frame hp reaches zero
+      // starts the timer; the field keeps simulating while he goes down, and
+      // the game over waits at the bottom of the loop until the animation has
+      // played and held a beat. Hp stays the authority on death: should
+      // anything lift him back over zero mid-fall (the wave-clear heal can),
+      // the fall is called off and the run continues -- the same outcome the
+      // old instant game over would have picked.
+      if (dieTimerRef.current == null) {
+        if (p.hp <= 0) {
+          dieTimerRef.current = animDuration(ANIMS.die) + DIE_HOLD;
+          p.target = null;
+          pendingCastAnimRef.current = null;
+          // A swing sound still pending belongs to a blow the fall swallowed.
+          swingSoundTimerRef.current = 0;
+          swingSoundGorePosRef.current = null;
+          // The blow that felled him is still heard. The dying branch outranks
+          // the flinch that used to carry this sound, so it plays here instead
+          // -- once per run, gap or no gap.
+          const pool = hurtSoundsRef.current;
+          playSfx(pool[Math.floor(Math.random() * pool.length)]);
+        }
+      } else if (p.hp > 0) {
+        // Revived mid-fall: back on his feet at once, no corpse acting.
+        dieTimerRef.current = null;
+        p.anim = 'idle';
+        p.animTime = 0;
+        p.animSpeed = 1;
+      } else {
+        dieTimerRef.current -= dt;
+      }
+
 
 
       // Turn to face what he is hitting, but only from a standstill. While
@@ -3384,9 +3474,18 @@ export default function App() {
         p.animTime = INTRO_HOLD_FRAME / ANIMS.walk.fps;
       }
 
+      // A cast made on the run keeps its effect but skips its pose -- a
+      // runner should not be yanked into a stance he did not stop for.
+      if (pendingCastAnimRef.current && moving) pendingCastAnimRef.current = null;
+
       let nextAnim: AnimName = p.anim;
       let restartAnim = false;
-      if (p.introPhase === 'settle') {
+      if (dieTimerRef.current != null) {
+        // Dying outranks everything -- including the flinch that would
+        // otherwise answer the killing blow.
+        nextAnim = 'die';
+        restartAnim = p.anim !== 'die';
+      } else if (p.introPhase === 'settle') {
         // nothing else gets a say while he waits
       } else if (startDraw) {
         // The one moment the entrance overrides everything. Nothing else is
@@ -3404,6 +3503,14 @@ export default function App() {
         // on the hit rather than building up to it like a swing does.
         const pool = hurtSoundsRef.current;
         playSfx(pool[Math.floor(Math.random() * pool.length)]);
+      } else if (pendingCastAnimRef.current && !oneShotBusy) {
+        // The pose behind a skill press, a frame after its effect: it waits
+        // out a busy one-shot (a swing hands over within a tenth of a
+        // second), and the clear above has already dropped it if he is on
+        // the move by the time it could start.
+        nextAnim = pendingCastAnimRef.current;
+        pendingCastAnimRef.current = null;
+        restartAnim = true;
       } else if (
         // The kick, straight off the back of a flinch -- Nicolai's sequence:
         // hit between swings, he staggers, then boots the crowd off him. Only
@@ -3668,7 +3775,10 @@ export default function App() {
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
 
-      const isGameOver = p.hp <= 0;
+      // Ours: the game over waits for the fall. Hp is still the authority on
+      // whether he is dead -- the timer only buys the Die animation its stage
+      // time before the screen takes over.
+      const isGameOver = p.hp <= 0 && dieTimerRef.current != null && dieTimerRef.current <= 0;
 
       if (isGameOver) {
         // The run has ended: bank its gold (1 per wave cleared, so 1+2+...+N)
