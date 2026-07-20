@@ -136,6 +136,21 @@ ark er monteret altid og koster hukommelse, så den venter med vilje).
 
 ---
 
+## Zombien falder også (20. juli, nat)
+
+ZombieMale2's to dødsanimationer (`Die`/`Die2`) er inde som et **rent visuelt
+lig-lag**: fjenden forlader spillets lister i præcis samme frame som før —
+loot, guld, bølge-tælling, sigte og spark-viften er urørte — men kroppen
+bliver liggende, hvor den faldt: fald (14 fps, ~1,1 s), hvile (1,4 s), og
+0,6 s udtoning. Tilfældigt valg af de to pr. død, så en mejet flok ikke
+falder i takt. Kun nærkamps-zombien — cirklerne (ranged/boss) forsvinder
+stadig bare, for de har ingen krop at falde med. Ligene deltager i
+dybde-sorteringen, så levende går foran dem, og de ældes på simulationens
+ur (pause fryser dem midt i faldet). Tal til øjnene: `CORPSE_LINGER` /
+`CORPSE_FADE` i `App.tsx` + fps i `MOB_DIE_ANIMS`.
+
+---
+
 ## Kraniet er parkeret — godkendt, men venter på sin plads
 
 Kronekraniet (`Cranium-Coin-bag`) er inde, virker og er **godkendt af Nicolai**

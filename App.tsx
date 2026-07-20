@@ -342,6 +342,26 @@ const MOB_ANIMS: Record<MobAnimName, AnimDef> = {
   hurt: { sheet: require('./assets/sprites/zombie/hurt.png'), fps: 20, loop: false },
 };
 
+// The two falls a melee zombie can take, kept out of MOB_ANIMS on purpose:
+// every living mob mounts every sheet in its map, and the living have no use
+// for these. Only the corpse layer mounts them, briefly.
+type MobDieAnimName = 'die' | 'die2';
+const MOB_DIE_ANIMS: Record<MobDieAnimName, AnimDef> = {
+  die: { sheet: require('./assets/sprites/zombie/die.png'), fps: 14, loop: false },
+  die2: { sheet: require('./assets/sprites/zombie/die2.png'), fps: 14, loop: false },
+};
+
+/**
+ * A fallen zombie, purely visual. It left the mobs array -- and every rule
+ * that reads it: loot, gold, wave count, targeting, the kick's fan -- the
+ * frame it died, exactly as before. This plays the fall where it happened,
+ * lies a moment, fades and is gone.
+ */
+type Corpse = { id: number; pos: Vec; facing: number; anim: MobDieAnimName; age: number };
+/** Seconds a corpse lies after its fall finishes, and the fade that follows. */
+const CORPSE_LINGER = 1.4;
+const CORPSE_FADE = 0.6;
+
 /**
  * The red instant when a mob is struck.
  *
@@ -881,6 +901,7 @@ const ALL_SHEETS: number[] = [
   // frame and its rim never arrive apart.
   ...Object.values(ANIMS).flatMap((a) => (a.rim ? [a.rim] : [])),
   ...Object.values(MOB_ANIMS).map((a) => a.sheet),
+  ...Object.values(MOB_DIE_ANIMS).map((a) => a.sheet),
   BLOOD_ANIM.sheet,
   BACKGROUND,
   GLOW,
@@ -1301,6 +1322,7 @@ let allyIdCounter = 0;
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
 let bloodIdCounter = 0;
+let corpseIdCounter = 0;
 let itemIdCounter = 0;
 let floatingTextIdCounter = 0;
 
@@ -2150,6 +2172,7 @@ export default function App() {
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
   const [bloodSplats, setBloodSplats] = useState<BloodSplat[]>([]);
+  const [corpses, setCorpses] = useState<Corpse[]>([]);
 
   // The tuning panel drives these while DEBUG_COINSACK_TUNING is on; the
   // constants above take over the moment it is switched off.
@@ -2372,6 +2395,7 @@ export default function App() {
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
   const bloodSplatsRef = useRef(bloodSplats);
+  const corpsesRef = useRef(corpses);
   /** The kit's engine, once it has built itself. Null on anything but web. */
   const coinSackRef = useRef<CoinSackHandle>(null);
   const floatingTextsRef = useRef(floatingTexts);
@@ -2454,6 +2478,7 @@ export default function App() {
   projectilesRef.current = projectiles;
   hitFlashesRef.current = hitFlashes;
   bloodSplatsRef.current = bloodSplats;
+  corpsesRef.current = corpses;
   floatingTextsRef.current = floatingTexts;
   waveRef.current = wave;
   waveActiveRef.current = waveActive;
@@ -2870,6 +2895,7 @@ export default function App() {
     projectilesRef.current = [];
     hitFlashesRef.current = [];
     bloodSplatsRef.current = [];
+    corpsesRef.current = [];
     floatingTextsRef.current = [];
     waveRef.current = s.wave;
     waveActiveRef.current = false;
@@ -2895,6 +2921,7 @@ export default function App() {
     setProjectiles([]);
     setHitFlashes([]);
     setBloodSplats([]);
+    setCorpses([]);
     setFloatingTexts([]);
     setWave(s.wave);
     setWaveActive(false);
@@ -3010,6 +3037,7 @@ export default function App() {
       const newProjectiles: Projectile[] = [];
       const newFlashes: HitFlash[] = [];
       const newBlood: BloodSplat[] = [];
+      const newCorpses: Corpse[] = [];
       const newFloatingTexts: FloatingText[] = [];
 
       const eq = equippedRef.current;
@@ -3447,6 +3475,18 @@ export default function App() {
         } else {
           anyMobDied = true;
           lastDeathPos = { ...m.pos };
+          // The fall, one of two takes at random so a mown-down crowd does
+          // not drop in unison. Only the melee mob has art; the circles
+          // still just vanish.
+          if (m.type === 'melee') {
+            newCorpses.push({
+              id: ++corpseIdCounter,
+              pos: { ...m.pos },
+              facing: m.facing,
+              anim: Math.random() < 0.5 ? 'die' : 'die2',
+              age: 0,
+            });
+          }
           newBlood.push({
             id: ++bloodIdCounter,
             pos: { ...m.pos },
@@ -3851,6 +3891,12 @@ export default function App() {
       const survivorBlood = bloodSplatsRef.current
         .filter((b) => now - b.createdAt < BLOOD_DURATION * 1000)
         .concat(newBlood);
+      // Corpses age on the simulation clock, not the wall clock, so a pause
+      // freezes them mid-fall along with everything else.
+      const survivorCorpses = corpsesRef.current
+        .map((c) => ({ ...c, age: c.age + dt }))
+        .filter((c) => c.age < animDuration(MOB_DIE_ANIMS[c.anim]) + CORPSE_LINGER + CORPSE_FADE)
+        .concat(newCorpses);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
@@ -3915,6 +3961,7 @@ export default function App() {
       projectilesRef.current = survivorProjectiles;
       hitFlashesRef.current = survivorFlashes;
       bloodSplatsRef.current = survivorBlood;
+      corpsesRef.current = survivorCorpses;
       floatingTextsRef.current = survivorFloatingTexts;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
@@ -3930,6 +3977,7 @@ export default function App() {
       setProjectiles(survivorProjectiles);
       setHitFlashes(survivorFlashes);
       setBloodSplats(survivorBlood);
+      setCorpses(survivorCorpses);
       setFloatingTexts(survivorFloatingTexts);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
@@ -4347,6 +4395,32 @@ export default function App() {
         />
       ),
     },
+    // Corpses take part in the same painter's sort as the living: a body on
+    // the ground is walked in front of by whoever stands below it. Listed
+    // before the mobs so a tie in y keeps the dead underneath.
+    ...corpses.map((c) => {
+      const fadeStart = animDuration(MOB_DIE_ANIMS[c.anim]) + CORPSE_LINGER;
+      return {
+        key: `corpse-${c.id}`,
+        y: c.pos.y,
+        node: (
+          <View
+            key={`corpse-${c.id}`}
+            style={{ opacity: c.age <= fadeStart ? 1 : Math.max(0, 1 - (c.age - fadeStart) / CORPSE_FADE) }}
+          >
+            <SpriteSheet
+              anims={MOB_DIE_ANIMS}
+              anim={c.anim}
+              animTime={c.age}
+              facing={c.facing}
+              size={MOB_SPRITE_SIZE}
+              left={c.pos.x - MOB_SPRITE_SIZE / 2}
+              top={c.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE}
+            />
+          </View>
+        ),
+      };
+    }),
     ...mobs.map((m) => ({
       key: `mob-${m.id}`,
       y: m.pos.y,

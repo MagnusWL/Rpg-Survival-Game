@@ -250,6 +250,10 @@ const ZOMBIE_ANIMS = [
   { out: 'attack2', src: 'Attack2' },
   { out: 'attack3', src: 'Attack3' },
   { out: 'hurt', src: 'TakeDamage' },
+  // The two falls, drawn at random per death so a mown-down crowd does not
+  // drop in unison. Played by the corpse layer, not by living mobs.
+  { out: 'die', src: 'Die' },
+  { out: 'die2', src: 'Die2' },
 ];
 
 // Blood has no facings -- it is an effect seen from above. The five variants are
