@@ -87,8 +87,16 @@ allerede med svinget.
 sekvensen hurt→kick er bevist i logik og typecheck, ikke med øjne. Nicolai
 tester ved at stille sig i en flok.
 
+Lyden kom 20. juli (aften): Nicolais to spark-optagelser er inde som
+`kick-1`/`kick-2` — gennem lydmøllen som alt andet, så deres meget høje
+niveau er lagt på husets (snittet lander lige under sværdsvingene, så de
+burde passe ind uden videre). Klippet vælges tilfældigt, startes tidligt
+med sit eget målte optræk så fuld styrke rammer kontakt-frame 6, og det
+tier hvis sparket afbrydes af bevægelse. **Skal de dæmpes/hæves:** giv
+kick-linjerne et `level` i `tools/sound-config.mjs` og kør
+`npm run build:sounds`.
+
 **Åbent stadig:**
-- Sparket er **lydløst** — der findes ingen spark-lyd i pakken. Skal have en.
 - Plan B fra diskussionen (skaden venter også på sparket) er stadig kun en
   tanke — det er balancearbejde og skal over Magnus's bord.
 - Kontaktframe (6), rækkevidde (70), vifte (120°) og chancen (50%,

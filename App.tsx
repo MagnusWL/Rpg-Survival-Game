@@ -883,6 +883,7 @@ const leadsFor = (prefix: string, count: number) =>
 const ATTACK_LEADS = leadsFor('attack', 3);
 const KILL_LEADS = leadsFor('kill', 3);
 const GORE_LEADS = leadsFor('gore', 3);
+const KICK_LEADS = leadsFor('kick', 2);
 
 /**
  * Shortest gap between two flinch animations.
@@ -2096,6 +2097,13 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/attack-2.wav')),
     useAudioPlayer(require('./assets/sounds/attack-3.wav')),
   ];
+  // The boot behind the kick, two takes so the flinches the coin answers do
+  // not all sound alike. One player each is plenty: kicks sit at least a
+  // flinch-gap apart, and the clip is over in 0.65 s.
+  const kickSounds = [
+    useAudioPlayer(require('./assets/sounds/kick-1.wav')),
+    useAudioPlayer(require('./assets/sounds/kick-2.wav')),
+  ];
 
   // Heavier stab combos for a killing blow. These run 1.0-2.4 s against the
   // swing's 0.6, so each variant gets its own player and can ring out.
@@ -2273,6 +2281,8 @@ export default function App() {
   killSoundsRef.current = killSounds;
   const goreSoundsRef = useRef(goreSounds);
   goreSoundsRef.current = goreSounds;
+  const kickSoundsRef = useRef(kickSounds);
+  kickSoundsRef.current = kickSounds;
 
   // A swing's sound is held back until the blade comes round. These carry that
   // pending sound between frames. They are refs rather than player state because
@@ -2281,6 +2291,9 @@ export default function App() {
   /** Seconds until the kick's leg is out and the crowd is shoved. 0 = no kick pending. */
   const kickShoveTimerRef = useRef(0);
   const swingSoundPlayerRef = useRef<AudioPlayer | undefined>(undefined);
+  /** The boot's pending sound, aimed at the same frame the shove fires on. */
+  const kickSoundTimerRef = useRef(0);
+  const kickSoundPlayerRef = useRef<AudioPlayer | undefined>(undefined);
   /** Where to throw extra blood when the pending sound turns out to be a gore one. */
   const swingSoundGorePosRef = useRef<Vec | null>(null);
   const hurtSoundsRef = useRef(hurtSounds);
@@ -3420,6 +3433,16 @@ export default function App() {
         // The shove rides the leg, not the wind-up: it fires when frame 6 is
         // reached, and the timer starts with the animation.
         kickShoveTimerRef.current = KICK_CONTACT_FRAME / ANIMS.kick.fps;
+        // The boot is heard where it lands, not where it starts: the clip is
+        // begun early by its own measured wind-up so full level falls on the
+        // contact frame, the same aim the swings take.
+        const boots = kickSoundsRef.current;
+        const boot = Math.floor(Math.random() * boots.length);
+        kickSoundPlayerRef.current = boots[boot];
+        kickSoundTimerRef.current = Math.max(
+          0,
+          KICK_CONTACT_FRAME / ANIMS.kick.fps - KICK_LEADS[boot]
+        );
       } else if (!oneShotBusy) {
         const travelling = p.introPhase === 'enter' ? 'walk' : 'run';
         nextAnim = playerAttacked ? 'attack' : moving ? travelling : 'idle';
@@ -3544,6 +3567,16 @@ export default function App() {
             }
             swingSoundGorePosRef.current = null;
           }
+        }
+      }
+
+      // The boot's sound, on its own clock because it starts earlier than the
+      // shove by the clip's wind-up. Same rule as the shove below: if movement
+      // cut the kick short, a kick that never landed is not heard either.
+      if (kickSoundTimerRef.current > 0) {
+        kickSoundTimerRef.current -= dt;
+        if (kickSoundTimerRef.current <= 0 && p.anim === 'kick') {
+          playSfx(kickSoundPlayerRef.current);
         }
       }
 

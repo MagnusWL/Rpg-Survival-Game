@@ -65,6 +65,13 @@ export const SOUNDS = [
   { out: 'attack-1', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_01.wav' },
   { out: 'attack-2', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_11.wav' },
   { out: 'attack-3', src: 'attack/WEAPSwrd_SwordStabwWhoosh_HoveAud_SwordCombat_17.wav' },
+
+  // The boot that answers a flinch, two takes drawn at random like the swings.
+  // The sources arrived hot, but arrival loudness never survives this pipeline
+  // -- the peak normalisation levels them with everything else, and any by-ear
+  // balancing belongs on a `level` here, not in the recording.
+  { out: 'kick-1', src: 'attack/KICK.wav' },
+  { out: 'kick-2', src: 'attack/KICK 2.wav' },
   // Heavier stab combos, saved for the blow that finishes an enemy off.
   { out: 'kill-1', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_01.wav` },
   { out: 'kill-2', src: `${PACK}/Sword Stabs/Full Stab Combo/WEAPSwrd_SwordStabCombo_HoveAud_SwordCombat_11.wav` },
