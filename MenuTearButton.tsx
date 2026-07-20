@@ -72,8 +72,10 @@ export default function MenuTearButton({
         });
         tearRef.current = tear;
       })
-      .catch(() => {
-        // A menu that cannot tear must still be a menu.
+      .catch((err) => {
+        // A menu that cannot tear is still a menu -- but say why. Swallowing
+        // this silently turned a plain failure into a long hunt once already.
+        console.warn('[menu] tear button failed to build:', err);
       });
 
     return () => {

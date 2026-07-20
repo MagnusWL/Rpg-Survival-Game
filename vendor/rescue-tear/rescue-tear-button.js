@@ -1,14 +1,25 @@
 /**
  * The RESCUE HER tear button, lifted verbatim from the kit's rescue-button.html.
  *
- * Only the class travels; the page around it was a demo frame. Nothing here is
- * edited -- the export at the foot is the one addition, so the game can import
- * it the way it imports everything else.
+ * The palette and the class, in the order the page had them. Nothing is edited;
+ * the export at the foot is the only addition.
+ *
+ * The palette matters: the first extraction took the class alone and left COL
+ * behind, so the very first frame threw and the render loop -- being a chain of
+ * requestAnimationFrame calls -- simply stopped. A live canvas, a loaded sprite,
+ * and nothing drawn on it, with no error after the one that killed it.
  *
  * Wants a canvas and the plaque PNG. Its phases, in milliseconds from fire():
  * press 110, crack 270, strain 580, snap 760, flown apart 1360. With autoReset
  * off it freezes there, which is what a real navigation wants.
  */
+const COL = {
+  edge:   '#0b0202', deep:  '#300707', deep2: '#560d0d', body:  '#66100e',
+  bright: '#7e1610', wet:   '#9e2419', node:  '#b83a2c', flash: '#cf7e6e',
+  outline:'#100303', part:  '#160404', splatA:'#240505', splatB:'#360707',
+  sparkA: '#fff6df', sparkB:'#ffe4a0'
+};
+
 class RescueTearButton {
   constructor(opts) {
     this.o = opts || {};
