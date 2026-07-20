@@ -286,12 +286,29 @@ af det tegnede dét, øjet skal følge.
 
 **Den rigtige løsning, hvis det stadig er for tungt — "bagning":** vi behøver
 ikke at *tegne* noget. Et byggescript kan **regne effekten ud på forhånd** med
-præcis den matematik, der allerede står i koden, og gemme den som ét
-sprite-ark (én række, ~12 billeder, keglen pegende mod øst; spillet roterer
-det ene element efter kastretningen). Så går prisen fra 428 elementer til
-**1** — samme udseende, ingen tegneopgave for Nicolai. Prisen er, at
-variationen fra kast til kast forsvinder (alle kast bliver ens), og at
-roterede pixels bliver en anelse bløde. Ikke bygget endnu.
+præcis den matematik, der allerede står i koden, og gemme den som et
+sprite-ark. Ingen tegneopgave for nogen. To udgaver, målt 21. juli:
+
+**A — bag hele keglen.** Udfoldet fylder den 789 × 650 px pr. billede:
+
+| opløsning | 20 billeder | i hukommelsen |
+|---|---|---|
+| fuld | 10,3 mio. px | **39 MB** — for meget |
+| halv | 2,6 mio. px | **9,8 MB** ≈ ét zombie-ark |
+| kvart | 0,6 mio. px | 2,4 MB, men 2-px-pixels bliver til en halv |
+
+Så halv opløsning vist i dobbelt størrelse med skarp (nearest-neighbour)
+skalering. Prisen: **428 elementer → 1**, mod ~10 MB hukommelse. Alle kast
+bliver ens, og roterede pixels bliver en anelse bløde.
+
+**B — bag kun stregen** (bedre, hvis A er for dyr). Buerne er 394 af de 428
+pixels, altså næsten hele effekten. Bag én streg som et lille ark og lad
+spilløkken flytte og skalere den udad, ligesom den flytter zombier. Så er det
+**en håndfuld elementer og et billede på under en MB**. Kræver at halen af
+gløder tænkes om.
+
+Ingen af dem er bygget. Test den slankede udgave (428) først — er den god nok
+på Nicolais maskine, sparer vi hele arbejdet.
 
 ---
 
