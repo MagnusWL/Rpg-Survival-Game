@@ -1785,12 +1785,16 @@ export default function App() {
   // 330 elements are not built at all -- display:none only stopped the paint.
   const [sfxOff, setSfxOff] = useState(false);
   const [weatherOff, setWeatherOff] = useState(false);
-  const toggleSfx = () => {
-    setSfxOff((v) => {
-      SFX_KILLED = !v;
-      return !v;
-    });
-  };
+  // Music apart from the clips: it goes through its own players below, not
+  // through playSfx, so it needs its own switch.
+  const [musicOff, setMusicOff] = useState(false);
+  // The module flag follows the state rather than being set beside it, so the
+  // two cannot drift apart -- a hot reload keeps module variables and resets
+  // state, and setting both in the toggle left the label saying one thing and
+  // playSfx doing the other.
+  useEffect(() => {
+    SFX_KILLED = sfxOff;
+  }, [sfxOff]);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
@@ -2070,9 +2074,15 @@ export default function App() {
     const playing = screen === 'game' ? gameMusic : menuMusic;
     const quiet = screen === 'game' ? menuMusic : gameMusic;
     try {
-      playing.loop = true;
       quiet.pause();
-      playing.play();
+      // The debug switch. Only the two music tracks -- the rain ambience below
+      // is weather, not music, and stays with the field.
+      if (musicOff) {
+        playing.pause();
+      } else {
+        playing.loop = true;
+        playing.play();
+      }
 
       // Weather belongs to the field, so it runs with a run and stops with it.
       // Nothing to cross-fade: it is quiet enough to simply start.
@@ -2085,7 +2095,7 @@ export default function App() {
     } catch {
       // music is decoration; never let it take the game down
     }
-  }, [screen, gameMusic, menuMusic, rainAmbience]);
+  }, [screen, musicOff, gameMusic, menuMusic, rainAmbience]);
 
   // ---- Tooltip helpers ----
   const tooltipOpenedAtRef = useRef(0);
@@ -3894,7 +3904,7 @@ export default function App() {
           whether the stutter left with it. Delete with DEBUG_PERF. */}
       {DEBUG_PERF && (
         <View style={styles.perfSwitchRow}>
-          <Pressable onPress={toggleSfx} style={[styles.perfSwitch, sfxOff && styles.perfSwitchOff]}>
+          <Pressable onPress={() => setSfxOff((v) => !v)} style={[styles.perfSwitch, sfxOff && styles.perfSwitchOff]}>
             <Text style={styles.perfSwitchText}>{sfxOff ? 'lyd FRA' : 'lyd til'}</Text>
           </Pressable>
           <Pressable
@@ -3902,6 +3912,12 @@ export default function App() {
             style={[styles.perfSwitch, weatherOff && styles.perfSwitchOff]}
           >
             <Text style={styles.perfSwitchText}>{weatherOff ? 'vejr FRA' : 'vejr til'}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setMusicOff((v) => !v)}
+            style={[styles.perfSwitch, musicOff && styles.perfSwitchOff]}
+          >
+            <Text style={styles.perfSwitchText}>{musicOff ? 'musik FRA' : 'musik til'}</Text>
           </Pressable>
         </View>
       )}
