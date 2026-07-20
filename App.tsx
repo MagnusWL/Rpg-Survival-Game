@@ -481,11 +481,24 @@ const GORE_SPLATTER_SPREAD = 32; // px around where the body fell
  * be re-tuned by hand: the strike is a known frame, and the clips take about
  * 40 ms to reach full level, so they start that much ahead of it.
  */
-const SWING_SOUND_LEAD = 0.04; // seconds for a clip to reach full level
-const SWING_SOUND_AT = Math.max(
-  0,
-  (ATTACK_STRIKE_FRAME - ATTACK_FROM) / ANIMS.attack.fps - SWING_SOUND_LEAD
-);
+/** When the blade is round, measured from the moment the swing begins. */
+const SWING_STRIKE_AT = (ATTACK_STRIKE_FRAME - ATTACK_FROM) / ANIMS.attack.fps;
+
+/**
+ * How long each clip takes to reach full level, measured by the build.
+ *
+ * A sound meant to land on a frame has to be started early by exactly this
+ * much, and it is not one number: across the swing pool it runs from 29 ms to
+ * 129 ms. One value for all of them was 40, which put the gore clips 90 ms
+ * behind the blade -- and since the clip is drawn at random, whether a blow
+ * sounded like it connected came down to which one came up.
+ */
+const CLIP_LEAD: Record<string, number> = require('./assets/sounds/leads.json');
+const leadsFor = (prefix: string, count: number) =>
+  Array.from({ length: count }, (_, i) => CLIP_LEAD[`${prefix}-${i + 1}`] ?? 0);
+const ATTACK_LEADS = leadsFor('attack', 3);
+const KILL_LEADS = leadsFor('kill', 3);
+const GORE_LEADS = leadsFor('gore', 3);
 
 /**
  * Shortest gap between two flinch animations.
@@ -582,7 +595,7 @@ const BOSS_XP_REWARD = 120;
  * into Magnus's gameplay rather than our animation. The sack needed something
  * to react to, and a kill is the obvious something. It keeps its own count.
  */
-const MOB_COINS = 1;
+const MOB_COIN_CHANCE = 0.5; // a zombie is worth a coin half the time, nothing the rest
 const BOSS_COINS = 5;
 
 /**
@@ -2247,7 +2260,8 @@ export default function App() {
           newFloatingTexts.push(makeFloatingText(`+${reward} XP`, m.pos, XP_TEXT_COLOR, now));
           // One call per coin is the whole integration; the sack keeps its own
           // count and drops them in itself.
-          const coins = m.type === 'boss' ? BOSS_COINS : MOB_COINS;
+          const coins =
+            m.type === 'boss' ? BOSS_COINS : Math.random() < MOB_COIN_CHANCE ? 1 : 0;
           for (let i = 0; i < coins; i++) coinSackRef.current?.addCoin();
         }
       }
@@ -2356,30 +2370,39 @@ export default function App() {
         // swinging there is no swing to hear -- getting hit outranks attacking
         // in the state machine above, so in a crowd that happens often.
         if (nextAnim === 'attack') {
-          // Held back until the blade comes round, and scaled with the
-          // animation so it keeps landing on the strike at any attack speed.
-          swingSoundTimerRef.current = SWING_SOUND_AT / attackAnimSpeed;
-
-          // Which clip is decided now, while it is still known whether this blow
-          // killed anything. A killing blow sometimes earns a heavier one, which
-          // replaces the swing rather than layering over it: both at once just
-          // muddies, and those clips open on a strike of their own.
+          // Which clip is decided first, because how early it has to start
+          // depends on which one it is. It is also decided now, while it is
+          // still known whether this blow killed anything: a killing blow
+          // sometimes earns a heavier one, which replaces the swing rather than
+          // layering over it -- both at once just muddies, and those clips open
+          // on a strike of their own.
           //
-          // The heavy clips are one pool of six, half of them gore takes. Landing
-          // on a gore one is what calls for the extra blood, so the position is
-          // remembered here and used when the sound actually fires.
+          // The heavy clips are one pool of six, half of them gore takes.
+          // Landing on a gore one is what calls for the extra blood, so the
+          // position is remembered here and used when the sound actually fires.
           swingSoundGorePosRef.current = null;
+          let lead: number;
           if (anyMobDied && Math.random() < KILL_SFX_CHANCE) {
             const combo = killSoundsRef.current;
             const gore = goreSoundsRef.current;
             const pick = Math.floor(Math.random() * (combo.length + gore.length));
             const isGore = pick >= combo.length;
-            swingSoundPlayerRef.current = isGore ? gore[pick - combo.length] : combo[pick];
+            const i = isGore ? pick - combo.length : pick;
+            swingSoundPlayerRef.current = isGore ? gore[i] : combo[i];
+            lead = isGore ? GORE_LEADS[i] : KILL_LEADS[i];
             if (isGore) swingSoundGorePosRef.current = lastDeathPos;
           } else {
             const swings = attackSoundsRef.current;
-            swingSoundPlayerRef.current = swings[Math.floor(Math.random() * swings.length)];
+            const i = Math.floor(Math.random() * swings.length);
+            swingSoundPlayerRef.current = swings[i];
+            lead = ATTACK_LEADS[i];
           }
+
+          // Started early enough that its loudest moment falls on the strike,
+          // rather than its first sample doing. The animation's speed scales
+          // when the blade arrives; the clip's own wind-up does not, since audio
+          // plays at the rate it was recorded whatever the sprite is doing.
+          swingSoundTimerRef.current = Math.max(0, SWING_STRIKE_AT / attackAnimSpeed - lead);
         } else {
           // Interrupted before the strike, so it never happened as far as the
           // eye is concerned. Drop the pending sound and the blood with it.
@@ -2396,9 +2419,11 @@ export default function App() {
       if (moving && (p.anim === 'walk' || p.anim === 'run')) {
         const cycles = (p.animTime * p.animSpeed * ANIMS[p.anim].fps) / SPRITE_COLS;
         const step = Math.floor((cycles - FOOTSTEP_PHASE) * STEPS_PER_CYCLE);
-        if (footstepStepRef.current === null) {
-          footstepStepRef.current = step; // just set off; note where he is, say nothing
-        } else if (step !== footstepStepRef.current) {
+        // The first frame of moving sounds too. It used to be swallowed -- the
+        // cycle starts at nothing and the first crossing is 40% of the way in,
+        // which at a run is 375 ms of silence after the tap that ordered it.
+        // A foot goes down when you set off, so it is heard when you set off.
+        if (footstepStepRef.current === null || step !== footstepStepRef.current) {
           footstepStepRef.current = step;
 
           // The ground he lands on. Wet or dry is decided per step rather than

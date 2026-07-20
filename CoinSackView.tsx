@@ -137,7 +137,11 @@ export default function CoinSackView({
           flipSample: url(FLIP_SAMPLE),
           spendStyle: 1,
           soundOn: true,
-          tempo: 0.85,
+          // 0.6 rather than the kit's 0.85: a plain multiplier on the physics
+          // clock, so the coins fall about 30% slower and have time to be seen
+          // arriving. It changes nothing but the speed -- the bouncing and the
+          // settling keep their shape.
+          tempo: 0.6,
           glintStyle: 'star',
           soundStyle: 'classic',
           restitution: 0.42,

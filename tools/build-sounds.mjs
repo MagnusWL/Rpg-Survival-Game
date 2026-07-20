@@ -17,7 +17,7 @@
  * Run: npm run build:sounds
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, statSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { mkdirSync, statSync, existsSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -132,6 +132,49 @@ for (const { out, src, level, eq, group, inPath, chain, peak } of jobs) {
       (group ? `  [${group}]` : '') +
       (eq && (eq.bass || eq.mid || eq.treble) ? `  egen EQ: diskant ${eq.treble} dB` : '') +
       (eq && !eq.bass && !eq.mid && !eq.treble ? '  uden EQ' : '')
+  );
+}
+
+/**
+ * How long a clip takes to reach full level, in seconds.
+ *
+ * A sound that has to land on a particular frame has to be started early by
+ * exactly this much, and it is not the same for every clip: measured across the
+ * swing pool it runs from 30 ms to 130 ms. Assuming one value for all of them
+ * put the gore clips 90 ms behind the blade, which is what made it feel like
+ * chance whether a blow sounded like it connected.
+ *
+ * Read off the decoded audio rather than probed with repeated ffmpeg calls:
+ * find the loudest sample, then the first one within a decibel of it.
+ */
+function measureLeadSeconds(file) {
+  const res = spawnSync(
+    'ffmpeg',
+    ['-i', file, '-ac', '1', '-ar', String(RATE), '-f', 's16le', '-'],
+    { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 }
+  );
+  const pcm = res.stdout;
+  if (!pcm || pcm.length < 4) return 0;
+  const n = Math.floor(pcm.length / 2);
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(pcm.readInt16LE(i * 2)));
+  if (peak === 0) return 0;
+  const threshold = peak * 0.891; // one decibel below the loudest sample
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(pcm.readInt16LE(i * 2)) >= threshold) return +(i / RATE).toFixed(4);
+  }
+  return 0;
+}
+
+{
+  const leads = {};
+  for (const j of jobs) leads[j.out] = measureLeadSeconds(path.join(OUT_DIR, `${j.out}.wav`));
+  writeFileSync(path.join(OUT_DIR, 'leads.json'), JSON.stringify(leads));
+  const swing = Object.entries(leads).filter(([k]) => /^(attack|kill|gore)-/.test(k));
+  const ms = swing.map(([, v]) => Math.round(v * 1000));
+  console.log(
+    `\nOptrek maalt for ${Object.keys(leads).length} klip  ->  leads.json` +
+      (ms.length ? `\n  sværdpuljen naar fuld styrke efter ${Math.min(...ms)}-${Math.max(...ms)} ms` : '')
   );
 }
 
