@@ -1225,6 +1225,137 @@ const ALLY_ATTACK_COOLDOWN = 1.0;
 const ABILITY_MAX_LEVEL = 4;
 const CONE_RANGE = Math.hypot(SCREEN_W, PLAY_H);
 const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
+
+// --- The cone's ground-rupture (ours, Nicolai's ask of 20 July) -------------
+// The skill always fired invisibly; this is the picture it never had: a spark
+// at the boots and a wave of glowing pixel shards tearing outward inside the
+// cone's true angle, quantised into steps like the rest of the pixel art, and
+// gone in under a second. Decoration only -- the damage was instant before
+// and stays instant.
+//
+// Built to the weather's lesson: every movement is a CSS keyframe compiled
+// through StyleSheet.create (inline keyframes silently do nothing), the burst
+// is a memo component, and nothing ticks in JS -- the game loop only removes
+// the entry when its time is up.
+const CONE_FX_MS = 700;
+const CONE_FX = {
+  shards: 30,
+  minRadius: 12,
+  /** How far out the last shard is born; with `travel` on top this is the wave's reach. */
+  maxRadius: 150,
+  travel: 85,
+  /** px/s -- each shard waits radius/speed, so ignition runs outward like a fuse. */
+  waveSpeed: 520,
+  shardMs: 380,
+  minSize: 4,
+  maxSize: 9,
+  steps: 5,
+  /** The skill's own orange family plus dark earth chips. */
+  colors: ['#ff8a50', '#ff8a50', '#ffc46b', '#d9531e', '#5c3b23'],
+};
+
+const coneFxSheet = StyleSheet.create({
+  shard: {
+    position: 'absolute',
+    animationKeyframes: [
+      {
+        '0%': { opacity: 0, transform: [{ translateX: 0 }] },
+        '12%': { opacity: 1 },
+        '100%': { opacity: 0, transform: [{ translateX: CONE_FX.travel }] },
+      },
+    ],
+    animationDuration: `${CONE_FX.shardMs}ms`,
+    animationTimingFunction: `steps(${CONE_FX.steps})`,
+    animationFillMode: 'both',
+  } as never,
+  flash: {
+    position: 'absolute',
+    animationKeyframes: [
+      {
+        '0%': { opacity: 0, transform: [{ scale: 0.4 }] },
+        '30%': { opacity: 1 },
+        '100%': { opacity: 0, transform: [{ scale: 1.3 }] },
+      },
+    ],
+    animationDuration: '240ms',
+    animationTimingFunction: 'steps(3)',
+    animationFillMode: 'both',
+  } as never,
+  flashBox: {
+    left: -9,
+    top: -9,
+    width: 18,
+    height: 18,
+    backgroundColor: '#ffc46b',
+  },
+});
+
+/** Deterministic dice, so the three variants are the same on every load. */
+const mulberry = (seed: number) => () => {
+  seed |= 0;
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+/**
+ * Three pre-rolled shard layouts, picked round-robin per cast so bursts do
+ * not all look identical. Rolled once at module load and compiled through
+ * StyleSheet.create exactly like the rain's drops, so casting allocates no
+ * styles at runtime.
+ */
+const CONE_FX_VARIANTS = [1, 2, 3].map((n) => {
+  const rnd = mulberry(n * 9973);
+  const specs = Array.from({ length: CONE_FX.shards }, () => {
+    const angleDeg = (rnd() * 2 - 1) * ABILITY2_HALF_ANGLE_DEG;
+    const radius = CONE_FX.minRadius + rnd() * (CONE_FX.maxRadius - CONE_FX.minRadius);
+    const size = Math.round(CONE_FX.minSize + rnd() * (CONE_FX.maxSize - CONE_FX.minSize));
+    const color = CONE_FX.colors[Math.floor(rnd() * CONE_FX.colors.length)];
+    const delayMs = Math.round((radius / CONE_FX.waveSpeed) * 1000 + rnd() * 40);
+    return { angleDeg, radius, size, color, delayMs };
+  });
+  const sheet = StyleSheet.create(
+    Object.fromEntries(
+      specs.map((s, i) => [
+        `s${i}`,
+        {
+          left: s.radius,
+          top: -s.size / 2,
+          width: s.size,
+          height: s.size,
+          backgroundColor: s.color,
+          animationDelay: `${s.delayMs}ms`,
+        },
+      ])
+    ) as never
+  ) as Record<string, object>;
+  return { specs, sheet };
+});
+
+/** One cast's burst on the field. */
+type ConeBlast = { id: number; x: number; y: number; angleDeg: number; variant: number; createdAt: number };
+
+/**
+ * No props change after mount, so React never reconciles a burst again --
+ * the compositor owns it until the loop removes the entry.
+ */
+const ConeBlastFx = memo(function ConeBlastFx({ variant }: { variant: number }) {
+  const { specs, sheet } = CONE_FX_VARIANTS[variant];
+  return (
+    <>
+      <View style={[coneFxSheet.flash, coneFxSheet.flashBox]} />
+      <View style={{ position: 'absolute', transform: [{ rotate: '45deg' }] }}>
+        <View style={[coneFxSheet.flash, coneFxSheet.flashBox]} />
+      </View>
+      {specs.map((s, i) => (
+        <View key={i} style={{ position: 'absolute', transform: [{ rotate: `${s.angleDeg}deg` }] }}>
+          <View style={[coneFxSheet.shard, sheet[`s${i}`]]} />
+        </View>
+      ))}
+    </>
+  );
+});
 const ABILITY3_HASTE_DURATION = 5;
 
 // ---- Skill catalog ---------------------------------------------------------
@@ -1343,6 +1474,7 @@ let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
 let bloodIdCounter = 0;
 let corpseIdCounter = 0;
+let coneBlastIdCounter = 0;
 let itemIdCounter = 0;
 let floatingTextIdCounter = 0;
 
@@ -2193,6 +2325,7 @@ export default function App() {
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
   const [bloodSplats, setBloodSplats] = useState<BloodSplat[]>([]);
   const [corpses, setCorpses] = useState<Corpse[]>([]);
+  const [coneBlasts, setConeBlasts] = useState<ConeBlast[]>([]);
 
   // The tuning panel drives these while DEBUG_COINSACK_TUNING is on; the
   // constants above take over the moment it is switched off.
@@ -2416,6 +2549,7 @@ export default function App() {
   const hitFlashesRef = useRef(hitFlashes);
   const bloodSplatsRef = useRef(bloodSplats);
   const corpsesRef = useRef(corpses);
+  const coneBlastsRef = useRef(coneBlasts);
   /** The kit's engine, once it has built itself. Null on anything but web. */
   const coinSackRef = useRef<CoinSackHandle>(null);
   const floatingTextsRef = useRef(floatingTexts);
@@ -2499,6 +2633,7 @@ export default function App() {
   hitFlashesRef.current = hitFlashes;
   bloodSplatsRef.current = bloodSplats;
   corpsesRef.current = corpses;
+  coneBlastsRef.current = coneBlasts;
   floatingTextsRef.current = floatingTexts;
   waveRef.current = wave;
   waveActiveRef.current = waveActive;
@@ -2783,6 +2918,18 @@ export default function App() {
     if (dieTimerRef.current != null || ab.skill !== 'cone' || p.mana < cost) return;
     // Ours: the cast pose. The skill's own work below stays exactly as it was.
     pendingCastAnimRef.current = 'rupture';
+    // Ours too: the rupture wave on the ground, toward the aimed point.
+    const blastId = ++coneBlastIdCounter;
+    setConeBlasts((prev) =>
+      prev.concat({
+        id: blastId,
+        x: p.pos.x,
+        y: p.pos.y,
+        angleDeg: (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI,
+        variant: blastId % CONE_FX_VARIANTS.length,
+        createdAt: Date.now(),
+      })
+    );
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
     const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
@@ -2819,6 +2966,18 @@ export default function App() {
       // Fire at once, straight ahead of where the knight is facing.
       const dir = directionFromFacing(p.facing);
       const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
+      // Ours too: the rupture wave on the ground, aimed the same way.
+      const blastId = ++coneBlastIdCounter;
+      setConeBlasts((prev) =>
+        prev.concat({
+          id: blastId,
+          x: p.pos.x,
+          y: p.pos.y,
+          angleDeg: (Math.atan2(dir.y, dir.x) * 180) / Math.PI,
+          variant: blastId % CONE_FX_VARIANTS.length,
+          createdAt: Date.now(),
+        })
+      );
       const result = fireCone(
         p.pos,
         aim,
@@ -2916,6 +3075,7 @@ export default function App() {
     hitFlashesRef.current = [];
     bloodSplatsRef.current = [];
     corpsesRef.current = [];
+    coneBlastsRef.current = [];
     floatingTextsRef.current = [];
     waveRef.current = s.wave;
     waveActiveRef.current = false;
@@ -2942,6 +3102,7 @@ export default function App() {
     setHitFlashes([]);
     setBloodSplats([]);
     setCorpses([]);
+    setConeBlasts([]);
     setFloatingTexts([]);
     setWave(s.wave);
     setWaveActive(false);
@@ -3917,6 +4078,9 @@ export default function App() {
         .map((c) => ({ ...c, age: c.age + dt }))
         .filter((c) => c.age < animDuration(MOB_DIE_ANIMS[c.anim]) + CORPSE_LINGER + CORPSE_FADE)
         .concat(newCorpses);
+      // The rupture bursts animate themselves in CSS; the loop only sweeps
+      // up the entries whose time is spent.
+      const survivorConeBlasts = coneBlastsRef.current.filter((b) => now - b.createdAt < CONE_FX_MS);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
@@ -3982,6 +4146,7 @@ export default function App() {
       hitFlashesRef.current = survivorFlashes;
       bloodSplatsRef.current = survivorBlood;
       corpsesRef.current = survivorCorpses;
+      coneBlastsRef.current = survivorConeBlasts;
       floatingTextsRef.current = survivorFloatingTexts;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
@@ -3998,6 +4163,7 @@ export default function App() {
       setHitFlashes(survivorFlashes);
       setBloodSplats(survivorBlood);
       setCorpses(survivorCorpses);
+      setConeBlasts(survivorConeBlasts);
       setFloatingTexts(survivorFloatingTexts);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
@@ -4537,6 +4703,17 @@ export default function App() {
         {aimingAbility === 2 &&
           aimPreviewPoint &&
           renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
+
+        {/* The rupture bursts, on the ground plane under everyone's feet. */}
+        {coneBlasts.map((b) => (
+          <View
+            key={`cfx-${b.id}`}
+            pointerEvents="none"
+            style={{ position: 'absolute', left: b.x, top: b.y, transform: [{ rotate: `${b.angleDeg}deg` }] }}
+          >
+            <ConeBlastFx variant={b.variant} />
+          </View>
+        ))}
 
         {groundItems.map((it) => {
           const def = ITEM_DEFS[it.item.kind];

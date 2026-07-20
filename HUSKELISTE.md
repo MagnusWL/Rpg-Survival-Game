@@ -127,17 +127,23 @@ trin-notationen (20. juli): åndedrag 0,3 s på billede 7, tre sving
 ét vist billede og kan bære sin egen pause; `order` findes på enhver
 animation og trumfer `passes`/`holds`.
 
-**Cone-området skal have sin egen effekt-animation** (Nicolai, 20. juli —
-ikke lavet endnu). Keglens facit fra koden: vinklen er 42° (2×21), og
-rækkevidden er hele banens diagonal (`Math.hypot(SCREEN_W, PLAY_H)`,
-~765 px) — den når altid forbi skærmkanten, så "området" er reelt en
-uendelig kile. **Keglen har i praksis INGEN synlig grafik i dag:** et tryk
-på ikonet fyrer øjeblikkeligt, ligeud, usynligt. Der FINDES en orange
-sigte-trekant og et helt sigte-flow i koden (`renderCone`,
-`aimingAbility`), men det er død kode — intet i spillet starter sigtet
-længere (kun `setAimingAbility(null)` kaldes; formentlig bænket da
-kvik-kast-bjælken kom). Nicolai opdagede det ved at lede efter trekanten
-forgæves. Effekt-animationen udfylder altså et totalt tomrum.
+**Cone-området har fået sit jordskred** (bygget 20. juli, nat — Nicolais
+bestilling "noget der fyrer hen over jorden og fader ud", førsteudkast til
+hans øjne). Ved hvert kast: pixel-glimt ved støvlerne + 30 glødende
+jord-splinter, der river sig udad inden for keglens rigtige 42°, tændt
+udefter som en lunte (~520 px/s), hakkende i steps(5), døde efter 0,7 s
+og ~235 px. Ren dekoration — skaden var altid øjeblikkelig og er urørt.
+Bygget efter vejr-lektionen: alt i compositoren via `StyleSheet.create`,
+tre forud-rullede varianter, nul JS pr. frame; løkken fejer kun entry'en.
+**Drejeknapper:** `CONE_FX` i App.tsx (antal, rækkevidde, fart, farver,
+steps) — bevist i DOM (32 elementer, kompileret animation, fejet til
+tiden); selve udseendet er Nicolais dom.
+
+Keglens facit i øvrigt: vinklen er 42° (2×21), rækkevidden hele banens
+diagonal (~765 px) — skaden når altid forbi skærmkanten. Sigte-trekanten
+(`renderCone`/`aimingAbility`) er stadig **død kode** — intet starter
+sigtet; formentlig bænket da kvik-kast-bjælken kom. Skal over Magnus's
+bord, hvis sigtet skal genoplives eller ryddes op.
 
 Ancestor spiller **frem → tilbage → frem igen** (`passes` på `ANIMS.ancestor`,
 Nicolais figur, 20. juli) og ender stående på sidste billede — 2,4 s i alt.
