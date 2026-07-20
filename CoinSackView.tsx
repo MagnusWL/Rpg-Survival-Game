@@ -239,7 +239,7 @@ export default function CoinSackView({
   if (Platform.OS !== 'web') return null;
 
   return (
-    <View pointerEvents="none" style={{ position: 'absolute', left, bottom, width, height }}>
+    <View style={{ position: 'absolute', left, bottom, width, height, pointerEvents: 'none' }}>
       <canvas
         ref={canvasRef}
         aria-hidden="true"

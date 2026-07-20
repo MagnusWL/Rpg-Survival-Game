@@ -103,14 +103,14 @@ export default function PerfOverlay() {
   // frames at all -- otherwise the panel is simply absent and reads as broken.
   if (!s) {
     return (
-      <View pointerEvents="none" style={styles.box}>
+      <View style={styles.box}>
         <Text style={styles.line}>maaler...</Text>
       </View>
     );
   }
 
   return (
-    <View pointerEvents="none" style={styles.box}>
+    <View style={styles.box}>
       <Text style={styles.line}>
         {s.fps} fps{'  '}sim {s.sim}{'  '}med {s.med}{'  '}p90 {s.p90}{'  '}top {s.top} ms
       </Text>
@@ -132,6 +132,9 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 4,
     backgroundColor: 'rgba(0,0,0,0.66)',
+    // In the style rather than as a prop; the prop form is deprecated and
+    // warned on every mount.
+    pointerEvents: 'none',
   },
   line: { color: '#9fe8a0', fontSize: 10, fontVariant: ['tabular-nums'] },
   bad: { color: '#ff8a65' },

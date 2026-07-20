@@ -1405,6 +1405,7 @@ function SpriteSheet({
               <Image
                 key={name}
                 source={def.rim}
+                tintColor={rgb(rim.color)}
                 style={{
                   position: 'absolute',
                   width: size * SPRITE_COLS,
@@ -1412,7 +1413,6 @@ function SpriteSheet({
                   left: -size * animColumn(def, animTime),
                   top: -size * Math.min(facing, rows - 1),
                   opacity: name === anim ? rim.strength : 0,
-                  tintColor: rgb(rim.color),
                 }}
               />
             );
@@ -1425,6 +1425,7 @@ function SpriteSheet({
       {flash && flash.opacity > 0 && active && (
         <Image
           source={active.sheet}
+          tintColor={flash.color}
           style={{
             position: 'absolute',
             width: size * SPRITE_COLS,
@@ -1432,7 +1433,6 @@ function SpriteSheet({
             left: -size * animColumn(active, animTime),
             top: -size * Math.min(facing, activeRows - 1),
             opacity: flash.opacity,
-            tintColor: flash.color,
           }}
         />
       )}
@@ -3392,11 +3392,11 @@ export default function App() {
         >
           <Image
             source={GLOW}
+            tintColor={glow.color}
             style={{
               width: glowSize,
               height: glowSize,
               opacity: glow.opacity,
-              tintColor: glow.color,
             }}
           />
         </View>

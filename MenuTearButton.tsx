@@ -89,7 +89,7 @@ export default function MenuTearButton({
   if (Platform.OS !== 'web') return null;
 
   return (
-    <View pointerEvents="none" style={{ position: 'absolute', left: 0, top: 0, width: screenW, height: screenH }}>
+    <View style={{ position: 'absolute', left: 0, top: 0, width: screenW, height: screenH, pointerEvents: 'none' }}>
       <canvas ref={canvasRef} style={{ width: screenW, height: screenH, display: 'block' }} />
     </View>
   );
