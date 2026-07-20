@@ -1458,6 +1458,21 @@ const coneZoneSheet = StyleSheet.create({
 const RUPTURE_ZONE_FRAME = 12; // his 13th, counted from 0
 const RUPTURE_ZONE_DELAY_MS = Math.round(frameStartTime(ANIMS.rupture, RUPTURE_ZONE_FRAME) * 1000);
 
+/**
+ * Whether the cone's damage waits for the wave to reach each enemy, rather
+ * than landing everywhere the instant the button is pressed.
+ *
+ * Nicolai's call of 21 July, and the one gameplay change in this effect: the
+ * numbers are Magnus's untouched -- who is hit and for how much is still
+ * decided by fireCone at the moment of the cast -- but a far enemy now takes
+ * its blow up to 1.7 s later, and keeps swinging until it does. Set this to
+ * false and every blow lands at once again, exactly as before.
+ */
+const CONE_DAMAGE_RIDES_WAVE = true;
+
+/** A blow the wave is carrying but has not delivered yet. */
+type PendingConeHit = { mobId: number; amount: number; at: number };
+
 type ConeZoneCell = { left: number; top: number; color: string; bucket: number; arc: boolean; hop: number };
 /**
  * One cast's zone. The cells are worked out at the moment of the cast -- from
@@ -1833,16 +1848,19 @@ function fireCone(
   damagePercent: number,
   range: number,
   halfAngleDeg: number
-): { mobs: Mob[]; hits: { pos: Vec; amount: number }[] } {
+): { mobs: Mob[]; hits: { id: number; pos: Vec; amount: number }[] } {
   const dirAngle = (Math.atan2(aimPoint.y - origin.y, aimPoint.x - origin.x) * 180) / Math.PI;
-  const hits: { pos: Vec; amount: number }[] = [];
+  // `id` is ours, added so the wave can deliver each blow to the right mob
+  // later. Everything else here is Magnus's, untouched -- who is hit and for
+  // how much is still decided entirely by this function.
+  const hits: { id: number; pos: Vec; amount: number }[] = [];
   const mobs = currentMobs.map((m) => {
     const d = dist(origin, m.pos);
     if (d <= range) {
       const mobAngle = (Math.atan2(m.pos.y - origin.y, m.pos.x - origin.x) * 180) / Math.PI;
       if (Math.abs(normalizeAngle(mobAngle - dirAngle)) <= halfAngleDeg) {
         const amount = baseDamage + m.maxHp * damagePercent;
-        hits.push({ pos: { ...m.pos }, amount });
+        hits.push({ id: m.id, pos: { ...m.pos }, amount });
         return { ...m, hp: m.hp - amount };
       }
     }
@@ -2756,6 +2774,11 @@ export default function App() {
   const bloodSplatsRef = useRef(bloodSplats);
   const corpsesRef = useRef(corpses);
   const coneZonesRef = useRef(coneZones);
+  /**
+   * Blows the wave is still carrying. A ref rather than state because the
+   * loop owns them and nothing about them belongs in a saved run.
+   */
+  const coneHitsRef = useRef<PendingConeHit[]>([]);
   /** The kit's engine, once it has built itself. Null on anything but web. */
   const coinSackRef = useRef<CoinSackHandle>(null);
   const floatingTextsRef = useRef(floatingTexts);
@@ -3112,6 +3135,25 @@ export default function App() {
     setAimPreviewPoint({ x: locationX, y: locationY });
   };
 
+  /**
+   * Hand the cone's blows to the wave instead of landing them at once.
+   *
+   * Who is hit and for how much was settled by fireCone at the moment of the
+   * cast and is not revisited: the target list is locked, so an enemy that
+   * wanders out of the wedge is still struck -- you aimed there. Each blow
+   * waits for the front to reach where that enemy stood, which is the same
+   * arithmetic the pixels use, so the flash and the line arrive together.
+   */
+  const queueConeHits = (hits: { id: number; pos: Vec; amount: number }[], origin: Vec) => {
+    const now = Date.now();
+    for (const h of hits) {
+      const travel = CONE_DAMAGE_RIDES_WAVE
+        ? RUPTURE_ZONE_DELAY_MS + (dist(origin, h.pos) / CONE_ZONE.sweepSpeed) * 1000
+        : 0;
+      coneHitsRef.current.push({ mobId: h.id, amount: h.amount, at: now + travel });
+    }
+  };
+
   const handlePlayAreaRelease = (e: GestureResponderEvent) => {
     if (gameOverRef.current || aimingAbility == null) return;
     const slot = aimingAbility;
@@ -3136,9 +3178,11 @@ export default function App() {
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
     const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
-    setMobs(result.mobs);
-    const now = Date.now();
-    setFloatingTexts((prev) => prev.concat(result.hits.map((h) => makeFloatingText(`-${Math.round(h.amount)}`, h.pos, DAMAGE_TEXT_COLOR, now))));
+    // Ours: the blows ride the wave now, so fireCone is called for its aim and
+    // its arithmetic only -- result.mobs, which has the damage already taken
+    // off, is deliberately not used. The numbers it worked out are delivered
+    // untouched, just later.
+    queueConeHits(result.hits, p.pos);
     setPlayer((prev) => ({ ...prev, mana: prev.mana - cost }));
     const pv = passiveRef.current;
     const cdScale = pv && pv.skill === 'cdreduce' ? 1 - cooldownReducePercent(pv.level) : 1;
@@ -3183,11 +3227,9 @@ export default function App() {
         CONE_RANGE,
         ABILITY2_HALF_ANGLE_DEG
       );
-      setMobs(result.mobs);
-      const now = Date.now();
-      setFloatingTexts((prev) =>
-        prev.concat(result.hits.map((h) => makeFloatingText(`-${Math.round(h.amount)}`, h.pos, DAMAGE_TEXT_COLOR, now)))
-      );
+      // Ours: the blows ride the wave, so result.mobs -- which already has
+      // the damage taken off -- is deliberately not used. See queueConeHits.
+      queueConeHits(result.hits, p.pos);
     } else if (skill === 'ranged') {
       setPlayer((prev) => ({ ...prev, hasteTimer: ABILITY3_HASTE_DURATION }));
     } else if (skill === 'fireball') {
@@ -3272,6 +3314,7 @@ export default function App() {
     bloodSplatsRef.current = [];
     corpsesRef.current = [];
     coneZonesRef.current = [];
+    coneHitsRef.current = [];
     floatingTextsRef.current = [];
     waveRef.current = s.wave;
     waveActiveRef.current = false;
@@ -3817,6 +3860,33 @@ export default function App() {
             a.pos = { x: a.pos.x + dx * ratio, y: a.pos.y + dy * ratio };
           }
         }
+      }
+
+      // Ours: the wave delivers the cone's blows as it reaches each enemy --
+      // the red flash, the number and the white marker all land together with
+      // the line passing through, which is the whole point of the effect.
+      //
+      // Placed above the burn chain and the death pass on purpose, so a kill
+      // made here starts its explosion and drops its corpse in the same frame
+      // any other kill would.
+      if (coneHitsRef.current.length > 0) {
+        const stillCarried: PendingConeHit[] = [];
+        for (const h of coneHitsRef.current) {
+          if (h.at > now) {
+            stillCarried.push(h);
+            continue;
+          }
+          const m = currentMobs.find((x) => x.id === h.mobId);
+          // Already dead, or gone with its wave: the blow is simply dropped.
+          // Nothing strikes a corpse.
+          if (!m || m.hp <= 0) continue;
+          m.hp -= h.amount;
+          // No from-point: the cone never shoved anyone, and it still does not.
+          hurtMob(m);
+          newFloatingTexts.push(makeFloatingText(`-${Math.round(h.amount)}`, m.pos, DAMAGE_TEXT_COLOR, now));
+          newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
+        }
+        coneHitsRef.current = stillCarried;
       }
 
       // Burning enemies (marked by the Burn skill) blow up when they die,

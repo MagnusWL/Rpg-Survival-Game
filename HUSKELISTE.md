@@ -198,6 +198,22 @@ dither skruet ned; 672 pixels i simuleringen, stregen vokser 8 → 88.
 Kanten er **tonet ned** (tæthed 0,55, alfa ~0,3) — buerne har overtaget
 jobbet med at vise formen.
 
+**Skaden rider nu på bølgen** (`CONE_DAMAGE_RIDES_WAVE`, Nicolais
+udtrykkelige ja 21. juli — den ENE gameplay-ændring i hele effekten).
+Zombierne tager først skade og blinker rødt, når stregen når dem: 1,0 s
+for en helt tæt på, 1,3 s på 400 px, op til 1,7 s yderst. **Tallene er
+Magnus's urørte** — `fireCone` afgør stadig hvem der rammes og hvor
+hårdt, i kastets øjeblik; den bliver bare kaldt for sit sigte og sin
+udregning, og dens færdigskadede liste kasseres bevidst. Målene er
+**låst ved kastet** (går en zombie ud af keglen, rammes den alligevel —
+du sigtede der), og en ventende træffer på en allerede død springes over.
+Leveringen sker lige før brand-kæden, så et drab her tæller som ethvert
+andet drab samme frame. **Rul tilbage:** sæt flaget til `false`, så
+lander alt igen på trykket.
+
+Bemærk: keglen gav **slet ikke rødt blink før** — `fireCone` trak bare
+liv fra. Blinket er altså ny gevinst, ikke noget vi har flyttet.
+
 **Drejeknapper i `CONE_ZONE`:** `cell` (pixelstørrelse), `arcGap`/
 `arcDensity` (stregernes afstand og stiplethed), `edgeBand`/`edgeDensity`
 (kantens tykkelse/tæthed), `fillNear`/`fillFar`/`fillFalloff` (ditheren
