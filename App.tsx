@@ -26,12 +26,14 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 const TOP_BAR_HEIGHT = 50;
 // Sized to what is in them rather than by eye, since every pixel here is one
-// the field does not get: the quick-cast buttons are 42 square, and the HUD's
-// two rows plus its padding measure 73. They were 66 and 84.
+// the field does not get. The quick-cast buttons rise up out of this strip, so
+// it only needs to cover their lower portion. The HUD's label and value now
+// share a line, so it needs one row less than before.
 const QUICK_CAST_BAR_HEIGHT = 48;
-const HUD_HEIGHT = 74;
-const MENU_BAR_HEIGHT = 58;
-const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - QUICK_CAST_BAR_HEIGHT - HUD_HEIGHT - MENU_BAR_HEIGHT;
+const HUD_HEIGHT = 60;
+// The bottom menu bar is gone (Inventory moved up beside the skills), so the
+// field takes the height it used to hold and the lower UI sits at the bottom.
+const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - QUICK_CAST_BAR_HEIGHT - HUD_HEIGHT;
 const BAR_WIDTH = 80;
 
 const PLAYER_RADIUS = 18;
@@ -3788,7 +3790,7 @@ export default function App() {
           {/* The equipped loadout, shown the same way it appears in a run. */}
           <View style={styles.loadoutPreview}>
             {meta.loadout.map((skill) => (
-              <View key={skill} style={styles.quickCastSlot}>
+              <View key={skill} style={styles.loadoutSlot}>
                 <View style={[styles.quickCastButton, { backgroundColor: SKILL_META[skill].color }]}>
                   <Text style={styles.quickCastIcon}>{SKILL_META[skill].icon}</Text>
                 </View>
@@ -3796,7 +3798,7 @@ export default function App() {
               </View>
             ))}
             {meta.passive && (
-              <View style={styles.quickCastSlot}>
+              <View style={styles.loadoutSlot}>
                 <View style={[styles.passiveChip, { backgroundColor: SKILL_META[meta.passive].color }]}>
                   <Text style={styles.passiveChipIcon}>{SKILL_META[meta.passive].icon}</Text>
                 </View>
@@ -4028,20 +4030,24 @@ export default function App() {
   return (
     <View style={styles.root}>
       <View style={styles.topBar}>
-        <Text style={styles.topBarText}>Wave {shownWave}</Text>
-        <Pressable onPress={() => setMobStatsOpen(true)} style={styles.topBarButton}>
-          <Text style={styles.topBarButtonText}>Mob Stats</Text>
-        </Pressable>
-        {!gameOver && (
+        {!gameOver ? (
           <Pressable onPress={handleExitRun} style={styles.exitRunButton}>
             <Text style={styles.exitRunText}>Exit run</Text>
           </Pressable>
+        ) : (
+          <View />
         )}
-        {!waveActive && !gameOver && (
-          <Pressable onPress={handleStartNextWave} style={styles.startWaveButton}>
-            <Text style={styles.startWaveText}>Start Wave {wave + 1}</Text>
+        <View style={styles.topBarRight}>
+          <Text style={styles.topBarText}>Wave {shownWave}</Text>
+          <Pressable onPress={() => setMobStatsOpen(true)} style={styles.topBarButton}>
+            <Text style={styles.topBarButtonText}>Mob Stats</Text>
           </Pressable>
-        )}
+          {!waveActive && !gameOver && (
+            <Pressable onPress={handleStartNextWave} style={styles.startWaveButton}>
+              <Text style={styles.startWaveText}>Start Wave {wave + 1}</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <View
@@ -4143,6 +4149,16 @@ export default function App() {
       </View>
 
       <View style={styles.quickCastBar}>
+        {/* Inventory, moved out of the old bottom bar: a small bag at the far
+            left of the skill row. */}
+        <Pressable onPress={() => setInvMenuOpen(true)} style={styles.invBagButton}>
+          <Text style={styles.invBagIcon}>🎒</Text>
+          {bagCount > 0 && (
+            <View style={styles.invBagBadge}>
+              <Text style={styles.menuBadgeText}>{bagCount}</Text>
+            </View>
+          )}
+        </Pressable>
         {([1, 2, 3] as AbilityId[])
           .filter((id) => abilities[id].skill != null && abilities[id].level > 0)
           .map((id) => {
@@ -4194,22 +4210,28 @@ export default function App() {
       <View style={styles.hud}>
         <View style={styles.hudBarsRow}>
           <View style={styles.hudBarColumn}>
-            <Text style={styles.hudBarLabel}>Lv {player.level}</Text>
-            <Text style={styles.hudBarValue}>{player.xp}/{player.xpToNext}</Text>
+            <View style={styles.hudBarHeader}>
+              <Text style={styles.hudBarLabel}>Lv {player.level}</Text>
+              <Text style={styles.hudBarValue}>{player.xp}/{player.xpToNext}</Text>
+            </View>
             <View style={styles.barBg}>
               <View style={[styles.barFillXp, { width: BAR_WIDTH * (player.xp / player.xpToNext) }]} />
             </View>
           </View>
           <View style={styles.hudBarColumn}>
-            <Text style={styles.hudBarLabel}>HP</Text>
-            <Text style={styles.hudBarValue}>{Math.round(player.hp)}/{Math.round(effectiveMaxHp)}</Text>
+            <View style={styles.hudBarHeader}>
+              <Text style={styles.hudBarLabel}>HP</Text>
+              <Text style={styles.hudBarValue}>{Math.round(player.hp)}/{Math.round(effectiveMaxHp)}</Text>
+            </View>
             <View style={styles.barBg}>
               <View style={[styles.barFillHp, { width: BAR_WIDTH * (player.hp / effectiveMaxHp) }]} />
             </View>
           </View>
           <View style={styles.hudBarColumn}>
-            <Text style={styles.hudBarLabel}>MP</Text>
-            <Text style={styles.hudBarValue}>{Math.round(player.mana)}/{Math.round(effectiveMaxMana)}</Text>
+            <View style={styles.hudBarHeader}>
+              <Text style={styles.hudBarLabel}>MP</Text>
+              <Text style={styles.hudBarValue}>{Math.round(player.mana)}/{Math.round(effectiveMaxMana)}</Text>
+            </View>
             <View style={styles.barBg}>
               <View style={[styles.barFillMana, { width: BAR_WIDTH * (player.mana / effectiveMaxMana) }]} />
             </View>
@@ -4219,20 +4241,6 @@ export default function App() {
           <Text style={styles.hudStatText}>DMG {displayDamage}</Text>
           <Text style={styles.hudStatText}>SPD {displayAtkSpeed.toFixed(1)}/s</Text>
         </View>
-      </View>
-
-      <View style={styles.menuBar}>
-        <Pressable onPress={() => setSkillsMenuOpen(true)} style={styles.menuButton}>
-          <Text style={styles.menuButtonText}>Skills</Text>
-        </Pressable>
-        <Pressable onPress={() => setInvMenuOpen(true)} style={styles.menuButton}>
-          <Text style={styles.menuButtonText}>Inventory</Text>
-          {bagCount > 0 && (
-            <View style={[styles.menuBadge, { backgroundColor: '#90caf9' }]}>
-              <Text style={styles.menuBadgeText}>{bagCount}</Text>
-            </View>
-          )}
-        </Pressable>
       </View>
 
       {/* The kit's own canvas, sitting on the bars rather than inside one.
@@ -4550,10 +4558,14 @@ const styles = StyleSheet.create({
     height: TOP_BAR_HEIGHT,
     backgroundColor: '#111122',
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 14,
     paddingHorizontal: 10,
+  },
+  topBarRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   topBarText: {
     color: '#fff',
@@ -4675,18 +4687,52 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
+    // The round buttons poke up out of the top of this black strip, over the
+    // gameplay, so nothing here may clip them.
+    overflow: 'visible',
+    zIndex: 5,
   },
   quickCastSlot: {
     alignItems: 'center',
+    // Lift the whole slot so ~60% of the button sits above the strip (over the
+    // field) and ~40% stays within the black strip.
+    transform: [{ translateY: -22 }],
   },
   quickCastButton: {
-    width: 42,
-    height: 42,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
   quickCastIcon: {
-    fontSize: 22,
+    fontSize: 30,
+  },
+  invBagButton: {
+    position: 'absolute',
+    left: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#37474f',
+    justifyContent: 'center',
+    alignItems: 'center',
+    transform: [{ translateY: -14 }],
+  },
+  invBagIcon: {
+    fontSize: 20,
+  },
+  invBagBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: '#90caf9',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   manaBadge: {
     position: 'absolute',
@@ -4712,6 +4758,9 @@ const styles = StyleSheet.create({
     gap: 16,
     marginBottom: 6,
   },
+  loadoutSlot: {
+    alignItems: 'center',
+  },
   passiveChip: {
     width: 28,
     height: 28,
@@ -4724,8 +4773,9 @@ const styles = StyleSheet.create({
   },
   quickCastCooldownOverlay: {
     position: 'absolute',
-    width: 42,
-    height: 42,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -4801,6 +4851,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: BAR_WIDTH,
   },
+  hudBarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    width: BAR_WIDTH,
+    marginBottom: 2,
+  },
   hudBarLabel: {
     color: '#fff',
     fontSize: 11,
@@ -4808,7 +4865,6 @@ const styles = StyleSheet.create({
   hudBarValue: {
     color: '#ccc',
     fontSize: 10,
-    marginBottom: 2,
   },
   hudStatsRow: {
     flexDirection: 'row',
@@ -4835,27 +4891,6 @@ const styles = StyleSheet.create({
   barFillMana: {
     height: 10,
     backgroundColor: '#4fc3f7',
-  },
-  menuBar: {
-    height: MENU_BAR_HEIGHT,
-    backgroundColor: '#0b0b18',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  menuButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#37474f',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    gap: 8,
-  },
-  menuButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
   },
   menuBadge: {
     minWidth: 18,
@@ -5193,7 +5228,7 @@ const styles = StyleSheet.create({
   },
   skillRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   skillRowChild: { paddingLeft: 16, opacity: 0.98 },
-  skillSwatch: { width: 26, height: 26, borderRadius: 4, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
+  skillSwatch: { width: 26, height: 26, borderRadius: 13, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
   skillSwatchIcon: { fontSize: 15 },
   skillRowInfo: { flex: 1, paddingRight: 8 },
   skillRowName: { color: '#eceff1', fontSize: 13, fontWeight: 'bold' },
