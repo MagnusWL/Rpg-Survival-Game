@@ -16,29 +16,33 @@
  * The art is a placeholder for a placeholder: these three are stills that will
  * be replaced by animated versions, and the logo is literally the word LOGO.
  */
-import { Asset } from 'expo-asset';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Image, Pressable, StyleSheet, Text } from 'react-native';
+import { Animated, Dimensions, Easing, Image, Platform, Pressable, StyleSheet, Text } from 'react-native';
+
+import IntroSceneFx, { INTRO_CARDS, firstCardUri } from './IntroSceneFx';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 /**
  * The story, in order: the two of them at the fire, her being carried off, and
- * what he walks into looking for her. Numbered rather than named, because the
- * order is the story.
+ * what he walks into looking for her. Each is a still with something living on
+ * it -- the fire, the eyes, the fog -- and the two travel together, so they are
+ * paired in IntroSceneFx rather than listed apart here.
  */
-const CARDS = [
-  require('./assets/sprites/intro/1.jpg'),
-  require('./assets/sprites/intro/2.jpg'),
-  require('./assets/sprites/intro/3.jpg'),
-];
+const CARDS = INTRO_CARDS;
 
 /** How long the logo card holds, once it is up. */
 const LOGO_MS = 2000;
 /** And how long it may hold while waiting for the first card to arrive. */
 const LOGO_MAX_MS = 4500;
-/** How long each story card is on screen, fade included. */
-const CARD_MS = 3000;
+/**
+ * How long each story card is on screen, fade included.
+ *
+ * Five rather than three, because there is now something to watch on each of
+ * them: three seconds was long enough to read a picture and too short to see a
+ * fire breathe.
+ */
+const CARD_MS = 5000;
 
 const LOGO_FADE_MS = 700;
 /** Card to card. Both are opaque, so this is a straight cross-dissolve. */
@@ -90,7 +94,7 @@ export default function IntroSequence({ onDone }: { onDone: () => void }) {
     const ready = () => {
       if (!cancelled) setFirstCardReady(true);
     };
-    Image.prefetch(Asset.fromModule(CARDS[0]).uri).then(ready, ready);
+    Image.prefetch(firstCardUri()).then(ready, ready);
     return () => {
       cancelled = true;
     };
@@ -164,12 +168,20 @@ export default function IntroSequence({ onDone }: { onDone: () => void }) {
       </Animated.View>
 
       {CARDS.map((card, i) => (
-        <Animated.Image
-          key={i}
-          source={card}
-          resizeMode="cover"
-          style={[styles.card, { opacity: cardFades[i] }]}
-        />
+        <Animated.View key={i} style={[styles.cardLayer, { opacity: cardFades[i] }]}>
+          <Image source={card.art} resizeMode="cover" style={styles.card} />
+
+          {/* Alive for its own card and one step longer.
+              Its own step is obvious. The step after is the cross-dissolve:
+              this card is still in plain sight underneath while the next one
+              fades up over it, and cutting the fire dead the instant the step
+              changed put a visible stop in it. One step later it is completely
+              covered, so it can go. That keeps at most two of these running,
+              and never the fog and the fire together. */}
+          {Platform.OS === 'web' && (step === i + 1 || step === i + 2) && (
+            <IntroSceneFx effect={card.effect} screenW={SCREEN_W} screenH={SCREEN_H} />
+          )}
+        </Animated.View>
       ))}
 
       {/* Tap to move on. It stays put while leaving rather than being taken
@@ -202,6 +214,21 @@ const styles = StyleSheet.create({
     top: 0,
     width: SCREEN_W,
     height: SCREEN_H,
+  },
+  /**
+   * The still and its animation together, as one thing that fades.
+   *
+   * Clipped on purpose: the effect's canvas is as wide as the picture is drawn,
+   * which on a phone hangs off both sides, and this is what trims it to the
+   * screen -- the same trim cover already gives the picture underneath.
+   */
+  cardLayer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: SCREEN_H,
+    overflow: 'hidden',
   },
   logoWrap: {
     ...FILL,

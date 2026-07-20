@@ -678,19 +678,31 @@ if (existsSync(MENU_SRC)) {
 // and flat near-black gradients are where JPEG bands; measured against the
 // source, 86 puts 0.4-0.7% of samples more than 8 levels out where 92 keeps it
 // near 0.1%, for about 70 KB a card. Worth it on the first thing anyone sees.
+// Each card is now the still half of a drop-in kit, and the kit's own canvas
+// draws the moving half over it -- see vendor/intro-*. Taken from inside those
+// folders rather than from loose files, so the background and the effect that
+// belongs on it can never drift apart.
+//
+// The campfire's background matters especially: the flames are painted out of
+// it, because the fire is the animation. Reach for the older 1.png and the
+// scene ends up burning twice.
 const INTRO_SRC = path.join(ROOT, 'Grafik', 'Intro');
 const INTRO_OUT = path.join(ROOT, 'assets', 'sprites', 'intro');
-const INTRO_CARDS = ['1', '2', '3'];
+const INTRO_CARDS = [
+  { card: '1', from: path.join('1 Campfire', 'dropin-campfire', 'assets', 'campfire.png') },
+  { card: '2', from: path.join('2 Monster', 'dropin-monster', 'assets', 'monster.png') },
+  { card: '3', from: path.join('3 Horizon', 'dropin-fog', 'assets', 'knight-vista.png') },
+];
 const INTRO_QUALITY = 92;
 
 if (existsSync(INTRO_SRC)) {
   mkdirSync(INTRO_OUT, { recursive: true });
   const lines = [];
 
-  for (const card of INTRO_CARDS) {
-    const from = path.join(INTRO_SRC, `${card}.png`);
+  for (const { card, from: rel } of INTRO_CARDS) {
+    const from = path.join(INTRO_SRC, rel);
     if (!existsSync(from)) {
-      lines.push(`      ${card}: mangler i Grafik/Intro`);
+      lines.push(`      ${card}: mangler -- ${rel}`);
       continue;
     }
     const to = path.join(INTRO_OUT, `${card}.jpg`);
