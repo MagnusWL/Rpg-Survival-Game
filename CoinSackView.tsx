@@ -1,13 +1,17 @@
 /**
- * The coin sack, run by the kit's own engine rather than reproduced.
+ * The coin counter: a crowned skull whose open cranium the coins drop into,
+ * run by the kit's own engine rather than reproduced.
  *
- * An earlier attempt redrew all of this with React Native views and its own
- * physics, on the reasoning that a canvas cannot ship to a phone. The result
+ * Second design in this spot. The first was the drawstring sack, and the one
+ * lesson that survives it is the whole architecture here: an earlier attempt
+ * redrew that kit with React Native views and its own physics, and the result
  * was not the same thing -- the pixel treatment and the coin shading are the
- * design, not decoration -- so this runs `vendor/coin-sack/coin-sack-engine.js`
- * untouched instead. Nothing here alters how it looks or behaves; it hands the
- * engine a canvas and the settings the kit's own example uses, and gets out of
- * the way.
+ * design. So this runs `vendor/cranium-coin-bag/coin-sack-engine.js`
+ * untouched: the same engine one revision on, with the artwork's interior as
+ * a parameter (`geometry: 'skull'`). Nothing here alters how it looks or
+ * behaves; it hands the engine a canvas and the recipe from the kit's own
+ * example -- "Recipe: Nicolai in pixel-lab, 20 July 2026", says the README --
+ * and gets out of the way.
  *
  * Which means it is web only. React Native has no canvas, so on a phone this
  * renders nothing at all until it is either given a WebView to live in or the
@@ -15,7 +19,7 @@
  *
  * Everything the engine needs:
  *   - `window.Matter`, which it looks up by name (matter-js 0.19, as the kit asks)
- *   - a canvas with a real box, since it reads that to size the sack and coins
+ *   - a canvas with a real box, since it reads that to size the skull and coins
  *   - asset URLs it can load and fetch, which is why they go through expo-asset
  *   - a genuine user gesture before any sound, which browsers insist on
  */
@@ -24,38 +28,31 @@ import Matter from 'matter-js';
 import { useEffect, useRef } from 'react';
 import { Platform, View } from 'react-native';
 
-import { CoinSack } from './vendor/coin-sack/coin-sack-engine';
+import { CoinSack } from './vendor/cranium-coin-bag/coin-sack-engine';
 
 /**
- * The shape the sack is drawn at, straight from the kit's example.
+ * The shape the skull is drawn at, from the kit's README: designed in 560x380
+ * landscape, and the sides are deliberately wide, so coins spilling past the
+ * brim stay visible falling beside it before they are culled.
  *
- * Width is not a free choice. The engine always works internally at 220x360, so
- * its buffer is 220/pixelSize wide whatever the box says -- and the box decides
- * whether that buffer is then scaled up or down. At the pixelSize this kit now
- * asks for the buffer is 138 across, so the canvas wants to be about that wide
- * or more. The kit's own example uses 150, which lands on 1.09 screen pixels per
- * buffer pixel: near enough 1:1.
- *
- * The height follows the width, because the engine lays the art out from both
- * and a box of the wrong shape crops the sack instead of fitting it.
+ * Width is not a free choice: at pixelSize 2.2 the buffer is 254 px across,
+ * and a box below that scales the pixel look away. The tuning panel warns
+ * below this the way it did for the sack.
  */
-export const SACK_MIN_W = 138;
-const SACK_ASPECT = 265 / 150;
-
-/** Steel. The kit ships brass (14b) and copper (14c) beside it. */
-const THEME = '14f';
+export const SACK_MIN_W = 254;
+const DESIGN_W = 560;
+const DESIGN_H = 380;
+const SACK_ASPECT = DESIGN_H / DESIGN_W;
 
 const ART = {
-  bg: require('./assets/coinsack/14f/sack-bg.png'),
-  bgB: require('./assets/coinsack/14f/sack-bg-b.png'),
-  ringBack: require('./assets/coinsack/14f/ring-back.png'),
-  fg: require('./assets/coinsack/14f/sack-fg.png'),
-  ringFront: require('./assets/coinsack/14f/ring-front.png'),
-  shade: require('./assets/coinsack/shade.png'),
+  /** The cavity, behind the coins. */
+  bg: require('./assets/coinsack/skull/back.png'),
+  /** Face and crown, in front of them. */
+  fg: require('./assets/coinsack/skull/skull.png'),
 };
 
-// Fourteen takes, one picked at random per coin. Listed rather than generated
-// because Metro has to see each require() to bundle the file.
+// The same fourteen takes the sack used -- the kit ships them byte-identical.
+// Listed rather than generated because Metro has to see each require().
 const COIN_SAMPLES = [
   require('./assets/coinsack/coin/coin-1.wav'),
   require('./assets/coinsack/coin/coin-2.wav'),
@@ -75,12 +72,13 @@ const COIN_SAMPLES = [
 const FLIP_SAMPLE = require('./assets/coinsack/coin-flip.mp3');
 
 /**
- * Everything the sack needs before it can exist, for pulling down early.
+ * Everything the skull needs before it can exist, for pulling down early.
  *
  * The engine cannot be built until these have arrived -- it loads the art as
  * images and fetches the sounds -- so a run that starts with them cold spends
- * its first moments assembling the sack in front of the player. Fetched while
- * the menu is up instead, they are in the browser's hands before the field is.
+ * its first moments assembling the skull in front of the player. Fetched
+ * while the menu is up instead, they are in the browser's hands before the
+ * field is.
  */
 export const COINSACK_ASSETS: number[] = [...Object.values(ART), ...COIN_SAMPLES, FLIP_SAMPLE];
 
@@ -107,7 +105,7 @@ export default function CoinSackView({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<CoinSack | null>(null);
-  /** For the wake listener, which must not resume a deliberately muted sack. */
+  /** For the wake listener, which must not resume a deliberately muted skull. */
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
   const height = Math.round(width * SACK_ASPECT);
@@ -121,51 +119,40 @@ export default function CoinSackView({
     let dropped = false;
 
     // The engine looks this up by name rather than importing it, so it has to
-    // be on the window before the sack is built.
+    // be on the window before the skull is built.
     (window as unknown as { Matter: typeof Matter }).Matter = Matter;
 
-    // Built at once rather than after waiting on the assets.
-    //
-    // It used to await loadAsync over the whole list before constructing, which
-    // meant the sack could not exist until fifteen coin sounds had arrived --
-    // measured at 1.7 seconds after the field appeared, which is the hitch.
-    // Nothing here needs the bytes: the engine is handed URLs and does its own
-    // loading, and on web a URL is known from the bundle without asking.
+    // Built at once rather than after waiting on the assets. The sack was
+    // delayed 1.7 s into a run by awaiting loadAsync here; nothing needs the
+    // bytes -- the engine is handed URLs and does its own loading, and on web
+    // a URL is known from the bundle without asking.
     const url = (mod: number) => Asset.fromModule(mod).uri;
 
     try {
       if (!dropped) {
-        // Verbatim from the kit's example, bar the theme and pointing the
-        // sounds at bundled files rather than its inlined data URIs -- which
-        // its README asks for, being smaller and cacheable.
+        // The approved configuration, verbatim from the kit's README and
+        // example -- "reuse the options() block as-is". The only departures
+        // are the ones its own comments instruct: the sounds point at bundled
+        // files rather than the example's inlined data URIs, and the
+        // onCount/onFull hooks are left out because the number is ours to
+        // render and we render none.
         sack = new CoinSack(canvas, {
           style: 'artsack',
+          geometry: 'skull',
           art: {
             bg: url(ART.bg),
-            bgB: url(ART.bgB),
-            ringBack: url(ART.ringBack),
             fg: url(ART.fg),
-            ringFront: url(ART.ringFront),
-            shade: url(ART.shade),
           },
           coinTones: ['#fff6d6', '#ffe08a', '#f5be3c', '#c6871f', '#7e5212'],
           pixelate: true,
-          // 1.6 rather than 2.4, which is the opposite of what it reads like: a
-          // smaller number means a larger buffer, 138 across instead of 92, so a
-          // coin gets 4.38 blocks where it had 2.92 and comes out sharper. The
-          // sack's own chunkiness no longer depends on this at all -- it is
-          // baked into art that genuinely has 58 pixels.
-          pixelSize: 1.6,
-          fillCount: 16,
+          pixelSize: 2.2,
+          fillCount: 30,
+          groundShadow: false,
           coinSamples: COIN_SAMPLES.map(url),
           flipSample: url(FLIP_SAMPLE),
           spendStyle: 1,
           soundOn: true,
-          // 0.6 rather than the kit's 0.85: a plain multiplier on the physics
-          // clock, so the coins fall about 30% slower and have time to be seen
-          // arriving. It changes nothing but the speed -- the bouncing and the
-          // settling keep their shape.
-          tempo: 0.6,
+          tempo: 0.85,
           glintStyle: 'star',
           soundStyle: 'classic',
           restitution: 0.42,
@@ -179,7 +166,7 @@ export default function CoinSackView({
         engineRef.current = sack;
       }
     } catch (err) {
-      // A sack that fails to build must not take the game down with it -- but
+      // A skull that fails to build must not take the game down with it -- but
       // it should say why, rather than leaving a blank corner and no reason.
       console.warn('[coin sack] failed to build:', err);
     }
@@ -187,7 +174,7 @@ export default function CoinSackView({
     /**
      * Browsers refuse sound until the page has been touched, and the engine
      * builds its audio context once, at birth -- long before that. Without
-     * this the sack is silent and nothing anywhere says why.
+     * this the skull is silent and nothing anywhere says why.
      *
      * Note that scrolling does not count as a touch. It has to be a real click,
      * tap or key, which in this game is the tap that starts a run.
@@ -204,7 +191,14 @@ export default function CoinSackView({
     const events = ['pointerdown', 'touchend', 'keydown'] as const;
     for (const e of events) window.addEventListener(e, wake, { passive: true });
 
+    // One more read after layout has definitely settled. The engine sizes
+    // itself from the canvas box at construction, and a box measured mid-
+    // commit can come back wrong once; the kit's own API offers _resize for
+    // exactly this.
+    const settle = requestAnimationFrame(() => sack?._resize());
+
     return () => {
+      cancelAnimationFrame(settle);
       dropped = true;
       for (const e of events) window.removeEventListener(e, wake);
       sackRef.current = null;
@@ -214,9 +208,9 @@ export default function CoinSackView({
     };
   }, [sackRef]);
 
-  // The engine sizes the sack and the coins off the canvas box, and only reads
-  // it when told to -- so a box that changes has to say so, or the art keeps
-  // the shape it was born at while the element around it moves.
+  // The engine sizes the skull and the coins off the canvas box, and only
+  // reads it when told to -- so a box that changes has to say so, or the art
+  // keeps the shape it was born at while the element around it moves.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     engineRef.current?._resize();
@@ -240,11 +234,36 @@ export default function CoinSackView({
 
   return (
     <View style={{ position: 'absolute', left, bottom, width, height, pointerEvents: 'none' }}>
+      {/* The canvas keeps the kit's native 560x380 box and is scaled to the
+          spot with a transform, which offsetWidth/Height do not see.
+
+          That blindness is the point. The engine reads those to size itself
+          and clamps the height to at least 360 css px -- so a box scaled the
+          way the README suggests (254x172, its own minimum) is quietly bumped
+          to an internal 360 and the skull paints squashed to half height:
+          measured as a 115x164 portrait buffer stretched into this landscape
+          spot. Fed the native box instead, the engine lays out exactly as in
+          the kit's example, and at 254 wide the buffer lands 1:1 on screen. */}
+      {/* Absolute on purpose, and not decoration: the wrapper is a flex
+          container (every react-native-web View is), and a canvas left in
+          flow gets shrunk as a flex item toward the wrapper's 172 px -- the
+          engine then reads the shrunken box and lays out clamped. Measured
+          both ways on one screen: in flow it rebuilt at 560x360, absolute it
+          holds 560x380. Absolute children are outside flex's reach. */}
       <canvas
         ref={canvasRef}
         aria-hidden="true"
-        data-theme={THEME}
-        style={{ width, height, display: 'block' }}
+        data-theme="skull"
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: DESIGN_W,
+          height: DESIGN_H,
+          display: 'block',
+          transform: `scale(${width / DESIGN_W})`,
+          transformOrigin: 'top left',
+        }}
       />
     </View>
   );

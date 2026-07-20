@@ -971,15 +971,16 @@ const BOSS_COINS = 5;
  * squashes when the box is the wrong shape. As placed, its foot is in the
  * quick-cast bar and it reaches about 80 px up into the field.
  *
- * Two things these numbers carry with them. 165 puts the sack's middle at 195,
- * which is the middle of a 390 px screen exactly -- so it is centred there and
- * nowhere else. And 60 is below the 96 the kit asks for, so the art is scaled
- * down and the pixel grid softens; the kit's own Doomscroller makes the same
- * trade at 64, for the same reason, which is room.
+ * First numbers for the skull, not tuned ones: centred (the kit's 254 px
+ * minimum width on a 390 screen leaves 68 a side) and sat on the bottom bars
+ * with its crown just under the field. The sack these replaced was placed by
+ * Nicolai with the sliders; the skull is landscape and three times as wide,
+ * so its spot is his to choose the same way -- DEBUG_COINSACK_TUNING brings
+ * the panel back.
  */
-const COINSACK_LEFT = 165;
-const COINSACK_BOTTOM = 153;
-const COINSACK_WIDTH = 60;
+const COINSACK_LEFT = (SCREEN_W - 254) / 2;
+const COINSACK_BOTTOM = 8;
+const COINSACK_WIDTH = 254;
 
 // On-screen sliders for placing the sack. Off now that the numbers above are
 // settled -- the panel is not rendered and its state costs nothing, so it is
@@ -2008,6 +2009,14 @@ export default function App() {
    * rather than through playSfx.
    */
   const [allSoundOff, setAllSoundOff] = useState(false);
+  /**
+   * The skull, gone entirely: engine, physics and its own animation frame
+   * chain all die with the unmount. Nicolai suspects it of hitching the game,
+   * and this is the same A/B the weather got -- play half a minute without it
+   * and let the readout speak. Toggling it back builds a fresh, empty skull;
+   * the coins in it are decoration, so nothing of worth is lost.
+   */
+  const [sackOff, setSackOff] = useState(false);
   // The module flag follows the state rather than being set beside it, so the
   // two cannot drift apart -- a hot reload keeps module variables and resets
   // state, and setting both in the toggle left the label saying one thing and
@@ -4243,20 +4252,23 @@ export default function App() {
         </View>
       </View>
 
-      {/* The kit's own canvas, sitting on the bars rather than inside one.
-          None of them is tall enough to hold it -- the sack is 170 px against
-          the tallest bar's 84 -- and the engine crops rather than squashes when
-          the box is the wrong shape, so it floats over them instead and its
-          foot is placed where it looks right. Measured from the bottom of the
-          screen, so it stays put whatever the bars do. */}
-      {/* Hidden during normal play -- the coin pouch used to sit over the skill
-          buttons. Still shown while tuning so its placement can be adjusted. */}
-      {DEBUG_COINSACK_TUNING && (
+      {/* The kit's own canvas, sitting over the bars rather than inside one --
+          the skull stands 172 px against the tallest bar's 84. Measured from
+          the bottom of the screen, so it stays put whatever the bars do.
+
+          Two decisions crossed here, kept in this order on purpose: Magnus
+          benched the old pouch for sitting over his new skill buttons, and
+          Nicolai then asked for the skull in its place (20 July) with a
+          switch so it can prove its cost. Its default spot is a first guess
+          that still overlaps those buttons -- where it finally sits is
+          Nicolai's to settle with the tuning panel, and Magnus's concern is
+          the constraint to settle it against. */}
+      {!sackOff && (
         <CoinSackView
           sackRef={coinSackRef}
-          left={tuneSackLeft}
-          bottom={tuneSackBottom}
-          width={tuneSackWidth}
+          left={DEBUG_COINSACK_TUNING ? tuneSackLeft : COINSACK_LEFT}
+          bottom={DEBUG_COINSACK_TUNING ? tuneSackBottom : COINSACK_BOTTOM}
+          width={DEBUG_COINSACK_TUNING ? tuneSackWidth : COINSACK_WIDTH}
           muted={allSoundOff}
         />
       )}
@@ -4268,7 +4280,7 @@ export default function App() {
         <View style={styles.tunePanel} onStartShouldSetResponder={() => true}>
           <DebugSlider label="Fra venstre" value={tuneSackLeft} min={0} max={Math.round(SCREEN_W - 40)} onChange={setTuneSackLeft} />
           <DebugSlider label="Fra bunden" value={tuneSackBottom} min={-60} max={Math.round(SCREEN_H / 2)} onChange={setTuneSackBottom} />
-          <DebugSlider label="Bredde" value={tuneSackWidth} min={48} max={260} onChange={setTuneSackWidth} />
+          <DebugSlider label="Bredde" value={tuneSackWidth} min={100} max={Math.round(SCREEN_W)} onChange={setTuneSackWidth} />
           <View style={styles.tuneButtons}>
             <Pressable style={styles.tuneButton} onPress={() => coinSackRef.current?.addCoin()}>
               <Text style={styles.tuneButtonText}>Smid en moent</Text>
@@ -4538,6 +4550,12 @@ export default function App() {
             style={[styles.perfSwitch, musicOff && styles.perfSwitchOff]}
           >
             <Text style={styles.perfSwitchText}>{musicOff ? 'musik FRA' : 'musik til'}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setSackOff((v) => !v)}
+            style={[styles.perfSwitch, sackOff && styles.perfSwitchOff]}
+          >
+            <Text style={styles.perfSwitchText}>{sackOff ? 'sæk FRA' : 'sæk til'}</Text>
           </Pressable>
         </View>
       )}

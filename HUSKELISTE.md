@@ -69,6 +69,28 @@ bagefter — det tager få sekunder.
 
 ---
 
+## Til eftertanke — Nicolai bad selv om påmindelsen
+
+**Når ridderen tager skade, giver han stadig skade.** Fjendens træffer vinder
+kun *billedet* (flinch vises i stedet for svinget), men slaget lander usynligt
+med fuld kraft. Nicolai overvejer om det usynlige slag skal svækkes — fx 50% —
+men skadestal er Magnus's domæne, så indtil videre røres intet. To mulige
+tolkninger blev ridset op, hvis idéen tages op igen: kun ved sammenstød i
+præcis samme frame, eller i hele flinch-vinduet (~0,7 s — den tolkning hvor
+regel og billede altid passer sammen).
+
+---
+
+## Den gamle møntsæk ligger klar til fortrydelse
+
+Kraniet (`Cranium-Coin-bag`) afløste snoresækken 20. juli. Den gamle kørsel
+ligger urørt tilbage: `vendor/coin-sack/` plus kunsten i `assets/coinsack/14f/`
+og `shade.png`. Vil Nicolai have sækken igen, er det CoinSackView der peges
+tilbage — lydene er de samme filer. Bliver kraniet hængende, kan de gamle
+mapper ryddes op inden PR'en.
+
+---
+
 ## Set, men ikke gjort noget ved
 
 **Introen fortæller ikke at man kan trykke sig videre.** Det virker, men en
