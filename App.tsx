@@ -1270,12 +1270,12 @@ const CONE_ZONE = {
   /** How far a pixel drifts up as it dies. Four steps, so four whole pixels. */
   drift: 16,
   /**
-   * One pixel of the carpet, in screen px. The knight is about 40 across, so
-   * this is a tenth of him -- halved from 8 on Nicolai's eye. Halving the
-   * pixel quadruples the candidates, so the fill below was thinned to match:
-   * a finer grain, not four times the cost.
+   * One pixel of the carpet, in screen px. Halved twice on Nicolai's eye, 8
+   * to 4 to 2 -- a twentieth of the knight's width. Each halving quadruples
+   * the candidates, so the densities below were cut to match every time: a
+   * finer grain, not sixteen times the cost.
    */
-  cell: 4,
+  cell: 2,
   /**
    * px/s the wave runs outward at. Slower than the old bare ignition (1500),
    * because it now carries the hop and a wave has to be seen travelling to
@@ -1311,21 +1311,21 @@ const CONE_ZONE = {
    * Dotted rather than solid (half the pixels of the arc) because a solid
    * line of 4 px squares costs twice as much and reads no better.
    */
-  arcGap: 36,
-  arcDensity: 0.5,
+  arcGap: 52,
+  arcDensity: 0.4,
   /**
    * The wedge's two straight edges, now a hint rather than a frame -- toned
    * down on Nicolai's eye once the arcs took over the job of showing the
    * shape. `edgeBand` is how far in from the edge still counts as the edge.
    */
-  edgeBand: 5,
-  edgeDensity: 0.55,
+  edgeBand: 4,
+  edgeDensity: 0.35,
   /** The scatter between the arcs: a little texture, nothing more. */
-  fillNear: 0.04,
-  fillFar: 0.015,
+  fillNear: 0.015,
+  fillFar: 0.006,
   fillFalloff: 460,
   /** Never mount more than this, however the wedge happens to fall. */
-  maxCells: 640,
+  maxCells: 680,
   /**
    * The strike line burns brightest; the edge and the scatter sit under it.
    * These are the colours at the peak of the leap -- the animation dims
@@ -1396,10 +1396,13 @@ const coneHopStyles = StyleSheet.create(
             '22%': { opacity: 0.5, transform: 'translateY(0px) scale(1)' },
             '28%': { opacity: 0.5, transform: `translateY(-${Math.round(h.lift * 0.3)}px) scale(1.25)` },
             // Landed and dimmed to a trail, so the bright line is the front
-            // alone and everything behind it is embers.
-            '34%': { opacity: 0.45, transform: 'translateY(0px) scale(1)' },
-            // One long interval, so its 4 steps are 4 px each: the pixel
-            // climbs a whole pixel at a time, slowly, and is gone.
+            // alone and everything behind it is embers. The timing function
+            // set HERE governs the interval that starts here -- the leap
+            // above keeps its steps, while the long climb below runs smooth.
+            // Stepping the climb read as stutter rather than as pixel art:
+            // over a whole second, 4 steps is one jerk every quarter second,
+            // which Nicolai saw immediately and took for lag.
+            '34%': { opacity: 0.45, transform: 'translateY(0px) scale(1)', animationTimingFunction: 'linear' },
             '100%': { opacity: 0, transform: `translateY(-${CONE_ZONE.drift}px) scale(1)` },
           },
         ],

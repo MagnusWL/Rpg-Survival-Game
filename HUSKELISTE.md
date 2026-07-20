@@ -183,6 +183,18 @@ Første forsøg var **dødt, og regnestykket forklarer hvorfor:** 5 px hop
 delt i 8 trin = 0,6 px ad gangen, mindre end én pixel — ingen bevægelse
 overhovedet. Alle løft er nu hele multipla af pixlen i 4 trin.
 
+**Hakket i den opadgående drift var ikke tunghed** — det var mit valg af
+4 trin, som over et helt sekund blev til ét ryk hvert kvarte sekund.
+Nicolai så det med det samme og troede det var lag. Løst med en
+tidsfunktion *inde i* nøglebilledet ved 34% (`animationTimingFunction:
+'linear'`), som kun styrer intervallet derfra: springet beholder sit
+hak, stigningen glider. Verificeret i den kompilerede regel — RNW
+sender per-keyframe timing igennem.
+
+**Pixlen halveret igen til 2 px** (21. juli) — en tyvendedel af ridderens
+bredde. Buerne blev tilsvarende færre (52 px) og tyndere (0,4), kant og
+dither skruet ned; 672 pixels i simuleringen, stregen vokser 8 → 88.
+
 Kanten er **tonet ned** (tæthed 0,55, alfa ~0,3) — buerne har overtaget
 jobbet med at vise formen.
 
