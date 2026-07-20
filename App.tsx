@@ -1158,13 +1158,21 @@ function SpriteSheet({
       })}
 
       {/* The light on his lit edge: the matching frame of the rim sheet, tinted
-          and faded as it is drawn. One more image, and only for whoever was
-          given rim sheets to begin with.
+          and faded as it is drawn.
+
+          Every rim sheet stays mounted and only the active one is visible --
+          the same rule the sheets above follow, and for the same two reasons.
+          Swapping one Image's source makes react-native-web reload it and draw
+          nothing in between, so the light blinked off at every animation
+          change. Worse, an unmounted sheet's decoded pixels are the first
+          thing the browser evicts, so each swap back was a fresh 7.5 MB decode
+          on the main thread -- measured in play as 90 ms hitches that landed
+          exactly on stopping, starting and striking.
 
           The blend goes on a wrapper rather than on the image, the way the
           ground glow does it -- it has to mix with him, and an element that
           blends is the one that has to hold the mode. */}
-      {rim && active?.rim && (
+      {rim && (
         <View
           style={{
             position: 'absolute',
@@ -1175,18 +1183,25 @@ function SpriteSheet({
             mixBlendMode: rim.blend,
           }}
         >
-          <Image
-            source={active.rim}
-            style={{
-              position: 'absolute',
-              width: size * SPRITE_COLS,
-              height: size * activeRows,
-              left: -size * animColumn(active, animTime),
-              top: -size * Math.min(facing, activeRows - 1),
-              opacity: rim.strength,
-              tintColor: rgb(rim.color),
-            }}
-          />
+          {Object.entries(anims).map(([name, def]) => {
+            if (!def.rim) return null;
+            const rows = def.rows ?? SPRITE_ROWS;
+            return (
+              <Image
+                key={name}
+                source={def.rim}
+                style={{
+                  position: 'absolute',
+                  width: size * SPRITE_COLS,
+                  height: size * rows,
+                  left: -size * animColumn(def, animTime),
+                  top: -size * Math.min(facing, rows - 1),
+                  opacity: name === anim ? rim.strength : 0,
+                  tintColor: rgb(rim.color),
+                }}
+              />
+            );
+          })}
         </View>
       )}
 
