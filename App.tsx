@@ -474,11 +474,14 @@ function feetInWater(pos: Vec) {
   return false;
 }
 
-// Rings spreading where rain meets standing water. Each slot fires on its own
-// rhythm, and picks a fresh spot every time round, so nothing repeats visibly.
-// Tuned on the same page as the rain.
+// Rings spreading where rain meets standing water. Each slot is one ring with
+// its own spot and its own rhythm. Tuned on the same page as the rain.
 const RIPPLE = {
-  slots: 60,
+  // Ten, dealt only over water the screen can actually see. It was sixty over
+  // the whole background image -- cover crops 429 px of that away on a phone,
+  // so forty of them rippled in puddles nobody could look at while the three
+  // visible ones shared twenty. Ten visible rings is busier than that was.
+  slots: 10,
   size: 19, // px across at its widest
   periodFast: 1.5, // sec between one ring and the next
   periodSlow: 3.7,
@@ -576,11 +579,10 @@ const RainLayer = memo(function RainLayer() {
  * Rings on the water, on the same terms as the rain above.
  *
  * Two things moved in the translation, both worth knowing. A slot now owns one
- * spot for good -- dealt from the same pool with the same odds, so the water
- * is as busy as before, but a given puddle re-ripples on a rhythm instead of
- * the ring hopping elsewhere each time. And the ring's line is scaled along
- * with the ring rather than redrawn at 1 px, so it starts hairline and
- * thickens as it spreads.
+ * spot for good, so a given puddle re-ripples on a rhythm instead of the ring
+ * hopping elsewhere each time. And the ring's line is scaled along with the
+ * ring rather than redrawn at 1 px, so it starts hairline and thickens as it
+ * spreads.
  */
 const RIPPLE_SPREAD_FRAMES = [
   {
@@ -589,10 +591,51 @@ const RIPPLE_SPREAD_FRAMES = [
   },
 ];
 
+/**
+ * The water the rings are dealt over: what this screen can see, thinned to one
+ * spot per patch, in order across the screen.
+ *
+ * Three steps, each there because leaving it out was tried and counted:
+ *
+ * - Centre on screen. The spots cover the whole background image and cover
+ *   crops it -- 429 px gone sideways on a phone -- and a looser test kept
+ *   spots whose ring would stand at the edge showing a 6 px sliver, which
+ *   reads as a bug rather than as rain.
+ * - One spot per 24 px cell. A big puddle that is almost entirely cropped
+ *   away leaves many spots crowded in its thin visible edge, and four rings
+ *   ended up inside 35 px of each other. Thinned, the count in each puddle
+ *   follows its visible size: on the phone, 43 spots come down to 10 patches.
+ * - Sorted across the screen, so the banded deal below spreads the few rings
+ *   over all the water rather than over the accidents of the list's order --
+ *   drawn plainly from it, seven of ten rings shared one corner.
+ *
+ * feetInWater stays on the full list on purpose: his feet still splash in a
+ * puddle half off the edge. Falls back to everything rather than crash on a
+ * screen so odd that no water is visible at all.
+ */
+const RIPPLE_CELL = 24;
+const RIPPLE_POOL = (() => {
+  const cells = new Map<string, [number, number, number]>();
+  for (const spot of PUDDLE_SPOTS) {
+    const x = onGroundX(spot[0]);
+    const y = onGroundY(spot[1]);
+    if (x < 0 || x > SCREEN_W || y < 0 || y > PLAY_H) continue;
+    const key = `${Math.round(x / RIPPLE_CELL)},${Math.round(y / RIPPLE_CELL)}`;
+    if (!cells.has(key)) cells.set(key, spot);
+  }
+  const pool = cells.size > 0 ? [...cells.values()] : [...PUDDLE_SPOTS];
+  return pool.sort((a, b) => onGroundX(a[0]) - onGroundX(b[0]));
+})();
+
 const ringStyles = StyleSheet.create(
   Object.fromEntries(
     RIPPLES.map((r, i) => {
-      const [fx, fy, room] = PUDDLE_SPOTS[Math.floor(noise(r.seed) * PUDDLE_SPOTS.length)];
+      // Each ring draws from its own band of the pool rather than the whole:
+      // ten independent draws over a list that is in mask-scan order put seven
+      // of ten rings on the screen's left edge, counted before it shipped.
+      // Banded, they spread over all the visible water and cannot collide.
+      const idx = Math.floor(((i + noise(r.seed)) / RIPPLE.slots) * RIPPLE_POOL.length);
+      const [fx, fy, room] = RIPPLE_POOL[Math.min(idx, RIPPLE_POOL.length - 1)];
       // Never wider than the water it sits in, however big rings are set.
       const size = Math.min(RIPPLE.size, room * 2 * groundScale);
       return [
