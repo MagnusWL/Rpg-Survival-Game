@@ -279,9 +279,19 @@ roteres. Kode-genererede effekter er kun til det, der skal følge levende tal:
 regn der skal dække enhver skærm, ringe der skal ramme rigtigt vand, en kegle
 der skal matche sin sande vinkel.
 
-**Konkret for kegle-zonen:** tegner Nicolai bølgen som et ark, ryger hele
-maskineriet (buer, spring-varianter, forsinkelses-klasser) ud, og prisen går
-fra ~680 elementer til 1. Timingen beholder vi — den er den værdifulde del.
+**Kegle-zonen er slanket 21. juli:** 680 → **428 pixels** (loft 420), og 394
+af dem er selve stregerne. Færre buer (96 px imellem i stedet for 52), kant og
+dither næsten væk. Det blev både billigere *og* renere — nu er ni tiendedele
+af det tegnede dét, øjet skal følge.
+
+**Den rigtige løsning, hvis det stadig er for tungt — "bagning":** vi behøver
+ikke at *tegne* noget. Et byggescript kan **regne effekten ud på forhånd** med
+præcis den matematik, der allerede står i koden, og gemme den som ét
+sprite-ark (én række, ~12 billeder, keglen pegende mod øst; spillet roterer
+det ene element efter kastretningen). Så går prisen fra 428 elementer til
+**1** — samme udseende, ingen tegneopgave for Nicolai. Prisen er, at
+variationen fra kast til kast forsvinder (alle kast bliver ens), og at
+roterede pixels bliver en anelse bløde. Ikke bygget endnu.
 
 ---
 

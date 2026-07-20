@@ -1311,21 +1311,29 @@ const CONE_ZONE = {
    * Dotted rather than solid (half the pixels of the arc) because a solid
    * line of 4 px squares costs twice as much and reads no better.
    */
-  arcGap: 52,
-  arcDensity: 0.4,
+  arcGap: 96,
+  arcDensity: 0.55,
   /**
    * The wedge's two straight edges, now a hint rather than a frame -- toned
    * down on Nicolai's eye once the arcs took over the job of showing the
    * shape. `edgeBand` is how far in from the edge still counts as the edge.
    */
   edgeBand: 4,
-  edgeDensity: 0.35,
+  edgeDensity: 0.16,
   /** The scatter between the arcs: a little texture, nothing more. */
-  fillNear: 0.015,
-  fillFar: 0.006,
+  fillNear: 0.007,
+  fillFar: 0.003,
   fillFalloff: 460,
-  /** Never mount more than this, however the wedge happens to fall. */
-  maxCells: 680,
+  /**
+   * Never mount more than this, however the wedge happens to fall.
+   *
+   * Halved on 21 July because Nicolai could feel the cost. Every pixel is a
+   * separate thing for the browser to lay out, animate and composite, so the
+   * count IS the price -- and cutting it turned out to improve the effect as
+   * well: at 420, nine tenths of what is drawn is the strike lines
+   * themselves, which is what the eye was meant to follow all along.
+   */
+  maxCells: 420,
   /**
    * The strike line burns brightest; the edge and the scatter sit under it.
    * These are the colours at the peak of the leap -- the animation dims
