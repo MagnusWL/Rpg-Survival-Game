@@ -228,6 +228,44 @@ const ANIMS: Record<AnimName, AnimDef> = {
 const INTRO_WALK_ANIM =
   SPRITE_COLS / ANIMS.walk.fps / ((STEPS_PER_CYCLE * WALK_STRIDE) / INTRO_WALK_SPEED);
 
+/**
+ * A gentle bob on the whole figure while he runs, over the top of the frames.
+ *
+ * The run sheet plays 16 drawings a second, and between two of them the
+ * picture stands dead still -- which is what reads as sluggish. This keeps
+ * the body itself in motion across those gaps: the frames are untouched, the
+ * element they are drawn in rises a pixel or two and settles again, once per
+ * footfall. The eye takes the continuous movement and credits it to the
+ * animation.
+ *
+ * It lives in the browser's animation machine like the weather does -- handed
+ * over once, run on the compositor, never seen by the game loop -- so it
+ * costs what one raindrop costs.
+ *
+ * In whole pixels on purpose, which is what the steps(2) is for: each half of
+ * the keyframe pair is cut in two, so the value only ever lands on 0, -1 and
+ * -2. A smooth glide would put the sprite between pixel rows and the browser
+ * would smear the art to show it there.
+ *
+ * The period is one step of his run cycle, derived rather than typed so it
+ * follows the sheet: 15 columns at 16 fps with two footfalls a cycle is a bob
+ * every 0.469 s. It starts when the run starts, so the two are in step.
+ */
+const RUN_BOB = StyleSheet.create({
+  bob: {
+    animationKeyframes: [
+      {
+        '0%': { transform: 'translateY(0px)' },
+        '50%': { transform: 'translateY(-2px)' },
+        '100%': { transform: 'translateY(0px)' },
+      },
+    ],
+    animationDuration: `${(SPRITE_COLS / ANIMS.run.fps / STEPS_PER_CYCLE).toFixed(4)}s`,
+    animationTimingFunction: 'steps(2)',
+    animationIterationCount: 'infinite',
+  } as never,
+}).bob;
+
 // The zombie art arrives as loose frames per direction and is packed into the
 // same 15x8 grid by tools/build-sprites.mjs, so it shares everything above.
 type MobAnimName = 'walk' | 'attack' | 'attack2' | 'attack3' | 'hurt';
@@ -1326,6 +1364,7 @@ function SpriteSheet({
   top,
   flash,
   rim,
+  bob,
 }: {
   anims: Record<string, AnimDef>;
   anim: string;
@@ -1344,11 +1383,17 @@ function SpriteSheet({
    * sheet, which is the knight's and no one else's.
    */
   rim?: RimStyle;
+  /**
+   * A whole-figure motion laid over the frames -- the run bob. A compiled
+   * style carrying a compositor animation, so it costs the game loop nothing;
+   * it rides on the clip box and everything inside comes along.
+   */
+  bob?: object;
 }) {
   const active = anims[anim];
   const activeRows = active ? active.rows ?? SPRITE_ROWS : SPRITE_ROWS;
   return (
-    <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
+    <View style={[{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }, bob]}>
       {Object.entries(anims).map(([name, def]) => {
         const rows = def.rows ?? SPRITE_ROWS;
         return (
@@ -3380,6 +3425,9 @@ export default function App() {
           left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
           top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
           rim={rim}
+          // Only the run bobs. Idle should stand like a statue, and the walk
+          // is the entrance, which has its own deliberate pace.
+          bob={player.anim === 'run' ? RUN_BOB : undefined}
         />
       ),
     },
