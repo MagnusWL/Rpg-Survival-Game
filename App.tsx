@@ -487,6 +487,13 @@ const RIPPLE = {
   periodSlow: 3.7,
   opacity: 0.73,
   colour: 'rgba(200, 224, 245, 0.6)',
+  /**
+   * How many jumps a ring takes from born to gone, instead of gliding. Chunky
+   * on purpose -- smooth curves sit oddly on pixel art -- and cheaper with it:
+   * between jumps nothing about the ring changes, so the browser recomposites
+   * it eight times a cycle rather than at every refresh.
+   */
+  steps: 8,
 };
 
 /** Repeatable stand-in for randomness, so a ripple needs no state to remember. */
@@ -653,7 +660,9 @@ const ringStyles = StyleSheet.create(
           animationKeyframes: RIPPLE_SPREAD_FRAMES,
           animationDuration: `${r.period.toFixed(3)}s`,
           animationDelay: `${(-r.phase * r.period).toFixed(3)}s`,
-          animationTimingFunction: 'linear',
+          // In jumps, not a glide -- see RIPPLE.steps. The rain above stays
+          // linear: stepped motion on a falling streak reads as strobing.
+          animationTimingFunction: `steps(${RIPPLE.steps})`,
           animationIterationCount: 'infinite',
         } as never,
       ];
