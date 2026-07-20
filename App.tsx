@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CoinSackView, { COINSACK_ASSETS, CoinSackHandle, SACK_MIN_W } from './CoinSackView';
 import IntroSequence from './IntroSequence';
 import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
-import PerfOverlay from './PerfOverlay';
+import PerfOverlay, { bumpSimTick } from './PerfOverlay';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
@@ -2408,6 +2408,25 @@ export default function App() {
         rafRef.current = requestAnimationFrame(step);
         return;
       }
+
+      // The 60-cap (ours, with Nicolai's go -- easy to lift back out).
+      //
+      // requestAnimationFrame follows the display, so on his monitor this loop
+      // ran 220 times a second: simulating, rebuilding the tree and leaving
+      // garbage at 220 Hz for art that plays at 10-24 fps. The residual hitch
+      // that came and went at rest was the collector clearing that up. Frames
+      // closer together than the budget are skipped whole -- the timestamp
+      // below stays put, so dt on the frame that does run is the true elapsed
+      // time and the simulation neither hurries nor drifts.
+      //
+      // 15 ms rather than 16.7 on purpose: a true 60 Hz display jitters around
+      // its own interval, and the stricter budget would make it skip real
+      // frames. Displays at or under 60 Hz pass through untouched.
+      if (lastTimeRef.current != null && time - lastTimeRef.current < 15) {
+        rafRef.current = requestAnimationFrame(step);
+        return;
+      }
+      bumpSimTick();
 
       if (lastTimeRef.current == null) lastTimeRef.current = time;
       const dt = Math.min((time - lastTimeRef.current) / 1000, 0.05);
