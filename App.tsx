@@ -653,9 +653,20 @@ const GORE_LEADS = leadsFor('gore', 3);
  */
 const HURT_ANIM_MIN_GAP = 1.2; // seconds
 
+/**
+ * Kill switch for every effect clip, flipped by the debug row in the corner.
+ *
+ * For hunting the hitches by ear: the readout shows 90 ms spikes tied to
+ * movement, and every step plays two clips -- so this lets a minute be played
+ * with that suspect removed entirely, on the machine where the lag is real.
+ * Module-level rather than state because playSfx is called from the game
+ * loop, where state would be a render behind.
+ */
+let SFX_KILLED = false;
+
 /** Fire and forget. Audio is a garnish -- it must never break the game loop. */
 function playSfx(player: AudioPlayer | undefined) {
-  if (!player) return;
+  if (!player || SFX_KILLED) return;
   try {
     // Rewind first: a finished clip will not restart from its own end.
     player.seekTo(0);
@@ -1564,6 +1575,18 @@ export default function App() {
   const [tuneRimB, setTuneRimB] = useState(RIM_STYLE.color[2]);
   const [tuneRimStrength, setTuneRimStrength] = useState(Math.round(RIM_STYLE.strength * 100));
   const [tuneRimBlend, setTuneRimBlend] = useState<BlendMode>(RIM_STYLE.blend);
+
+  // The hitch hunt's two kill switches: play a minute with a suspect removed
+  // entirely and feel whether the stutter went with it. Weather off means the
+  // 330 elements are not built at all -- display:none only stopped the paint.
+  const [sfxOff, setSfxOff] = useState(false);
+  const [weatherOff, setWeatherOff] = useState(false);
+  const toggleSfx = () => {
+    setSfxOff((v) => {
+      SFX_KILLED = !v;
+      return !v;
+    });
+  };
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const [wave, setWave] = useState(0);
@@ -3278,7 +3301,7 @@ export default function App() {
 
         {/* Rings where the rain lands in standing water. Before the characters,
             since they are on the ground and anyone standing there covers them. */}
-        {RAIN_ENABLED && PUDDLE_SPOTS.length > 0 && (
+        {RAIN_ENABLED && !weatherOff && PUDDLE_SPOTS.length > 0 && (
           <View style={styles.rain}>
             {RIPPLES.map((r, i) => {
               const t = Date.now() / 1000 + r.phase * r.period;
@@ -3313,7 +3336,7 @@ export default function App() {
 
         {/* In front of everyone, as weather between the scene and the camera.
             Deaf to touches, or sixty streaks would eat every tap on the field. */}
-        {RAIN_ENABLED && (
+        {RAIN_ENABLED && !weatherOff && (
           <View style={styles.rain}>
             {RAIN_STREAKS.map((d, i) => {
               // How far through its fall this drop is, right now.
@@ -3718,6 +3741,22 @@ export default function App() {
       {/* Over everything, including the veil, so a fade cannot hide the numbers.
           Delete with DEBUG_PERF. */}
       {DEBUG_PERF && <PerfOverlay />}
+
+      {/* The kill switches, beside the numbers. Tap one, play a minute, feel
+          whether the stutter left with it. Delete with DEBUG_PERF. */}
+      {DEBUG_PERF && (
+        <View style={styles.perfSwitchRow}>
+          <Pressable onPress={toggleSfx} style={[styles.perfSwitch, sfxOff && styles.perfSwitchOff]}>
+            <Text style={styles.perfSwitchText}>{sfxOff ? 'lyd FRA' : 'lyd til'}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setWeatherOff((v) => !v)}
+            style={[styles.perfSwitch, weatherOff && styles.perfSwitchOff]}
+          >
+            <Text style={styles.perfSwitchText}>{weatherOff ? 'vejr FRA' : 'vejr til'}</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* The same two layers the menu put up, coming back off over the field. */}
       {leaveVeil}
@@ -4338,6 +4377,23 @@ const styles = StyleSheet.create({
   tuneButtons: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   tuneButton: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#3949ab' },
   tuneButtonOn: { backgroundColor: '#4fc3f7' },
+  // The hitch hunt's switches; delete with DEBUG_PERF.
+  perfSwitchRow: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    zIndex: 300,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  perfSwitch: {
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0,0,0,0.66)',
+  },
+  perfSwitchOff: { backgroundColor: '#b3402a' },
+  perfSwitchText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   tuneButtonText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   // The chosen colour on its own, since a rim two pixels wide is hard to read
   // a slider against.
