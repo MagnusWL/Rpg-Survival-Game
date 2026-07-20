@@ -661,9 +661,10 @@ const COINSACK_LEFT = 165;
 const COINSACK_BOTTOM = 153;
 const COINSACK_WIDTH = 60;
 
-// Temporary on-screen sliders for placing it. Set to false once the numbers are
-// settled; the panel and its state then cost nothing.
-const DEBUG_COINSACK_TUNING = true;
+// On-screen sliders for placing the sack. Off now that the numbers above are
+// settled -- the panel is not rendered and its state costs nothing, so it is
+// one word to bring back when the layout is next in question.
+const DEBUG_COINSACK_TUNING = false;
 
 /**
  * The shove a mob takes when it is struck.
