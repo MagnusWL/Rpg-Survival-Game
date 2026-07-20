@@ -94,8 +94,14 @@ const WALK_STRIDE = 40; // px
  * to measure and by the same hand. One number moves both if it sounds early.
  */
 const FOOTSTEP_PHASE = 0.4;
-/** How long he stands before reaching for the sword. */
-const INTRO_SETTLE = 2; // seconds
+/**
+ * How long he stands before reaching for the sword.
+ *
+ * A tenth of a second: long enough that arriving and drawing read as two
+ * movements rather than one, short enough that nothing is being waited out. It
+ * was two seconds, which was a pause with nothing in it.
+ */
+const INTRO_SETTLE = 0.1; // seconds
 /**
  * The frame he holds while waiting.
  *
@@ -456,16 +462,13 @@ const MENU_LOGO_RECT = {
 };
 
 /**
- * The way out of the menu. Red first, then black over it, then back off once
- * the field is behind it.
+ * The way out of the menu: to black, and back off once the field is behind it.
  *
- * Red rather than a plain dim because of what was just torn: the plaque comes
- * apart in blood, and the screen going with it reads as the same event
- * continuing rather than a scene change happening to follow one.
+ * There was a red wash under the black to begin with, on the theory that the
+ * screen should go the way the plaque did. Black alone turned out to be the
+ * stronger of the two -- the tear has already said what it needs to.
  */
-const LEAVE_RED = '#5a0d0d';
-const LEAVE_RED_MS = 420;
-const LEAVE_BLACK_MS = 380;
+const LEAVE_FADE_MS = 600;
 const LEAVE_HOLD_MS = 140;
 const RETURN_MS = 560;
 
@@ -1506,9 +1509,8 @@ export default function App() {
   ];
 
   const tearRef = useRef<TearHandle>(null);
-  // The two layers of the way out. Held as refs so they carry on across the
-  // screen changing underneath them -- the fade has to outlive the menu.
-  const veilRed = useRef(new Animated.Value(0)).current;
+  // The way out. Held as a ref so it carries on across the screen changing
+  // underneath it -- the fade has to outlive the menu it started in.
   const veilBlack = useRef(new Animated.Value(0)).current;
   const leavingRef = useRef(false);
 
@@ -1537,33 +1539,21 @@ export default function App() {
     // meant pressing the button and never arriving, which is exactly what
     // happened. The fades are decoration; the schedule is not.
     const fadeAt = tearRef.current ? TEAR_MS : 0;
-    const switchAt = fadeAt + LEAVE_RED_MS + LEAVE_BLACK_MS;
 
     setTimeout(() => {
-      Animated.timing(veilRed, { toValue: 1, duration: LEAVE_RED_MS, useNativeDriver: true }).start();
+      Animated.timing(veilBlack, { toValue: 1, duration: LEAVE_FADE_MS, useNativeDriver: true }).start();
     }, fadeAt);
-    setTimeout(() => {
-      Animated.timing(veilBlack, { toValue: 1, duration: LEAVE_BLACK_MS, useNativeDriver: true }).start();
-    }, fadeAt + LEAVE_RED_MS);
 
     setTimeout(() => {
       start();
       setTimeout(() => {
         Animated.timing(veilBlack, { toValue: 0, duration: RETURN_MS, useNativeDriver: true }).start();
-        // The red lingers a little longer, so the field surfaces out of a stain
-        // rather than out of a curtain.
-        Animated.timing(veilRed, { toValue: 0, duration: RETURN_MS + 140, useNativeDriver: true }).start();
         leavingRef.current = false;
       }, LEAVE_HOLD_MS);
-    }, switchAt);
+    }, fadeAt + LEAVE_FADE_MS);
   };
 
-  const leaveVeil = (
-    <>
-      <Animated.View style={[styles.leaveVeil, { backgroundColor: LEAVE_RED, opacity: veilRed }]} />
-      <Animated.View style={[styles.leaveVeil, { backgroundColor: '#000', opacity: veilBlack }]} />
-    </>
-  );
+  const leaveVeil = <Animated.View style={[styles.leaveVeil, { opacity: veilBlack }]} />;
 
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
@@ -1848,9 +1838,12 @@ export default function App() {
       setAimPreviewPoint({ x: locationX, y: locationY });
       return;
     }
-    // Wanting to move ends the entrance. It is a flourish to watch, not
-    // something to wait out.
-    setPlayer((p) => ({ ...p, target: { x: locationX, y: locationY }, introPhase: 'done' }));
+    // He takes no orders until the sword is out. Tapping used to cut the
+    // entrance short on the reasoning that a flourish should not be waited out
+    // -- but it is over in well under two seconds now, and a knight who can be
+    // marched off mid-draw never looks like he meant to arrive.
+    if (playerRef.current.introPhase !== 'done') return;
+    setPlayer((p) => ({ ...p, target: { x: locationX, y: locationY } }));
   };
 
   const handlePlayAreaMove = (e: GestureResponderEvent) => {
@@ -3984,6 +3977,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     zIndex: 100,
+    backgroundColor: '#000',
     pointerEvents: 'none',
   },
   menuButtonArt: { width: '100%', height: '100%' },
