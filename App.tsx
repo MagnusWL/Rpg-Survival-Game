@@ -389,6 +389,22 @@ const RAIN = {
   opacityNear: 0.26,
   thickFrom: 1, // depth past which a drop is drawn 2 px wide instead of 1
   colour: 'rgba(190, 214, 235, 0.5)',
+  /**
+   * The rain's own frame rate: each drop falls in little jumps at this many
+   * per second instead of gliding at the display's rate. Stop-motion on
+   * purpose -- it reads as pixel art -- and cheaper with it: between jumps a
+   * drop does not change, so 270 of them recomposite 15 times a second
+   * rather than at every refresh of a fast monitor.
+   *
+   * Time is what is quantised, not the path: every drop keeps its own speed
+   * and simply moves in speed/stepFps-sized increments, 4 to 13 px at the
+   * current speeds. Cutting the whole fall into a fixed handful of jumps
+   * instead would teleport the fast drops 77 px at a time.
+   *
+   * Ours, not the rain tuner's: paste a fresh block from build:rain over this
+   * and stepFps needs putting back.
+   */
+  stepFps: 15,
 };
 
 /** Fixed for the life of the app: the depth each drop was dealt, spelled out. */
@@ -564,7 +580,10 @@ const dropStyles = StyleSheet.create(
           animationKeyframes: RAIN_FALL_FRAMES,
           animationDuration: `${dur.toFixed(3)}s`,
           animationDelay: `${(-d.offset * dur).toFixed(3)}s`,
-          animationTimingFunction: 'linear',
+          // The step count is dealt per drop so they all tick at the same
+          // rate: a slow drop falls for longer, so it gets more jumps, never
+          // bigger ones. See RAIN.stepFps.
+          animationTimingFunction: `steps(${Math.max(1, Math.round(dur * RAIN.stepFps))})`,
           animationIterationCount: 'infinite',
         } as never,
       ];
@@ -660,8 +679,8 @@ const ringStyles = StyleSheet.create(
           animationKeyframes: RIPPLE_SPREAD_FRAMES,
           animationDuration: `${r.period.toFixed(3)}s`,
           animationDelay: `${(-r.phase * r.period).toFixed(3)}s`,
-          // In jumps, not a glide -- see RIPPLE.steps. The rain above stays
-          // linear: stepped motion on a falling streak reads as strobing.
+          // In jumps, not a glide -- see RIPPLE.steps. The rain quantises
+          // time instead of the path, at RAIN.stepFps.
           animationTimingFunction: `steps(${RIPPLE.steps})`,
           animationIterationCount: 'infinite',
         } as never,
