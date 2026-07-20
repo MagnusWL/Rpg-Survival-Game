@@ -6,7 +6,7 @@ import PerfOverlay from './PerfOverlay';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
@@ -497,6 +497,136 @@ const RIPPLES = Array.from({ length: RIPPLE.slots }, (_, i) => ({
   period: RIPPLE.periodFast + noise(i * 3.1) * (RIPPLE.periodSlow - RIPPLE.periodFast),
   phase: noise(i * 7.7),
 }));
+
+/**
+ * The weather, looped by the browser instead of driven by React.
+ *
+ * It used to be worked out in the render: 330 elements, each given a freshly
+ * computed style, sixty times a second. The frame readout put the game's
+ * stutter on exactly that -- weather off took Nicolai's machine from 90 ms
+ * spikes to a flat 244 fps -- and his own diagnosis was the fix: "et
+ * gentagende loop". A drop's path never changes, so it is described once as a
+ * CSS animation and the browser repeats it forever on its own thread. React
+ * builds these elements a single time and, thanks to memo taking no props,
+ * provably never reconciles them again.
+ *
+ * Everything goes through StyleSheet.create, not inline styles, and that is
+ * load-bearing: react-native-web only turns animationKeyframes into real CSS
+ * on the created path -- its inline compiler documents 'no support' for it,
+ * and the first draft of this found that out as 330 elements that stood
+ * perfectly still. The animation props are a react-native-web extension
+ * (its own spinner uses them), hence the `as never` past React Native's types.
+ *
+ * Every drop shares one keyframe pair, so the page carries a single
+ * @keyframes rule rather than 270: they all travel the same fixed distance --
+ * the field plus the longest streak -- and each gets its own speed through
+ * animationDuration alone. A short drop overshoots the field by up to 8 px
+ * before wrapping, every pixel of it outside the layer's clip, so the loop
+ * point cannot be seen. The negative delay is the old random start offset.
+ */
+const RAIN_SPAN = PLAY_H + RAIN.lengthNear;
+
+// The rotate is minus tilt, turned the other way to the wind: a rotation goes
+// clockwise while the drift carries the drop the other way, so at plain +tilt
+// the streak leant against its own path by twice the angle -- measured at
+// 9.7 px of drift against 9.7 px of lean.
+const RAIN_FALL_FRAMES = [
+  {
+    '0%': { transform: `translate(0px, 0px) rotate(${-RAIN.tiltDeg}deg)` },
+    '100%': { transform: `translate(${RAIN_SPAN * RAIN_TILT_X}px, ${RAIN_SPAN}px) rotate(${-RAIN.tiltDeg}deg)` },
+  },
+];
+
+const dropStyles = StyleSheet.create(
+  Object.fromEntries(
+    RAIN_STREAKS.map((d, i) => {
+      const dur = RAIN_SPAN / d.speed;
+      return [
+        `d${i}`,
+        {
+          position: 'absolute',
+          left: d.x * (SCREEN_W + RAIN_DRIFT) - RAIN_DRIFT,
+          top: -d.length,
+          width: d.width,
+          height: d.length,
+          backgroundColor: RAIN.colour,
+          opacity: d.opacity,
+          animationKeyframes: RAIN_FALL_FRAMES,
+          animationDuration: `${dur.toFixed(3)}s`,
+          animationDelay: `${(-d.offset * dur).toFixed(3)}s`,
+          animationTimingFunction: 'linear',
+          animationIterationCount: 'infinite',
+        } as never,
+      ];
+    })
+  )
+);
+
+const RainLayer = memo(function RainLayer() {
+  return (
+    <View style={styles.rain}>
+      {RAIN_STREAKS.map((_, i) => (
+        <View key={i} style={dropStyles[`d${i}`]} />
+      ))}
+    </View>
+  );
+});
+
+/**
+ * Rings on the water, on the same terms as the rain above.
+ *
+ * Two things moved in the translation, both worth knowing. A slot now owns one
+ * spot for good -- dealt from the same pool with the same odds, so the water
+ * is as busy as before, but a given puddle re-ripples on a rhythm instead of
+ * the ring hopping elsewhere each time. And the ring's line is scaled along
+ * with the ring rather than redrawn at 1 px, so it starts hairline and
+ * thickens as it spreads.
+ */
+const RIPPLE_SPREAD_FRAMES = [
+  {
+    '0%': { transform: 'scale(0)', opacity: RIPPLE.opacity },
+    '100%': { transform: 'scale(1)', opacity: 0 },
+  },
+];
+
+const ringStyles = StyleSheet.create(
+  Object.fromEntries(
+    RIPPLES.map((r, i) => {
+      const [fx, fy, room] = PUDDLE_SPOTS[Math.floor(noise(r.seed) * PUDDLE_SPOTS.length)];
+      // Never wider than the water it sits in, however big rings are set.
+      const size = Math.min(RIPPLE.size, room * 2 * groundScale);
+      return [
+        `r${i}`,
+        {
+          position: 'absolute',
+          left: onGroundX(fx) - size / 2,
+          top: onGroundY(fy) - size / 4,
+          width: size,
+          // Squashed, because the ground is seen at an angle.
+          height: size / 2,
+          borderRadius: size / 2,
+          borderWidth: 1,
+          borderColor: RIPPLE.colour,
+          animationKeyframes: RIPPLE_SPREAD_FRAMES,
+          animationDuration: `${r.period.toFixed(3)}s`,
+          animationDelay: `${(-r.phase * r.period).toFixed(3)}s`,
+          animationTimingFunction: 'linear',
+          animationIterationCount: 'infinite',
+        } as never,
+      ];
+    })
+  )
+);
+
+const RippleLayer = memo(function RippleLayer() {
+  return (
+    <View style={styles.rain}>
+      {RIPPLES.map((_, i) => (
+        <View key={i} style={ringStyles[`r${i}`]} />
+      ))}
+    </View>
+  );
+});
 
 /**
  * The ground the whole play area stands on. Drawn to cover rather than stretch,
@@ -3301,69 +3431,13 @@ export default function App() {
 
         {/* Rings where the rain lands in standing water. Before the characters,
             since they are on the ground and anyone standing there covers them. */}
-        {RAIN_ENABLED && !weatherOff && PUDDLE_SPOTS.length > 0 && (
-          <View style={styles.rain}>
-            {RIPPLES.map((r, i) => {
-              const t = Date.now() / 1000 + r.phase * r.period;
-              const cycle = Math.floor(t / r.period);
-              const life = (t % r.period) / r.period; // 0 just born, 1 gone
-              // A fresh spot each time round, out of the ones the build found.
-              const [fx, fy, room] = PUDDLE_SPOTS[Math.floor(noise(r.seed + cycle * 1.7) * PUDDLE_SPOTS.length)];
-              // Never wider than the water it sits in, however big rings are set.
-              const size = Math.min(RIPPLE.size, room * 2 * groundScale) * life;
-              return (
-                <View
-                  key={i}
-                  style={{
-                    position: 'absolute',
-                    left: onGroundX(fx) - size / 2,
-                    top: onGroundY(fy) - size / 4,
-                    width: size,
-                    // Squashed, because the ground is seen at an angle.
-                    height: size / 2,
-                    borderRadius: size / 2,
-                    borderWidth: 1,
-                    borderColor: RIPPLE.colour,
-                    opacity: (1 - life) * RIPPLE.opacity,
-                  }}
-                />
-              );
-            })}
-          </View>
-        )}
+        {RAIN_ENABLED && !weatherOff && PUDDLE_SPOTS.length > 0 && <RippleLayer />}
 
         {groundActors}
 
         {/* In front of everyone, as weather between the scene and the camera.
             Deaf to touches, or sixty streaks would eat every tap on the field. */}
-        {RAIN_ENABLED && !weatherOff && (
-          <View style={styles.rain}>
-            {RAIN_STREAKS.map((d, i) => {
-              // How far through its fall this drop is, right now.
-              const span = PLAY_H + d.length;
-              const y = ((d.offset * span + (Date.now() / 1000) * d.speed) % span) - d.length;
-              return (
-                <View
-                  key={i}
-                  style={{
-                    position: 'absolute',
-                    left: d.x * (SCREEN_W + RAIN_DRIFT) - RAIN_DRIFT + y * RAIN_TILT_X,
-                    top: y,
-                    width: d.width,
-                    height: d.length,
-                    backgroundColor: RAIN.colour,
-                    opacity: d.opacity,
-                    // Turned the other way to the wind. A rotation goes clockwise
-                    // while the drift carries the drop the other way, so at plain
-                    // +tilt the streak leant against its own path by twice the
-                    // angle -- measured at 9.7 px of drift against 9.7 px of lean.
-                    transform: [{ rotate: `${-RAIN.tiltDeg}deg` }],
-                  }}
-                />
-              );
-            })}
-          </View>
-        )}
+        {RAIN_ENABLED && !weatherOff && <RainLayer />}
 
         {projectiles.map((pr) => {
           const progress = Math.min(1, (Date.now() - pr.createdAt) / pr.duration);
