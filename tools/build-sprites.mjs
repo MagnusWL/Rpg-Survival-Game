@@ -53,6 +53,10 @@ const SHEETS = [
   'Melee',
   'TakeDamage',
   'UnSheathSword',
+  // The answer to TakeDamage: hit between swings, he flinches, then kicks the
+  // crowd off him. The shove that used to ride on the invisible swing rides
+  // on this instead.
+  'Kick',
 ];
 
 /**

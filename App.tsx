@@ -131,7 +131,7 @@ const INTRO_SETTLE = 0.1; // seconds
  */
 const INTRO_HOLD_FRAME = SPRITE_COLS - 1;
 
-type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn';
+type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn' | 'kick';
 
 type AnimDef = {
   sheet: ImageSourcePropType;
@@ -219,6 +219,39 @@ const ANIMS: Record<AnimName, AnimDef> = {
     loop: false,
     interruptedByMoving: true,
   },
+  // The answer to being hit mid-rhythm: after the flinch, if the crowd is
+  // still on him, he kicks it off. Movement cuts it short on purpose --
+  // Nicolai's call: a player who wants out should not be held for a flourish.
+  kick: {
+    sheet: require('./assets/sprites/knight/kick.png'),
+    rim: require('./assets/sprites/knight/kick-rim.png'),
+    fps: 22,
+    loop: false,
+    interruptedByMoving: true,
+  },
+};
+
+/**
+ * The kick's reach and where it lands, all Nicolai's choices of 20 July.
+ *
+ * It follows a flinch only when someone is actually inside this range -- a
+ * kick into empty air looks daft -- and it shoves everyone in the arc, not
+ * just whoever the invisible swing touched: clearing space is what a kick is
+ * for. The shove itself is the same knockback a visible swing deals, moved
+ * here from the swing nobody saw.
+ *
+ * Contact lands on frame 6 of 15: the leg is out and the shove fires with it
+ * rather than on the wind-up.
+ */
+const KICK_RANGE = 70;
+/** Half-angle of the arc, as a dot-product threshold: cos(60) = a 120 degree fan. */
+const KICK_ARC_COS = 0.5;
+const KICK_CONTACT_FRAME = 6;
+
+/** The screen-space direction a facing row looks in; row 0 is east, clockwise. */
+const facingVector = (facing: number): Vec => {
+  const a = (facing * Math.PI) / 4;
+  return { x: Math.cos(a), y: Math.sin(a) };
 };
 
 /**
@@ -1603,20 +1636,27 @@ function SpriteSheet({
  * `from` is wherever the blow came from -- the swinger, or the spot a shot was
  * loosed. The mob goes directly away from it.
  */
+/**
+ * The shove alone, shared by the two things that deliver one: a swing the
+ * player can see, and the kick that answers a flinch. One source of truth so
+ * the kick pushes exactly as hard as a blow always has.
+ */
+function shoveMob(m: Mob, from: Vec) {
+  const dx = m.pos.x - from.x;
+  const dy = m.pos.y - from.y;
+  const len = Math.hypot(dx, dy);
+  // Standing exactly on the attacker leaves no direction to be pushed in.
+  if (len > 0.001) {
+    const vary = 1 + (Math.random() * 2 - 1) * KNOCKBACK_VARIATION;
+    const speed = KNOCKBACK_SPEED * vary * (MOB_RADIUS / m.radius);
+    m.knock = { x: (dx / len) * speed, y: (dy / len) * speed };
+  }
+}
+
 function hurtMob(m: Mob, from?: Vec) {
   m.flashTime = MOB_FLASH_TIME;
 
-  if (from) {
-    const dx = m.pos.x - from.x;
-    const dy = m.pos.y - from.y;
-    const len = Math.hypot(dx, dy);
-    // Standing exactly on the attacker leaves no direction to be pushed in.
-    if (len > 0.001) {
-      const vary = 1 + (Math.random() * 2 - 1) * KNOCKBACK_VARIATION;
-      const speed = KNOCKBACK_SPEED * vary * (MOB_RADIUS / m.radius);
-      m.knock = { x: (dx / len) * speed, y: (dy / len) * speed };
-    }
-  }
+  if (from) shoveMob(m, from);
 
   const def = MOB_ANIMS[m.anim];
   const busy = !def.loop && m.animTime < animDuration(def);
@@ -2233,6 +2273,8 @@ export default function App() {
   // pending sound between frames. They are refs rather than player state because
   // nothing about them belongs in a saved run.
   const swingSoundTimerRef = useRef(0);
+  /** Seconds until the kick's leg is out and the crowd is shoved. 0 = no kick pending. */
+  const kickShoveTimerRef = useRef(0);
   const swingSoundPlayerRef = useRef<AudioPlayer | undefined>(undefined);
   /** Where to throw extra blood when the pending sound turns out to be a gore one. */
   const swingSoundGorePosRef = useRef<Vec | null>(null);
@@ -3091,6 +3133,31 @@ export default function App() {
         }
       }
 
+      /**
+       * Whether a swing fired this frame will actually be seen.
+       *
+       * The animation chain below gives the flinch right of way, so a swing
+       * that fires while he is being hit -- or while a flinch is still
+       * playing -- lands with no visible swing behind it. Its damage stands
+       * (Nicolai's line: the numbers are not ours to touch), but the shove is
+       * withheld and delivered by the kick that follows the flinch instead,
+       * so the crowd flies when the leg goes out and not before.
+       *
+       * This mirrors the chain's own tests, computed early: oneShotBusy the
+       * same way, and the flinch gap with this frame's dt already counted
+       * off, since the real decrement happens between here and there.
+       */
+      const preDef = ANIMS[p.anim];
+      const preBusy =
+        !preDef.loop &&
+        p.animTime * p.animSpeed < animDuration(preDef) &&
+        !(preDef.interruptedByMoving && moving);
+      const flinchWillWin =
+        damageToPlayer > 0 &&
+        !(p.anim === 'attack' && preBusy) &&
+        hurtAnimGapRef.current - dt <= 0;
+      const swingHidden = flinchWillWin || (preBusy && p.anim !== 'attack');
+
       // Player attack: melee hits everything in range instantly, ranged fires projectiles
       let playerAttacked = false;
       const attackTargets: Vec[] = [];
@@ -3124,7 +3191,9 @@ export default function App() {
           for (const m of currentMobs) {
             if (m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange + (m.radius - MOB_RADIUS)) {
               m.hp -= playerDamage;
-              hurtMob(m, p.pos);
+              // No from-point on a hidden swing: the flash and the flinch
+              // still say they were hit, but the shove waits for the kick.
+              hurtMob(m, swingHidden ? undefined : p.pos);
               hitAny = true;
               attackTargets.push({ ...m.pos });
               newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
@@ -3317,6 +3386,32 @@ export default function App() {
         // on the hit rather than building up to it like a swing does.
         const pool = hurtSoundsRef.current;
         playSfx(pool[Math.floor(Math.random() * pool.length)]);
+      } else if (
+        // The kick, straight off the back of a flinch -- Nicolai's sequence:
+        // hit between swings, he staggers, then boots the crowd off him. Only
+        // if someone is actually within reach (a kick into empty air looks
+        // daft), and never over the player's own movement -- wanting out
+        // outranks the flourish. The mob scan sits last so it only runs in
+        // the one frame the flinch has just ended.
+        !oneShotBusy &&
+        p.anim === 'hurt' &&
+        !moving &&
+        currentMobs.some((m) => {
+          if (m.hp <= 0) return false;
+          const dx = m.pos.x - p.pos.x;
+          const dy = m.pos.y - p.pos.y;
+          const len = Math.hypot(dx, dy);
+          if (len > KICK_RANGE + (m.radius - MOB_RADIUS)) return false;
+          if (len <= 0.001) return true; // standing on his feet: kickable
+          const dir = facingVector(p.facing);
+          return (dx / len) * dir.x + (dy / len) * dir.y >= KICK_ARC_COS;
+        })
+      ) {
+        nextAnim = 'kick';
+        restartAnim = true;
+        // The shove rides the leg, not the wind-up: it fires when frame 6 is
+        // reached, and the timer starts with the animation.
+        kickShoveTimerRef.current = KICK_CONTACT_FRAME / ANIMS.kick.fps;
       } else if (!oneShotBusy) {
         const travelling = p.introPhase === 'enter' ? 'walk' : 'run';
         nextAnim = playerAttacked ? 'attack' : moving ? travelling : 'idle';
@@ -3440,6 +3535,27 @@ export default function App() {
               });
             }
             swingSoundGorePosRef.current = null;
+          }
+        }
+      }
+
+      // The kick lands. Everyone still inside the fan is shoved with the same
+      // knockback a visible blow deals -- no damage, no flash, just the space
+      // a kick is for. Guarded on the animation still being the kick: if
+      // movement cut it short before the leg came out, nobody is shoved by a
+      // kick that never happened.
+      if (kickShoveTimerRef.current > 0) {
+        kickShoveTimerRef.current -= dt;
+        if (kickShoveTimerRef.current <= 0 && p.anim === 'kick') {
+          const dir = facingVector(p.facing);
+          for (const m of currentMobs) {
+            if (m.hp <= 0) continue;
+            const dx = m.pos.x - p.pos.x;
+            const dy = m.pos.y - p.pos.y;
+            const len = Math.hypot(dx, dy);
+            if (len > KICK_RANGE + (m.radius - MOB_RADIUS)) continue;
+            if (len > 0.001 && (dx / len) * dir.x + (dy / len) * dir.y < KICK_ARC_COS) continue;
+            shoveMob(m, p.pos);
           }
         }
       }

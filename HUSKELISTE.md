@@ -69,15 +69,24 @@ bagefter — det tager få sekunder.
 
 ---
 
-## Til eftertanke — Nicolai bad selv om påmindelsen
+## Kampfølelsen: flinch → spark (bygget 20. juli, aften — plan A)
 
-**Når ridderen tager skade, giver han stadig skade.** Fjendens træffer vinder
-kun *billedet* (flinch vises i stedet for svinget), men slaget lander usynligt
-med fuld kraft. Nicolai overvejer om det usynlige slag skal svækkes — fx 50% —
-men skadestal er Magnus's domæne, så indtil videre røres intet. To mulige
-tolkninger blev ridset op, hvis idéen tages op igen: kun ved sammenstød i
-præcis samme frame, eller i hele flinch-vinduet (~0,7 s — den tolkning hvor
-regel og billede altid passer sammen).
+Nicolais sekvens er inde: rammes han mellem sving, flincher han, og hvis
+nogen stadig står inden for 70 px i en 120°-vifte foran ham, **sparker han
+dem væk** — skubbet der før red usynligt på det skjulte sving, leveres nu af
+sparket (frame 6, hvor benet er ude). Bevægelse afbryder sparket, og et
+afbrudt spark skubber ingen. Skadestal er urørte — kun skub og animation.
+
+**Ikke set i drift endnu:** forhåndsvisningen frøs under alle forsøg, så
+sekvensen hurt→kick er bevist i logik og typecheck, ikke med øjne. Nicolai
+tester ved at stille sig i en flok.
+
+**Åbent stadig:**
+- Sparket er **lydløst** — der findes ingen spark-lyd i pakken. Skal have en.
+- Plan B fra diskussionen (skaden venter også på sparket) er stadig kun en
+  tanke — det er balancearbejde og skal over Magnus's bord.
+- Kontaktframe (6), rækkevidde (70) og vifte (120°) er førstegæt til Nicolais
+  øjne.
 
 ---
 
