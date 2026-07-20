@@ -3113,7 +3113,9 @@ export default function App() {
           </View>
           <Text style={styles.tuneCode}>
             {`left: ${tuneSackLeft}, bottom: ${tuneSackBottom}, width: ${tuneSackWidth}` +
-              (tuneSackWidth < SACK_MIN_W ? '   <- under 96: pixel-looket gaar tabt' : '')}
+              (tuneSackWidth < SACK_MIN_W
+                ? `   <- under ${SACK_MIN_W}: hele billedet skaleres ned (${(tuneSackWidth / SACK_MIN_W).toFixed(2)}x)`
+                : '')}
           </Text>
         </View>
       )}

@@ -30,17 +30,17 @@ import { CoinSack } from './vendor/coin-sack/coin-sack-engine';
  * The shape the sack is drawn at, straight from the kit's example.
  *
  * Width is not a free choice. The engine always works internally at 220x360, so
- * with pixelSize 2.4 its buffer is 92x150 whatever the box says -- and the box
- * is what decides whether that buffer is scaled up or down. The kit's own
- * table: 96 px wide lands on 1.04 buffer pixels each, which is 1:1 and the look
- * as intended. Below 96 the art is scaled down and the pixels shimmer rather
- * than reading as blocks.
+ * its buffer is 220/pixelSize wide whatever the box says -- and the box decides
+ * whether that buffer is then scaled up or down. At the pixelSize this kit now
+ * asks for the buffer is 138 across, so the canvas wants to be about that wide
+ * or more. The kit's own example uses 150, which lands on 1.09 screen pixels per
+ * buffer pixel: near enough 1:1.
  *
  * The height follows the width, because the engine lays the art out from both
  * and a box of the wrong shape crops the sack instead of fitting it.
  */
-export const SACK_MIN_W = 96;
-const SACK_ASPECT = 170 / 96;
+export const SACK_MIN_W = 138;
+const SACK_ASPECT = 265 / 150;
 
 /** Steel. The kit ships brass (14b) and copper (14c) beside it. */
 const THEME = '14f';
@@ -126,7 +126,12 @@ export default function CoinSackView({
           },
           coinTones: ['#fff6d6', '#ffe08a', '#f5be3c', '#c6871f', '#7e5212'],
           pixelate: true,
-          pixelSize: 2.4,
+          // 1.6 rather than 2.4, which is the opposite of what it reads like: a
+          // smaller number means a larger buffer, 138 across instead of 92, so a
+          // coin gets 4.38 blocks where it had 2.92 and comes out sharper. The
+          // sack's own chunkiness no longer depends on this at all -- it is
+          // baked into art that genuinely has 58 pixels.
+          pixelSize: 1.6,
           fillCount: 16,
           coinSamples: COIN_SAMPLES.map(url),
           flipSample: url(FLIP_SAMPLE),
