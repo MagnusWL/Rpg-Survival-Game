@@ -1381,11 +1381,6 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/footstep-4.wav')),
     useAudioPlayer(require('./assets/sounds/footstep-5.wav')),
     useAudioPlayer(require('./assets/sounds/footstep-6.wav')),
-    useAudioPlayer(require('./assets/sounds/footstep-7.wav')),
-    useAudioPlayer(require('./assets/sounds/footstep-8.wav')),
-    useAudioPlayer(require('./assets/sounds/footstep-9.wav')),
-    useAudioPlayer(require('./assets/sounds/footstep-10.wav')),
-    useAudioPlayer(require('./assets/sounds/footstep-11.wav')),
   ];
 
   // The same steps taken in water, for the ones that land in a puddle.
@@ -1396,11 +1391,23 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/puddle-4.wav')),
     useAudioPlayer(require('./assets/sounds/puddle-5.wav')),
     useAudioPlayer(require('./assets/sounds/puddle-6.wav')),
-    useAudioPlayer(require('./assets/sounds/puddle-7.wav')),
-    useAudioPlayer(require('./assets/sounds/puddle-8.wav')),
-    useAudioPlayer(require('./assets/sounds/puddle-9.wav')),
-    useAudioPlayer(require('./assets/sounds/puddle-10.wav')),
-    useAudioPlayer(require('./assets/sounds/puddle-11.wav')),
+  ];
+
+  // His armour, over whichever ground he lands on. Kept separate from the steps
+  // rather than mixed into them beforehand, so the two vary independently: six
+  // grounds against eleven rattles is sixty-six different footfalls.
+  const armourSounds = [
+    useAudioPlayer(require('./assets/sounds/armour-1.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-2.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-3.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-4.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-5.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-6.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-7.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-8.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-9.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-10.wav')),
+    useAudioPlayer(require('./assets/sounds/armour-11.wav')),
   ];
 
   // Music streams rather than being unpacked into memory, so length costs
@@ -1467,6 +1474,10 @@ export default function App() {
   footstepSoundsRef.current = footstepSounds;
   const puddleSoundsRef = useRef(puddleSounds);
   puddleSoundsRef.current = puddleSounds;
+  const armourSoundsRef = useRef(armourSounds);
+  armourSoundsRef.current = armourSounds;
+  /** So the same rattle never lands twice running either. */
+  const lastArmourRef = useRef(-1);
   /**
    * Which step of the cycle he is on, or null when he is not on his feet.
    *
@@ -2356,13 +2367,23 @@ export default function App() {
           footstepStepRef.current = step; // just set off; note where he is, say nothing
         } else if (step !== footstepStepRef.current) {
           footstepStepRef.current = step;
-          // Wet or dry, decided per step rather than per crossing -- he can put
-          // one foot in a puddle on his way past without both of them splashing.
-          const pool = feetInWater(p.pos) ? puddleSoundsRef.current : footstepSoundsRef.current;
-          let pick = Math.floor(Math.random() * pool.length);
-          if (pick === lastFootstepRef.current) pick = (pick + 1) % pool.length;
+
+          // The ground he lands on. Wet or dry is decided per step rather than
+          // per crossing, so he can clip the edge of a puddle on his way past
+          // and only that foot splashes.
+          const ground = feetInWater(p.pos) ? puddleSoundsRef.current : footstepSoundsRef.current;
+          let pick = Math.floor(Math.random() * ground.length);
+          if (pick === lastFootstepRef.current) pick = (pick + 1) % ground.length;
           lastFootstepRef.current = pick;
-          playSfx(pool[pick]);
+          playSfx(ground[pick]);
+
+          // And his armour over the top of it, drawn separately so the two do
+          // not repeat together. A knight in plate does not walk quietly.
+          const armour = armourSoundsRef.current;
+          let rattle = Math.floor(Math.random() * armour.length);
+          if (rattle === lastArmourRef.current) rattle = (rattle + 1) % armour.length;
+          lastArmourRef.current = rattle;
+          playSfx(armour[rattle]);
         }
       } else {
         footstepStepRef.current = null;

@@ -17,7 +17,7 @@
  * Run: npm run build:sounds
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, statSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, statSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -128,6 +128,18 @@ for (const { out, src, level, eq, group, inPath, chain, peak } of jobs) {
       (eq && (eq.bass || eq.mid || eq.treble) ? `  egen EQ: diskant ${eq.treble} dB` : '') +
       (eq && !eq.bass && !eq.mid && !eq.treble ? '  uden EQ' : '')
   );
+}
+
+// Anything in the output that the config no longer names.
+//
+// Renaming a set used to leave its old files behind, still bundled and still
+// loadable, so the game could go on playing sounds nothing referred to any more
+// -- which is exactly the confusion this had once already.
+const wanted = new Set(jobs.map((j) => `${j.out}.wav`));
+const stale = readdirSync(OUT_DIR).filter((f) => f.endsWith('.wav') && !wanted.has(f));
+for (const f of stale) unlinkSync(path.join(OUT_DIR, f));
+if (stale.length) {
+  console.log(`\nRyddet ${stale.length} forældede filer: ${stale.sort().join(', ')}`);
 }
 
 console.log(
