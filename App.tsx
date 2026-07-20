@@ -173,6 +173,15 @@ type AnimDef = {
    * recedes and swells again.
    */
   passes?: ('fwd' | 'rev')[];
+  /**
+   * The exact frames to show, written out one by one, when the broad strokes
+   * above cannot say it -- a bounce between two pictures, a repeat, anything.
+   * Each entry is a frame index within the animation as played, optionally
+   * carrying its own hold. Overrides `passes`, and `holds` does not apply:
+   * with the choreography written out, every dwell belongs inline where the
+   * eye can see it.
+   */
+  order?: (number | { frame: number; hold: number })[];
 };
 
 /** Frames an animation actually plays, once any skipped opening is taken off. */
@@ -265,12 +274,17 @@ const ANIMS: Record<AnimName, AnimDef> = {
     fps: 18,
     loop: false,
     interruptedByMoving: true,
-    // Nicolai's beats, 20 July: a breath on the 7th picture and a longer one
-    // -- twice the first, his call after seeing it -- on the 13th (frames 6
-    // and 12 counted from 0) before the rest plays out.
-    holds: [
-      { frame: 6, seconds: 0.2 },
-      { frame: 12, seconds: 0.4 },
+    // Nicolai's choreography, 20 July, written out step by step: a breath on
+    // the 7th picture, then pictures 12 and 13 swing twice before the long
+    // freeze on 13, and the tail plays out. (His numbers count from 1; these
+    // count from 0.)
+    order: [
+      0, 1, 2, 3, 4, 5,
+      { frame: 6, hold: 0.2 },
+      7, 8, 9, 10,
+      11, 12, 11,
+      { frame: 12, hold: 0.4 },
+      13, 14,
     ],
   },
   ancestor: {
@@ -916,41 +930,49 @@ const MOB_SPRITE_SIZE = 128;
 const MOB_SPRITE_FOOT_OFFSET = 44;
 
 /** True when the animation cannot use the plain time-to-frame arithmetic. */
-const hasTimeline = (a: AnimDef) => !!(a.holds?.length || a.passes);
+const hasTimeline = (a: AnimDef) => !!(a.holds?.length || a.passes || a.order);
 
 /** Extra seconds a given frame holds for, on top of its 1/fps. */
 const holdFor = (a: AnimDef, frame: number) =>
   a.holds?.find((h) => h.frame === frame)?.seconds ?? 0;
 
 /**
- * The frames in the order they are shown, one entry per shown frame, built
- * from `passes` and cached per definition -- animColumn runs every render for
- * every mounted sheet, and this list never changes.
+ * The frames in the order they are shown, one entry per shown frame with how
+ * long it stays up, compiled from `order` or `passes`+`holds` and cached per
+ * definition -- animColumn runs every render for every mounted sheet, and
+ * this list never changes.
  */
-const playOrderCache = new WeakMap<AnimDef, number[]>();
-function playOrder(a: AnimDef): number[] {
-  let order = playOrderCache.get(a);
-  if (!order) {
-    const span = animSpan(a);
-    order = [];
-    for (const p of a.passes ?? ['fwd']) {
-      const pass = Array.from({ length: span }, (_, i) => (p === 'fwd' ? i : span - 1 - i));
-      // The junction frame is already on screen; showing it twice would
-      // freeze the turn for a beat nobody asked for.
-      if (order.length && order[order.length - 1] === pass[0]) pass.shift();
-      order.push(...pass);
+const playStepsCache = new WeakMap<AnimDef, { frame: number; dwell: number }[]>();
+function playSteps(a: AnimDef): { frame: number; dwell: number }[] {
+  let steps = playStepsCache.get(a);
+  if (!steps) {
+    const base = 1 / a.fps;
+    if (a.order) {
+      steps = a.order.map((s) =>
+        typeof s === 'number' ? { frame: s, dwell: base } : { frame: s.frame, dwell: base + s.hold }
+      );
+    } else {
+      const span = animSpan(a);
+      const frames: number[] = [];
+      for (const p of a.passes ?? ['fwd']) {
+        const pass = Array.from({ length: span }, (_, i) => (p === 'fwd' ? i : span - 1 - i));
+        // The junction frame is already on screen; showing it twice would
+        // freeze the turn for a beat nobody asked for.
+        if (frames.length && frames[frames.length - 1] === pass[0]) pass.shift();
+        frames.push(...pass);
+      }
+      steps = frames.map((f) => ({ frame: f, dwell: base + holdFor(a, f) }));
     }
-    playOrderCache.set(a, order);
+    playStepsCache.set(a, steps);
   }
-  return order;
+  return steps;
 }
 
 /** Seconds an animation takes to play once, passes and held frames included. */
 const animDuration = (a: AnimDef) => {
   if (!hasTimeline(a)) return animSpan(a) / a.fps;
-  const order = playOrder(a);
-  let d = order.length / a.fps;
-  if (a.holds?.length) for (const f of order) d += holdFor(a, f);
+  let d = 0;
+  for (const s of playSteps(a)) d += s.dwell;
   return d;
 };
 
@@ -1052,16 +1074,14 @@ function playSfx(player: AudioPlayer | undefined) {
 function animColumn(a: AnimDef, animTime: number) {
   const from = a.from ?? 0;
   if (hasTimeline(a)) {
-    const order = playOrder(a);
+    const steps = playSteps(a);
     let t = a.loop ? animTime % animDuration(a) : animTime;
     let i = 0;
-    while (i < order.length - 1) {
-      const dwell = 1 / a.fps + holdFor(a, order[i]);
-      if (t < dwell) break;
-      t -= dwell;
+    while (i < steps.length - 1 && t >= steps[i].dwell) {
+      t -= steps[i].dwell;
       i++;
     }
-    return from + order[i];
+    return from + steps[i].frame;
   }
   const span = animSpan(a);
   const frame = Math.floor(animTime * a.fps);

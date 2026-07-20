@@ -120,10 +120,12 @@ linjepar pr. sted). Kastes der i løb, springes posen over, og bevægelse
 afbryder den — samme regel som sparket.
 
 **Førstegæt til Nicolais øjne:** die 14 fps + 0,45 s hvil; begge kast 18 fps.
-Rupture holder desuden vejret **0,2 s på billede 7 og 0,4 s på billede 13**
-(Nicolais beats; 13'eren fordoblet efter hans test samme aften) — tallene
-står i `holds` på `ANIMS.rupture` og kan flyttes frit til andre billeder
-eller længder; mekanikken virker for enhver animation.
+Ruptures koreografi står nu **skrevet helt ud** i `order` på `ANIMS.rupture`
+(Nicolais beats, slebet over tre omgange samme aften): åndedrag 0,2 s på
+billede 7, så svinger billede 12↔13 to gange, frysning 0,4 s på 13, og halen
+spiller ud — 1,54 s i alt. Hvert trin i listen er ét vist billede og kan
+bære sin egen pause, så nye sving/gentagelser er ren opremsning. `order`
+findes på enhver animation og trumfer `passes`/`holds`.
 
 Ancestor spiller **frem → tilbage → frem igen** (`passes` på `ANIMS.ancestor`,
 Nicolais figur, 20. juli) og ender stående på sidste billede — 2,4 s i alt.
