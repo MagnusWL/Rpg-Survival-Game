@@ -92,8 +92,7 @@ export default function IntroSceneFx({
 
   return (
     <View
-      pointerEvents="none"
-      style={{ position: 'absolute', left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+      style={{ position: 'absolute', left: rect.left, top: rect.top, width: rect.width, height: rect.height, pointerEvents: 'none' }}
     >
       <canvas
         ref={canvasRef}

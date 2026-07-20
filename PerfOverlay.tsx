@@ -25,8 +25,21 @@
 import { useEffect, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
+/**
+ * How many times the game loop actually simulated this second, as opposed to
+ * how many frames the browser drew. The two parted ways when the loop got its
+ * 60-cap: on a fast monitor fps stays at the display's rate while sim holds at
+ * 60, and this is the number that proves the cap is doing its job.
+ */
+let simTicks = 0;
+export const bumpSimTick = () => {
+  simTicks++;
+};
+
 type Stats = {
   fps: number;
+  /** Game-loop updates this second -- capped at 60 where fps follows the display. */
+  sim: number;
   med: number;
   p90: number;
   top: number;
@@ -64,6 +77,7 @@ export default function PerfOverlay() {
       const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
       setS({
         fps: Math.round(1000 / (frames.reduce((a, b) => a + b, 0) / frames.length)),
+        sim: simTicks,
         med: Math.round(at(0.5)),
         p90: Math.round(at(0.9)),
         top: Math.round(sorted[sorted.length - 1]),
@@ -72,6 +86,7 @@ export default function PerfOverlay() {
         blinked,
       });
       frames = [];
+      simTicks = 0;
       blinked = document.hidden;
     }, 1000);
 
@@ -88,16 +103,16 @@ export default function PerfOverlay() {
   // frames at all -- otherwise the panel is simply absent and reads as broken.
   if (!s) {
     return (
-      <View pointerEvents="none" style={styles.box}>
+      <View style={styles.box}>
         <Text style={styles.line}>maaler...</Text>
       </View>
     );
   }
 
   return (
-    <View pointerEvents="none" style={styles.box}>
+    <View style={styles.box}>
       <Text style={styles.line}>
-        {s.fps} fps{'  '}med {s.med}{'  '}p90 {s.p90}{'  '}top {s.top} ms
+        {s.fps} fps{'  '}sim {s.sim}{'  '}med {s.med}{'  '}p90 {s.p90}{'  '}top {s.top} ms
       </Text>
       <Text style={[styles.line, s.hak > 0 && styles.bad]}>
         hak {s.hak}{'  '}dom {s.dom}
@@ -117,6 +132,9 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 4,
     backgroundColor: 'rgba(0,0,0,0.66)',
+    // In the style rather than as a prop; the prop form is deprecated and
+    // warned on every mount.
+    pointerEvents: 'none',
   },
   line: { color: '#9fe8a0', fontSize: 10, fontVariant: ['tabular-nums'] },
   bad: { color: '#ff8a65' },
