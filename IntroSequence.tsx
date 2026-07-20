@@ -54,6 +54,40 @@ const TO_MENU_MS = 800;
 const LOGO_COLOR = '#7e1610';
 const LOGO_TRACKING = 14;
 
+/**
+ * A slow push and drift over a card, the way a camera would treat a painting.
+ *
+ * Panning needs somewhere to pan to, and at rest there is nowhere: cover fits
+ * the art to the screen's height exactly, so the picture overhangs at the sides
+ * and not at all top or bottom. The zoom is what makes the room -- which is why
+ * these two always come as a pair.
+ *
+ * `y` is where the picture sits, in screen pixels. Negative holds it high so the
+ * lower part shows; positive slides it down to reveal what is above. So going
+ * from negative to positive is a camera rising.
+ */
+type CardMove = { fromScale: number; toScale: number; fromY: number; toY: number };
+
+/** How far a card can slide at a given zoom before its own edge would show. */
+const panRoom = (scale: number) => (SCREEN_H * scale - SCREEN_H) / 2;
+
+/**
+ * One entry per card, in order. Null leaves the card still.
+ *
+ * Only the third moves for now. It is the one with somewhere to go: he is stood
+ * at the bottom of it and the valley, the ruin and the moon are all above him,
+ * so the camera starts on him and climbs. The other two are close portraits
+ * where a drift would only wander.
+ */
+const CARD_MOVES: (CardMove | null)[] = [
+  null,
+  null,
+  // The opening zoom leaves 84 px of room and the climb uses 70 of it, so there
+  // are 14 px in hand at the tightest moment -- the first frame. From there the
+  // zoom only grows, and the margin grows with it, reaching 40 px by the end.
+  { fromScale: 1.2, toScale: 1.26, fromY: -70, toY: 70 },
+];
+
 export default function IntroSequence({ onDone }: { onDone: () => void }) {
   /** 0 is the logo, 1..3 are the cards, and anything past that is leaving. */
   const [step, setStep] = useState(0);
@@ -62,6 +96,8 @@ export default function IntroSequence({ onDone }: { onDone: () => void }) {
 
   const logoFade = useRef(new Animated.Value(0)).current;
   const cardFades = useRef(CARDS.map(() => new Animated.Value(0))).current;
+  /** 0 to 1 across a card's life, for the ones that move. */
+  const cardMoves = useRef(CARDS.map(() => new Animated.Value(0))).current;
   /** The whole thing, which fades out at the end to uncover the menu. */
   const overlay = useRef(new Animated.Value(1)).current;
 
@@ -157,9 +193,26 @@ export default function IntroSequence({ onDone }: { onDone: () => void }) {
       useNativeDriver: true,
     }).start();
 
+    // The camera, for the cards that have one. It runs past the card's own time
+    // by the length of a cross-dissolve, because the card is still in plain
+    // sight underneath the next one -- stopping on the step would park the
+    // picture dead while it was still being looked at.
+    //
+    // Linear on purpose. Easing would make it settle, and a camera on a slow
+    // push does not settle, it just keeps going until the cut.
+    if (CARD_MOVES[i]) {
+      cardMoves[i].setValue(0);
+      Animated.timing(cardMoves[i], {
+        toValue: 1,
+        duration: CARD_MS + CARD_FADE_MS,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }).start();
+    }
+
     const next = setTimeout(() => setStep((s) => s + 1), CARD_MS);
     return () => clearTimeout(next);
-  }, [step, leaving, logoFade, cardFades, overlay]);
+  }, [step, leaving, logoFade, cardFades, cardMoves, overlay]);
 
   return (
     <Animated.View style={[styles.root, { opacity: overlay }]}>
@@ -167,22 +220,45 @@ export default function IntroSequence({ onDone }: { onDone: () => void }) {
         <Text style={styles.logoText}>LOGO</Text>
       </Animated.View>
 
-      {CARDS.map((card, i) => (
-        <Animated.View key={i} style={[styles.cardLayer, { opacity: cardFades[i] }]}>
-          <Image source={card.art} resizeMode="cover" style={styles.card} />
+      {CARDS.map((card, i) => {
+        const move = CARD_MOVES[i];
+        const at = cardMoves[i];
+        return (
+          // Two layers, and the split matters: this one holds still and does the
+          // clipping, the one inside it moves. Put the camera on the clipping
+          // layer and the window travels with the picture, which shows nothing
+          // at all -- the frame and what is in the frame have to be separate.
+          <Animated.View key={i} style={[styles.cardLayer, { opacity: cardFades[i] }]}>
+            <Animated.View
+              style={[
+                styles.card,
+                move && {
+                  transform: [
+                    { scale: at.interpolate({ inputRange: [0, 1], outputRange: [move.fromScale, move.toScale] }) },
+                    { translateY: at.interpolate({ inputRange: [0, 1], outputRange: [move.fromY, move.toY] }) },
+                  ],
+                },
+              ]}
+            >
+              <Image source={card.art} resizeMode="cover" style={styles.card} />
 
-          {/* Alive for its own card and one step longer.
-              Its own step is obvious. The step after is the cross-dissolve:
-              this card is still in plain sight underneath while the next one
-              fades up over it, and cutting the fire dead the instant the step
-              changed put a visible stop in it. One step later it is completely
-              covered, so it can go. That keeps at most two of these running,
-              and never the fog and the fire together. */}
-          {Platform.OS === 'web' && (step === i + 1 || step === i + 2) && (
-            <IntroSceneFx effect={card.effect} screenW={SCREEN_W} screenH={SCREEN_H} />
-          )}
-        </Animated.View>
-      ))}
+              {/* Alive for its own card and one step longer.
+                  Its own step is obvious. The step after is the cross-dissolve:
+                  this card is still in plain sight underneath while the next one
+                  fades up over it, and cutting the fire dead the instant the step
+                  changed put a visible stop in it. One step later it is completely
+                  covered, so it can go. That keeps at most two of these running,
+                  and never the fog and the fire together.
+
+                  Inside the moving layer, so the fire, the eyes and the fog
+                  travel with the scene they belong to rather than sliding off it. */}
+              {Platform.OS === 'web' && (step === i + 1 || step === i + 2) && (
+                <IntroSceneFx effect={card.effect} screenW={SCREEN_W} screenH={SCREEN_H} />
+              )}
+            </Animated.View>
+          </Animated.View>
+        );
+      })}
 
       {/* Tap to move on. It stays put while leaving rather than being taken
           away, so an eager last tap lands here and not on RESCUE HER. */}
