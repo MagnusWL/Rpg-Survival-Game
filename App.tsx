@@ -15,6 +15,7 @@ import {
   ImageSourcePropType,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -926,6 +927,13 @@ function facingFromDelta(dx: number, dy: number) {
   const eighths = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
   return (((SPRITE_ROW_FOR_EAST + eighths) % SPRITE_ROWS) + SPRITE_ROWS) % SPRITE_ROWS;
 }
+
+// The inverse: a unit vector pointing the way a given facing row looks. East is
+// row 0 and rows advance clockwise, so the angle is simply facing * 45 degrees.
+function directionFromFacing(facing: number): Vec {
+  const angle = ((facing - SPRITE_ROW_FOR_EAST) * Math.PI) / 4;
+  return { x: Math.cos(angle), y: Math.sin(angle) };
+}
 const PLAYER_ATTACK_RANGE = 60;
 const RANGED_ATTACK_RANGE = 240;
 const PLAYER_ATTACK_COOLDOWN = 0.8; // sec
@@ -1006,11 +1014,107 @@ const ALLY_RANGED_ENGAGE_RANGE = 260;
 const ALLY_ATTACK_COOLDOWN = 1.0;
 
 const ABILITY_MAX_LEVEL = 4;
-const ABILITY_MANA_COST: Record<1 | 2 | 3, number> = { 1: 30, 2: 20, 3: 25 };
-const ABILITY_COOLDOWN_TIME: Record<1 | 2 | 3, number> = { 1: 12, 2: 5, 3: 15 };
 const CONE_RANGE = Math.hypot(SCREEN_W, PLAY_H);
 const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
 const ABILITY3_HASTE_DURATION = 5;
+
+// ---- Skill catalog ---------------------------------------------------------
+// Six skills in a small tree: three roots the player starts owning, and one
+// child under each that must be unlocked (parent at level >= 1) before it can
+// be bought. Levels 1..4 are paid for from the main menu with gold; reaching
+// level L costs SKILL_LEVEL_COST[L].
+// Each root has two children: an active and a passive. Active skills go in the
+// three quick-cast slots; passive skills go in the single passive slot.
+type SkillId =
+  | 'summon' | 'cone' | 'ranged'
+  | 'fireball' | 'burn' | 'push'
+  | 'summonregen' | 'cdreduce' | 'pierce';
+const ALL_SKILLS: SkillId[] = [
+  'summon', 'cone', 'ranged',
+  'fireball', 'burn', 'push',
+  'summonregen', 'cdreduce', 'pierce',
+];
+const ROOT_SKILLS: SkillId[] = ['summon', 'cone', 'ranged'];
+const MAX_EQUIPPED = 3; // active skill slots
+const MAX_PASSIVE = 1; // passive skill slot
+
+// How a skill behaves when it sits in an equipped slot in a run.
+//   'instant' -- tap the button, it fires at once
+//   'aim'     -- tap to arm, then tap/drag the field to aim, release to fire
+//   'passive' -- no button; its effect is always on while equipped
+type SkillCast = 'instant' | 'aim' | 'passive';
+
+const SKILL_PARENT: Record<SkillId, SkillId | null> = {
+  summon: null,
+  cone: null,
+  ranged: null,
+  fireball: 'summon',
+  summonregen: 'summon',
+  burn: 'cone',
+  cdreduce: 'cone',
+  push: 'ranged',
+  pierce: 'ranged',
+};
+
+// Colour per root tree: Summon is purple/blue, Cone is orange/red, Ranged is
+// green/yellow. Each skill also carries an emoji icon for its button.
+const SKILL_META: Record<
+  SkillId,
+  { label: string; icon: string; color: string; cast: SkillCast; mana: number; cooldown: number }
+> = {
+  summon: { label: 'Summon', icon: '🧟', color: '#7e57c2', cast: 'instant', mana: 30, cooldown: 12 },
+  cone: { label: 'Cone', icon: '🔻', color: '#ff8a50', cast: 'instant', mana: 20, cooldown: 5 },
+  ranged: { label: 'Ranged', icon: '🏹', color: '#66bb6a', cast: 'instant', mana: 25, cooldown: 15 },
+  fireball: { label: 'Fireball', icon: '☄️', color: '#5c6bc0', cast: 'instant', mana: 25, cooldown: 8 },
+  burn: { label: 'Burn', icon: '🔥', color: '#ef5350', cast: 'instant', mana: 20, cooldown: 6 },
+  push: { label: 'Push', icon: '💨', color: '#43a047', cast: 'instant', mana: 20, cooldown: 8 },
+  summonregen: { label: 'Summon Regen', icon: '💜', color: '#42a5f5', cast: 'passive', mana: 0, cooldown: 0 },
+  cdreduce: { label: 'Haste', icon: '⏱️', color: '#e53935', cast: 'passive', mana: 0, cooldown: 0 },
+  pierce: { label: 'Pierce', icon: '🎯', color: '#fdd835', cast: 'passive', mana: 0, cooldown: 0 },
+};
+
+function isPassiveSkill(skill: SkillId): boolean {
+  return SKILL_META[skill].cast === 'passive';
+}
+
+// Gold to reach each level. Index by target level (1..4): 5, 10, 15, 20.
+const SKILL_LEVEL_COST = [0, 5, 10, 15, 20];
+function skillLevelCost(targetLevel: number): number {
+  return SKILL_LEVEL_COST[targetLevel] ?? 0;
+}
+
+// The fireball off each summon, as a fraction of that summon's attack damage.
+function fireballDamagePercent(level: number): number {
+  return [0, 1.0, 1.5, 2.0, 2.5][level] ?? 0;
+}
+const FIREBALL_RADIUS = 95;
+// The burning enemy's death blast, as a fraction of its max HP.
+function burnExplodePercent(level: number): number {
+  return [0, 0.5, 0.6, 0.7, 1.0][level] ?? 0;
+}
+const BURN_EXPLODE_RADIUS = 90;
+// Burn also scorches the target itself for this much per second while it burns.
+function burnDamagePerSec(level: number): number {
+  return [0, 5, 10, 15, 20][level] ?? 0;
+}
+// Push: fraction of the player's attack damage dealt as it shoves enemies off.
+function pushDamagePercent(level: number): number {
+  return [0, 0.5, 1.0, 1.5, 2.0][level] ?? 0;
+}
+const PUSH_SPEED = 620; // px/sec of outward shove, bled off by the knockback decay
+// Passive Summon Regen: HP per second granted to each summon.
+function summonRegenPerSec(level: number): number {
+  return level * 4;
+}
+// Passive Haste: fraction cut from every skill cooldown.
+function cooldownReducePercent(level: number): number {
+  return [0, 0.2, 0.3, 0.4, 0.5][level] ?? 0;
+}
+// Passive Pierce: how many extra enemies each of the player's shots passes through.
+function pierceTargetCount(level: number): number {
+  return level > 0 ? level : 0;
+}
+const PIERCE_WIDTH = 26; // how close to the shot's line an enemy must be to be pierced
 
 const PROJECTILE_SPEED = 700; // px/sec
 const HIT_FLASH_DURATION = 150; // ms
@@ -1039,6 +1143,8 @@ type MobType = 'melee' | 'ranged' | 'boss';
 type Mob = {
   id: number;
   type: MobType;
+  /** Which wave spawned this mob, so a wave clears when its own mobs are gone. */
+  wave: number;
   pos: Vec;
   hp: number;
   maxHp: number;
@@ -1053,6 +1159,11 @@ type Mob = {
   hurtGap: number;
   /** Speed left in the shove from the last blow, px/sec. Zero when at rest. */
   knock: Vec;
+  /** Set by the Burn skill: the mob explodes on death for this fraction of its
+   * max HP. Zero/undefined means it is not burning. */
+  burnPct?: number;
+  /** Burn's damage-over-time to the target itself, HP per second while afire. */
+  burnDps?: number;
 };
 
 type Ally = {
@@ -1076,13 +1187,18 @@ type Projectile = {
   friendly: boolean; // true = player/ally shooting a mob; false = mob shooting player/ally
   targetKind: 'mob' | 'player' | 'ally';
   targetId: number;
+  /** Pierce: extra enemies this shot damages along its line, beyond the target. */
+  pierce?: number;
 };
 type HitFlash = { id: number; pos: Vec; createdAt: number };
 type BloodSplat = { id: number; pos: Vec; variant: number; createdAt: number };
 type FloatingText = { id: number; text: string; pos: Vec; color: string; createdAt: number };
 
+// The three in-run quick-cast slots. Each slot holds whichever skill the player
+// equipped for it in the main menu (or null if left empty), that skill's level,
+// and its live cooldown for the run.
 type AbilityId = 1 | 2 | 3;
-type Ability = { level: number; cooldown: number };
+type Ability = { skill: SkillId | null; level: number; cooldown: number };
 type Abilities = Record<AbilityId, Ability>;
 
 type Target = { kind: 'player' | 'ally' | 'mob'; id?: number; pos: Vec };
@@ -1122,7 +1238,6 @@ type PlayerState = {
   xp: number;
   xpToNext: number;
   attackCooldown: number;
-  abilityPoints: number;
   hasteTimer: number;
   facing: number; // 0-7, which row of the sprite sheet to draw
   anim: AnimName;
@@ -1208,33 +1323,55 @@ function ability3DamageBonus(level: number) {
   return level * 4;
 }
 
-function rangedTargetCount(ability3Level: number) {
-  return ability3Level >= 4 ? 2 : 1;
-}
-
 const ALL_LEVELS = [1, 2, 3, 4];
 
 function levelBracket(values: (string | number)[]): string {
   return `(${values.join('/')})`;
 }
 
-function abilityDescription(id: AbilityId): string {
-  if (id === 1) {
+function skillDescription(skill: SkillId): string {
+  if (skill === 'summon') {
     const hps = levelBracket(ALL_LEVELS.map((l) => ability1Stats(l).hp));
     const dmgs = levelBracket(ALL_LEVELS.map((l) => ability1Stats(l).damage));
     return `Summon: calls 1/2/3/4 allied mobs (at level 4: 2 melee, 2 ranged) that fight for you. HP ${hps}, DMG ${dmgs}.`;
   }
-  if (id === 2) {
+  if (skill === 'cone') {
     const bases = levelBracket(ALL_LEVELS.map((l) => ability2BaseDamage(l)));
     const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(ability2DamagePercent(l) * 100)}%`));
     return `Cone: deals ${bases} damage plus ${pcts} of each enemy's max HP in a widening cone toward where you aim.`;
   }
-  const dmgs = levelBracket(ALL_LEVELS.map((l) => ability3DamageBonus(l)));
-  return `Ranged: passively turns your attacks ranged, adding ${dmgs} damage (at level 4: hits 2 enemies at once). Tap to gain +50% attack speed for 5s.`;
+  if (skill === 'ranged') {
+    const dmgs = levelBracket(ALL_LEVELS.map((l) => ability3DamageBonus(l)));
+    return `Ranged: passively turns your attacks ranged, adding ${dmgs} damage. Tap to gain +50% attack speed for 5s.`;
+  }
+  if (skill === 'fireball') {
+    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(fireballDamagePercent(l) * 100)}%`));
+    return `Fireball: a fireball explodes from every one of your summons, dealing ${pcts} of that summon's attack damage to nearby enemies. Needs Summon.`;
+  }
+  if (skill === 'burn') {
+    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(burnExplodePercent(l) * 100)}%`));
+    return `Burn: set the closest enemy afire. When it dies it explodes, dealing ${pcts} of its max health to nearby enemies. Needs Cone.`;
+  }
+  if (skill === 'push') {
+    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(pushDamagePercent(l) * 100)}%`));
+    return `Push: shove all enemies away from you, dealing ${pcts} of your attack damage. Needs Ranged.`;
+  }
+  if (skill === 'summonregen') {
+    const regens = levelBracket(ALL_LEVELS.map((l) => `${summonRegenPerSec(l)}/s`));
+    return `Summon Regen (passive): your summons regenerate ${regens} health. Needs Summon.`;
+  }
+  if (skill === 'cdreduce') {
+    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(cooldownReducePercent(l) * 100)}%`));
+    return `Haste (passive): reduces the cooldown of all your skills by ${pcts}. Needs Cone.`;
+  }
+  const targets = levelBracket(ALL_LEVELS.map((l) => pierceTargetCount(l)));
+  return `Pierce (passive): your shots pierce through ${targets} enemies. Needs Ranged.`;
 }
 
-function abilityStatsSuffix(id: AbilityId): string {
-  return `\nCost: ${ABILITY_MANA_COST[id]} MP  ·  Cooldown: ${ABILITY_COOLDOWN_TIME[id]}s`;
+function skillStatsSuffix(skill: SkillId): string {
+  const meta = SKILL_META[skill];
+  if (meta.cast === 'passive') return `\nPassive · always on while equipped`;
+  return `\nCost: ${meta.mana} MP  ·  Cooldown: ${meta.cooldown}s`;
 }
 
 function itemBonus(item: Item) {
@@ -1538,7 +1675,6 @@ function makePlayer(): PlayerState {
     xp: 0,
     xpToNext: xpForLevel(1),
     attackCooldown: 0,
-    abilityPoints: 1,
     hasteTimer: 0,
     facing: 6, // north, the way he is about to run
     anim: 'walk',
@@ -1555,12 +1691,20 @@ function makePlayer(): PlayerState {
   };
 }
 
-function makeAbilities(): Abilities {
-  return {
-    1: { level: 0, cooldown: 0 },
-    2: { level: 0, cooldown: 0 },
-    3: { level: 0, cooldown: 0 },
+// Build the three run slots from the equipped loadout and the skill levels the
+// player has bought in the menu. Empty slots carry no skill.
+function makeAbilities(loadout: SkillId[], skillLevels: Record<SkillId, number>): Abilities {
+  const slotFor = (i: number): Ability => {
+    const skill = loadout[i] ?? null;
+    return { skill, level: skill ? skillLevels[skill] ?? 0 : 0, cooldown: 0 };
   };
+  return { 1: slotFor(0), 2: slotFor(1), 3: slotFor(2) };
+}
+
+// The equipped passive skill with its bought level, or null if none is set.
+function makePassive(meta: MetaState): PassiveState {
+  if (!meta.passive) return null;
+  return { skill: meta.passive, level: meta.skillLevels[meta.passive] ?? 0 };
 }
 
 function spawnMob(type: MobType, wave: number): Mob {
@@ -1571,6 +1715,7 @@ function spawnMob(type: MobType, wave: number): Mob {
   return {
     id: mobIdCounter,
     type,
+    wave,
     pos: { x: margin + Math.random() * (SCREEN_W - margin * 2), y: meta.radius },
     hp: stats.hp,
     maxHp: stats.hp,
@@ -1640,6 +1785,10 @@ function equippedBonus(equipped: Slot[], kind: ItemKind) {
 
 // ---- Run persistence ----
 
+// A run carries its equipped passive skill (id + level) alongside the three
+// active ability slots; passives have no button or cooldown.
+type PassiveState = { skill: SkillId; level: number } | null;
+
 type RunSave = {
   id: string;
   savedAt: number;
@@ -1650,8 +1799,8 @@ type RunSave = {
   hp: number;
   maxHp: number;
   mana: number;
-  abilityPoints: number;
   abilities: Abilities;
+  passive: PassiveState;
   equipped: Slot[];
   bag: Slot[];
   materials: number;
@@ -1660,13 +1809,73 @@ type RunSave = {
 type GameState = {
   player: PlayerState;
   abilities: Abilities;
+  passive: PassiveState;
   equipped: Slot[];
   bag: Slot[];
   materials: number;
   wave: number;
 };
 
-const RUNS_STORAGE_KEY = 'rpg_runs_v1';
+// Persistent account-level progression, kept apart from the per-run saves. Gold
+// is the meta-currency earned by clearing waves; skillLevels is what has been
+// bought in the menu; loadout is the up-to-three active skills carried into a
+// run, and passive is the single equipped passive skill.
+type MetaState = {
+  gold: number;
+  skillLevels: Record<SkillId, number>;
+  loadout: SkillId[];
+  passive: SkillId | null;
+};
+
+// Bumped to v2 when the ability shape gained a per-slot skill id -- old v1 runs
+// are not readable under the new shape, so they are dropped rather than migrated.
+const RUNS_STORAGE_KEY = 'rpg_runs_v2';
+const META_STORAGE_KEY = 'rpg_meta_v1';
+
+function defaultMeta(): MetaState {
+  const skillLevels = Object.fromEntries(ALL_SKILLS.map((s) => [s, 0])) as Record<SkillId, number>;
+  for (const root of ROOT_SKILLS) skillLevels[root] = 1; // start owning the three roots
+  return { gold: 0, skillLevels, loadout: [...ROOT_SKILLS], passive: null };
+}
+
+// Fill in any skills a stored meta predates, and drop an equipped entry the
+// player no longer owns, so the shape is always complete and valid.
+function sanitizeMeta(raw: Partial<MetaState> | null): MetaState {
+  const base = defaultMeta();
+  if (!raw) return base;
+  const skillLevels = { ...base.skillLevels, ...(raw.skillLevels ?? {}) } as Record<SkillId, number>;
+  const loadout = (raw.loadout ?? base.loadout)
+    .filter((s) => ALL_SKILLS.includes(s) && !isPassiveSkill(s) && (skillLevels[s] ?? 0) > 0)
+    .slice(0, MAX_EQUIPPED);
+  const passive =
+    raw.passive && ALL_SKILLS.includes(raw.passive) && isPassiveSkill(raw.passive) && (skillLevels[raw.passive] ?? 0) > 0
+      ? raw.passive
+      : null;
+  return { gold: raw.gold ?? 0, skillLevels, loadout, passive };
+}
+
+async function loadMeta(): Promise<MetaState> {
+  try {
+    const raw = await AsyncStorage.getItem(META_STORAGE_KEY);
+    return sanitizeMeta(raw ? (JSON.parse(raw) as Partial<MetaState>) : null);
+  } catch {
+    return defaultMeta();
+  }
+}
+
+async function persistMeta(meta: MetaState) {
+  try {
+    await AsyncStorage.setItem(META_STORAGE_KEY, JSON.stringify(meta));
+  } catch {
+    // best-effort; ignore storage failures
+  }
+}
+
+// The gold a run pays out is 1 per wave cleared, banked at the end: clearing
+// wave N is worth 1+2+...+N.
+function goldForWavesCleared(waves: number): number {
+  return waves > 0 ? (waves * (waves + 1)) / 2 : 0;
+}
 
 async function loadRuns(): Promise<RunSave[]> {
   try {
@@ -1685,10 +1894,11 @@ async function persistRuns(runs: RunSave[]) {
   }
 }
 
-function buildFreshState(): GameState {
+function buildFreshState(meta: MetaState): GameState {
   return {
     player: makePlayer(),
-    abilities: makeAbilities(),
+    abilities: makeAbilities(meta.loadout, meta.skillLevels),
+    passive: makePassive(meta),
     equipped: new Array(EQUIP_SLOTS).fill(null),
     bag: new Array(BAG_SLOTS).fill(null),
     materials: 0,
@@ -1696,14 +1906,12 @@ function buildFreshState(): GameState {
   };
 }
 
-function buildTestState(): GameState {
+function buildTestState(meta: MetaState): GameState {
   const base = makePlayer();
   const targetLevel = 10;
   let maxHp = base.maxHp;
-  let abilityPoints = base.abilityPoints;
   for (let lvl = 2; lvl <= targetLevel; lvl++) {
     maxHp += 10;
-    abilityPoints += 1;
   }
   const player: PlayerState = {
     ...base,
@@ -1712,7 +1920,6 @@ function buildTestState(): GameState {
     xpToNext: xpForLevel(targetLevel),
     maxHp,
     hp: maxHp,
-    abilityPoints,
   };
   const randomTestItem = () => makeItem(ITEM_KINDS[Math.floor(Math.random() * ITEM_KINDS.length)], Math.max(1, targetLevel + Math.floor(Math.random() * 5) - 2));
   const equipped: Slot[] = [randomTestItem(), randomTestItem(), randomTestItem()];
@@ -1720,7 +1927,7 @@ function buildTestState(): GameState {
   bag[0] = randomTestItem();
   bag[1] = randomTestItem();
   bag[2] = randomTestItem();
-  return { player, abilities: makeAbilities(), equipped, bag, materials: 0, wave: targetLevel - 1 };
+  return { player, abilities: makeAbilities(meta.loadout, meta.skillLevels), passive: makePassive(meta), equipped, bag, materials: 0, wave: targetLevel - 1 };
 }
 
 function buildStateFromSave(save: RunSave): GameState {
@@ -1733,11 +1940,11 @@ function buildStateFromSave(save: RunSave): GameState {
     hp: save.hp,
     maxHp: save.maxHp,
     mana: save.mana,
-    abilityPoints: save.abilityPoints,
   };
   return {
     player,
     abilities: save.abilities,
+    passive: save.passive ?? null,
     equipped: save.equipped,
     bag: save.bag,
     materials: save.materials,
@@ -1746,7 +1953,7 @@ function buildStateFromSave(save: RunSave): GameState {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'menu' | 'continue' | 'game'>('menu');
+  const [screen, setScreen] = useState<'menu' | 'continue' | 'skilltree' | 'game'>('menu');
   /**
    * Whether the story has been through once. It never goes back to false, so
    * the intro plays on the first sight of the menu and not on the way back to
@@ -1755,10 +1962,14 @@ export default function App() {
   const [introDone, setIntroDone] = useState(false);
   const [savedRuns, setSavedRuns] = useState<RunSave[]>([]);
   const [runsLoaded, setRunsLoaded] = useState(false);
+  const [meta, setMeta] = useState<MetaState>(defaultMeta());
+  // Gold earned by the run that just ended, shown on the Game Over screen.
+  const [lastRunGold, setLastRunGold] = useState(0);
   const [player, setPlayer] = useState<PlayerState>(makePlayer());
   const [mobs, setMobs] = useState<Mob[]>([]);
   const [allies, setAllies] = useState<Ally[]>([]);
-  const [abilities, setAbilities] = useState<Abilities>(makeAbilities());
+  const [abilities, setAbilities] = useState<Abilities>(makeAbilities(defaultMeta().loadout, defaultMeta().skillLevels));
+  const [passive, setPassive] = useState<PassiveState>(null);
   const [aimingAbility, setAimingAbility] = useState<AbilityId | null>(null);
   const [aimPreviewPoint, setAimPreviewPoint] = useState<Vec | null>(null);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
@@ -1963,9 +2174,11 @@ export default function App() {
   const [, setTick] = useState(0);
 
   const playerRef = useRef(player);
+  const metaRef = useRef(meta);
   const mobsRef = useRef(mobs);
   const alliesRef = useRef(allies);
   const abilitiesRef = useRef(abilities);
+  const passiveRef = useRef(passive);
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
   const bloodSplatsRef = useRef(bloodSplats);
@@ -2027,9 +2240,11 @@ export default function App() {
   const hurtAnimGapRef = useRef(0);
 
   playerRef.current = player;
+  metaRef.current = meta;
   mobsRef.current = mobs;
   alliesRef.current = allies;
   abilitiesRef.current = abilities;
+  passiveRef.current = passive;
   projectilesRef.current = projectiles;
   hitFlashesRef.current = hitFlashes;
   bloodSplatsRef.current = bloodSplats;
@@ -2048,6 +2263,10 @@ export default function App() {
   // throwaway test run that should never be persisted.
   const currentRunIdRef = useRef<string | null>(null);
   const isTestRunRef = useRef(false);
+  // Highest wave cleared this run, for the gold banked on death.
+  const highestWaveClearedRef = useRef(0);
+  // Guards the one-time gold payout when a run ends.
+  const goldBankedRef = useRef(false);
 
   const spawnTimerRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
@@ -2058,7 +2277,55 @@ export default function App() {
       setSavedRuns(runs);
       setRunsLoaded(true);
     });
+    loadMeta().then((m) => {
+      metaRef.current = m;
+      setMeta(m);
+    });
   }, []);
+
+  // Spend gold from the account and persist. Used by the main-menu skill shop.
+  const commitMeta = (next: MetaState) => {
+    metaRef.current = next;
+    setMeta(next);
+    persistMeta(next);
+  };
+
+  // Buy the next level of a skill (its first level unlocks it), if the tree
+  // requirement is met and there is gold for it.
+  const buySkillLevel = (skill: SkillId) => {
+    const m = metaRef.current;
+    const level = m.skillLevels[skill] ?? 0;
+    if (level >= ABILITY_MAX_LEVEL) return;
+    const parent = SKILL_PARENT[skill];
+    if (parent && (m.skillLevels[parent] ?? 0) < 1) return; // locked by the tree
+    const cost = skillLevelCost(level + 1);
+    if (m.gold < cost) return;
+    commitMeta({
+      ...m,
+      gold: m.gold - cost,
+      skillLevels: { ...m.skillLevels, [skill]: level + 1 },
+    });
+  };
+
+  // Toggle a skill in or out of its slot. Passives share a single slot (so
+  // equipping one replaces whatever passive was there); actives fill up to three.
+  const toggleEquip = (skill: SkillId) => {
+    const m = metaRef.current;
+    if ((m.skillLevels[skill] ?? 0) < 1) return; // must own it first
+    if (isPassiveSkill(skill)) {
+      commitMeta({ ...m, passive: m.passive === skill ? null : skill });
+      return;
+    }
+    const has = m.loadout.includes(skill);
+    let loadout: SkillId[];
+    if (has) {
+      loadout = m.loadout.filter((s) => s !== skill);
+    } else {
+      if (m.loadout.length >= MAX_EQUIPPED) return;
+      loadout = [...m.loadout, skill];
+    }
+    commitMeta({ ...m, loadout });
+  };
 
   // Pull the art down while the menu is up, so a run starts with everything
   // already in hand. Failures are ignored on purpose: a sheet that misses here
@@ -2190,15 +2457,6 @@ export default function App() {
     commitInventory(newEquipped, newBag);
   };
 
-  const applySalvage = (fromKey: string, item: Item) => {
-    const newEquipped = equippedRef.current.slice();
-    const newBag = bagRef.current.slice();
-    if (fromKey.startsWith('equip-')) newEquipped[+fromKey.slice(6)] = null;
-    else newBag[+fromKey.slice(4)] = null;
-    commitInventory(newEquipped, newBag);
-    setMaterials((m) => m + item.level);
-  };
-
   const handleSlotGrant = (key: string, e: GestureResponderEvent) => {
     const item = itemAtKey(key);
     if (!item) {
@@ -2233,18 +2491,17 @@ export default function App() {
       return;
     }
     const dropKey = keyAtPoint(e.nativeEvent.pageX, e.nativeEvent.pageY);
-    if (dropKey === 'salvage') {
-      applySalvage(d.fromKey, d.item);
-    } else if (dropKey && (dropKey.startsWith('equip-') || dropKey.startsWith('bag-'))) {
+    if (dropKey && (dropKey.startsWith('equip-') || dropKey.startsWith('bag-'))) {
       applyMove(d.fromKey, dropKey);
     }
   };
 
   // ---- Play area input ----
+  // aimingAbility, when set, is the slot whose (Cone) skill is being aimed.
   const handlePlayAreaGrant = (e: GestureResponderEvent) => {
     if (gameOverRef.current) return;
     const { locationX, locationY } = e.nativeEvent;
-    if (aimingAbility === 2) {
+    if (aimingAbility != null) {
       setAimPreviewPoint({ x: locationX, y: locationY });
       return;
     }
@@ -2257,20 +2514,21 @@ export default function App() {
   };
 
   const handlePlayAreaMove = (e: GestureResponderEvent) => {
-    if (gameOverRef.current || aimingAbility !== 2) return;
+    if (gameOverRef.current || aimingAbility == null) return;
     const { locationX, locationY } = e.nativeEvent;
     setAimPreviewPoint({ x: locationX, y: locationY });
   };
 
   const handlePlayAreaRelease = (e: GestureResponderEvent) => {
-    if (gameOverRef.current || aimingAbility !== 2) return;
+    if (gameOverRef.current || aimingAbility == null) return;
+    const slot = aimingAbility;
     const { locationX, locationY } = e.nativeEvent;
     const p = playerRef.current;
-    const ab = abilitiesRef.current[2];
-    const cost = ABILITY_MANA_COST[2];
+    const ab = abilitiesRef.current[slot];
+    const cost = SKILL_META.cone.mana;
     setAimingAbility(null);
     setAimPreviewPoint(null);
-    if (p.mana < cost) return;
+    if (ab.skill !== 'cone' || p.mana < cost) return;
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
     const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
@@ -2278,45 +2536,103 @@ export default function App() {
     const now = Date.now();
     setFloatingTexts((prev) => prev.concat(result.hits.map((h) => makeFloatingText(`-${Math.round(h.amount)}`, h.pos, DAMAGE_TEXT_COLOR, now))));
     setPlayer((prev) => ({ ...prev, mana: prev.mana - cost }));
-    setAbilities((prev) => ({ ...prev, 2: { ...prev[2], cooldown: ABILITY_COOLDOWN_TIME[2] } }));
+    const pv = passiveRef.current;
+    const cdScale = pv && pv.skill === 'cdreduce' ? 1 - cooldownReducePercent(pv.level) : 1;
+    setAbilities((prev) => ({ ...prev, [slot]: { ...prev[slot], cooldown: SKILL_META.cone.cooldown * cdScale } }));
   };
 
   const handleAbilityPress = (id: AbilityId) => {
     if (gameOverRef.current) return;
     const ab = abilitiesRef.current[id];
     const p = playerRef.current;
-    if (ab.level <= 0 || ab.cooldown > 0) return;
-    const cost = ABILITY_MANA_COST[id];
+    const skill = ab.skill;
+    if (!skill || ab.level <= 0 || ab.cooldown > 0) return;
+    if (SKILL_META[skill].cast === 'passive') return; // passives have no active use
+    const cost = SKILL_META[skill].mana;
     if (p.mana < cost) return;
+    // The Haste passive shaves a share off every skill's cooldown.
+    const pv = passiveRef.current;
+    const cdScale = pv && pv.skill === 'cdreduce' ? 1 - cooldownReducePercent(pv.level) : 1;
 
-    if (id === 2) {
-      if (aimingAbility === 2) {
-        setAimingAbility(null);
-        setAimPreviewPoint(null);
-      } else {
-        setAimingAbility(2);
-        setAimPreviewPoint({ x: p.pos.x, y: 0 });
-      }
-      return;
-    }
-
-    if (id === 1) {
+    if (skill === 'summon') {
       setAllies(makeAlliesForLevel(ab.level, p.pos));
-    } else if (id === 3) {
+    } else if (skill === 'cone') {
+      // Fire at once, straight ahead of where the knight is facing.
+      const dir = directionFromFacing(p.facing);
+      const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
+      const result = fireCone(
+        p.pos,
+        aim,
+        mobsRef.current,
+        ability2BaseDamage(ab.level),
+        ability2DamagePercent(ab.level),
+        CONE_RANGE,
+        ABILITY2_HALF_ANGLE_DEG
+      );
+      setMobs(result.mobs);
+      const now = Date.now();
+      setFloatingTexts((prev) =>
+        prev.concat(result.hits.map((h) => makeFloatingText(`-${Math.round(h.amount)}`, h.pos, DAMAGE_TEXT_COLOR, now)))
+      );
+    } else if (skill === 'ranged') {
       setPlayer((prev) => ({ ...prev, hasteTimer: ABILITY3_HASTE_DURATION }));
+    } else if (skill === 'fireball') {
+      // A blast off every summon. Nothing to do (and nothing spent) if there
+      // are no summons to throw one.
+      const allies = alliesRef.current.filter((a) => a.hp > 0);
+      if (allies.length === 0) return;
+      const pct = fireballDamagePercent(ab.level);
+      const now = Date.now();
+      const flashes: HitFlash[] = [];
+      const texts: FloatingText[] = [];
+      const nextMobs = mobsRef.current.map((m) => {
+        let dmg = 0;
+        for (const a of allies) {
+          if (dist(a.pos, m.pos) <= FIREBALL_RADIUS) dmg += pct * a.damage;
+        }
+        if (dmg > 0) {
+          flashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
+          texts.push(makeFloatingText(`-${Math.round(dmg)}`, m.pos, DAMAGE_TEXT_COLOR, now));
+          return { ...m, hp: m.hp - dmg };
+        }
+        return m;
+      });
+      setMobs(nextMobs);
+      setHitFlashes((prev) => prev.concat(flashes));
+      setFloatingTexts((prev) => prev.concat(texts));
+    } else if (skill === 'burn') {
+      // Set the closest enemy afire; it explodes when it dies.
+      const target = nearestTarget(p.pos, mobsRef.current.filter((m) => m.hp > 0).map((m) => ({ kind: 'mob' as const, id: m.id, pos: m.pos })), Infinity);
+      if (!target) return;
+      const pct = burnExplodePercent(ab.level);
+      const dps = burnDamagePerSec(ab.level);
+      setMobs(mobsRef.current.map((m) => (m.id === target.id ? { ...m, burnPct: pct, burnDps: dps } : m)));
+      setFloatingTexts((prev) => prev.concat(makeFloatingText('afire', target.pos, '#ff7043', Date.now())));
+    } else if (skill === 'push') {
+      // Shove every enemy outward and deal a share of the player's attack damage.
+      const now = Date.now();
+      const dmgBonus = equippedBonus(equippedRef.current, 'dmg');
+      let rangedLvl = 0;
+      for (const k of [1, 2, 3] as AbilityId[]) if (abilitiesRef.current[k].skill === 'ranged') rangedLvl = abilitiesRef.current[k].level;
+      const atkDmg = PLAYER_BASE_DAMAGE + ability3DamageBonus(rangedLvl) + dmgBonus;
+      const dmg = pushDamagePercent(ab.level) * atkDmg;
+      const flashes: HitFlash[] = [];
+      const texts: FloatingText[] = [];
+      const nextMobs = mobsRef.current.map((m) => {
+        const dx = m.pos.x - p.pos.x;
+        const dy = m.pos.y - p.pos.y;
+        const d = Math.hypot(dx, dy) || 1;
+        flashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
+        texts.push(makeFloatingText(`-${Math.round(dmg)}`, m.pos, DAMAGE_TEXT_COLOR, now));
+        return { ...m, hp: m.hp - dmg, knock: { x: (dx / d) * PUSH_SPEED, y: (dy / d) * PUSH_SPEED } };
+      });
+      setMobs(nextMobs);
+      setHitFlashes((prev) => prev.concat(flashes));
+      setFloatingTexts((prev) => prev.concat(texts));
     }
 
     setPlayer((prev) => ({ ...prev, mana: prev.mana - cost }));
-    setAbilities((prev) => ({ ...prev, [id]: { ...prev[id], cooldown: ABILITY_COOLDOWN_TIME[id] } }));
-  };
-
-  const handleAbilityLevelUp = (id: AbilityId) => {
-    if (gameOverRef.current) return;
-    const p = playerRef.current;
-    const ab = abilitiesRef.current[id];
-    if (p.abilityPoints <= 0 || ab.level >= ABILITY_MAX_LEVEL) return;
-    setPlayer((prev) => ({ ...prev, abilityPoints: prev.abilityPoints - 1 }));
-    setAbilities((prev) => ({ ...prev, [id]: { ...prev[id], level: prev[id].level + 1 } }));
+    setAbilities((prev) => ({ ...prev, [id]: { ...prev[id], cooldown: SKILL_META[skill].cooldown * cdScale } }));
   };
 
   const handleStartNextWave = () => {
@@ -2336,6 +2652,7 @@ export default function App() {
     mobsRef.current = [];
     alliesRef.current = [];
     abilitiesRef.current = s.abilities;
+    passiveRef.current = s.passive;
     projectilesRef.current = [];
     hitFlashesRef.current = [];
     bloodSplatsRef.current = [];
@@ -2356,6 +2673,7 @@ export default function App() {
     setMobs([]);
     setAllies([]);
     setAbilities(s.abilities);
+    setPassive(s.passive);
     setAimingAbility(null);
     setAimPreviewPoint(null);
     setProjectiles([]);
@@ -2379,25 +2697,62 @@ export default function App() {
   const handleStartNewRun = () => {
     currentRunIdRef.current = `run-${Date.now()}`;
     isTestRunRef.current = false;
-    applyGameState(buildFreshState());
+    highestWaveClearedRef.current = 0;
+    goldBankedRef.current = false;
+    setLastRunGold(0);
+    applyGameState(buildFreshState(metaRef.current));
     setScreen('game');
   };
 
   const handleStartTestRun = () => {
     currentRunIdRef.current = null;
     isTestRunRef.current = true;
-    applyGameState(buildTestState());
+    highestWaveClearedRef.current = 0;
+    goldBankedRef.current = false;
+    setLastRunGold(0);
+    // Testing is meant for trying skills out, so top the account up to a
+    // comfortable 1000 gold to spend in the shop.
+    if (metaRef.current.gold < 1000) commitMeta({ ...metaRef.current, gold: 1000 });
+    applyGameState(buildTestState(metaRef.current));
     setScreen('game');
   };
 
   const handleContinueRun = (save: RunSave) => {
     currentRunIdRef.current = save.id;
     isTestRunRef.current = false;
+    highestWaveClearedRef.current = save.wave;
+    goldBankedRef.current = false;
+    setLastRunGold(0);
     applyGameState(buildStateFromSave(save));
     setScreen('game');
   };
 
   const handleBackToMenu = () => {
+    setScreen('menu');
+  };
+
+  // Leave the run early and cash out: bank the gold for the waves cleared so
+  // far, end the run (its save is dropped so it can't be banked twice), and
+  // return to the menu.
+  const handleExitRun = () => {
+    if (!isTestRunRef.current && !goldBankedRef.current) {
+      goldBankedRef.current = true;
+      const earned = goldForWavesCleared(highestWaveClearedRef.current);
+      if (earned > 0) {
+        commitMeta({ ...metaRef.current, gold: metaRef.current.gold + earned });
+        setLastRunGold(earned);
+      }
+    }
+    if (!isTestRunRef.current && currentRunIdRef.current) {
+      const id = currentRunIdRef.current;
+      setSavedRuns((prev) => {
+        const next = prev.filter((r) => r.id !== id);
+        persistRuns(next);
+        return next;
+      });
+    }
+    currentRunIdRef.current = null;
+    gameOverRef.current = true; // stop the loop from advancing the abandoned run
     setScreen('menu');
   };
 
@@ -2438,12 +2793,41 @@ export default function App() {
       for (const pr of projectilesRef.current) {
         if (now - pr.createdAt >= pr.duration) {
           if (pr.friendly && pr.targetKind === 'mob') {
+            const hitPositions: Vec[] = [];
             const target = currentMobs.find((m) => m.id === pr.targetId);
             if (target && target.hp > 0) {
               target.hp -= pr.damage;
               hurtMob(target, pr.from);
+              hitPositions.push({ ...target.pos });
             }
-            newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, DAMAGE_TEXT_COLOR, now));
+            // Pierce: strike further enemies lying along the shot's line.
+            if ((pr.pierce ?? 0) > 0) {
+              const dx = pr.to.x - pr.from.x;
+              const dy = pr.to.y - pr.from.y;
+              const len = Math.hypot(dx, dy) || 1;
+              const ux = dx / len;
+              const uy = dy / len;
+              const extras = currentMobs
+                .filter((m) => m.hp > 0 && m.id !== pr.targetId)
+                .map((m) => {
+                  const rx = m.pos.x - pr.from.x;
+                  const ry = m.pos.y - pr.from.y;
+                  return { m, along: rx * ux + ry * uy, perp: Math.abs(rx * uy - ry * ux) };
+                })
+                .filter((e) => e.along > 0 && e.perp <= PIERCE_WIDTH + e.m.radius)
+                .sort((a, b) => a.along - b.along)
+                .slice(0, pr.pierce);
+              for (const e of extras) {
+                e.m.hp -= pr.damage;
+                hurtMob(e.m, pr.from);
+                hitPositions.push({ ...e.m.pos });
+              }
+            }
+            if (hitPositions.length === 0) hitPositions.push({ ...pr.to });
+            for (const pos of hitPositions) {
+              newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pos, DAMAGE_TEXT_COLOR, now));
+              newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...pos }, createdAt: now });
+            }
           } else if (!pr.friendly && pr.targetKind === 'player') {
             damageToPlayer += pr.damage;
             newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, TAKEN_TEXT_COLOR, now));
@@ -2452,7 +2836,11 @@ export default function App() {
             if (ally) ally.hp -= pr.damage;
             newFloatingTexts.push(makeFloatingText(`-${Math.round(pr.damage)}`, pr.to, TAKEN_TEXT_COLOR, now));
           }
-          newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...pr.to }, createdAt: now });
+          // Mob-hit flashes are placed per pierced target above; other kinds
+          // flash at the arrival point here.
+          if (!(pr.friendly && pr.targetKind === 'mob')) {
+            newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...pr.to }, createdAt: now });
+          }
         } else {
           stillFlying.push(pr);
         }
@@ -2517,8 +2905,21 @@ export default function App() {
         remainingItems.push(it);
       }
 
-      const ability3Level = abilitiesRef.current[3].level;
-      const isRangedAttack = ability3Level > 0;
+      // Ranged may sit in any active slot; Pierce is the equipped passive. Either
+      // one turns the basic attack into shots; Pierce lets each volley strike more
+      // enemies.
+      const equippedLevelOf = (skill: SkillId): number => {
+        for (const k of [1, 2, 3] as AbilityId[]) {
+          if (abilitiesRef.current[k].skill === skill) return abilitiesRef.current[k].level;
+        }
+        return 0;
+      };
+      const passiveNow = passiveRef.current;
+      const ability3Level = equippedLevelOf('ranged');
+      const pierceLevel = passiveNow?.skill === 'pierce' ? passiveNow.level : 0;
+      const allyRegenPerSec = passiveNow?.skill === 'summonregen' ? summonRegenPerSec(passiveNow.level) : 0;
+      const isRangedAttack = ability3Level > 0 || pierceLevel > 0;
+      const pierceExtra = pierceTargetCount(pierceLevel);
       const playerAttackRange = isRangedAttack ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
       const playerDamage = PLAYER_BASE_DAMAGE + ability3DamageBonus(ability3Level) + dmgBonus;
       const attackCooldownDuration =
@@ -2542,6 +2943,8 @@ export default function App() {
         m.animTime += dt;
         m.flashTime = Math.max(0, m.flashTime - dt);
         m.hurtGap = Math.max(0, m.hurtGap - dt);
+        // Burn's damage-over-time while the mob is afire.
+        if ((m.burnDps ?? 0) > 0 && m.hp > 0) m.hp -= m.burnDps! * dt;
 
         // The shove from the last blow, bleeding off as it goes. Applied before
         // the mob takes its own turn, so one that is chasing spends the moment
@@ -2653,26 +3056,26 @@ export default function App() {
       const attackTargets: Vec[] = [];
       if (p.attackCooldown <= 0) {
         if (isRangedAttack) {
-          const candidates = currentMobs
+          // Always fire a single shot at the nearest enemy. Pierce (if equipped)
+          // lets that one shot carry through further enemies along its line.
+          const target = currentMobs
             .filter((m) => m.hp > 0 && dist(m.pos, p.pos) <= playerAttackRange)
-            .sort((a, b) => dist(a.pos, p.pos) - dist(b.pos, p.pos))
-            .slice(0, rangedTargetCount(ability3Level));
-          if (candidates.length > 0) {
-            for (const target of candidates) {
-              attackTargets.push({ ...target.pos });
-              newProjectiles.push({
-                id: ++projectileIdCounter,
-                from: { ...p.pos },
-                to: { ...target.pos },
-                createdAt: now,
-                duration: Math.max(80, (dist(p.pos, target.pos) / PROJECTILE_SPEED) * 1000),
-                color: '#e1f5fe',
-                damage: playerDamage,
-                friendly: true,
-                targetKind: 'mob',
-                targetId: target.id,
-              });
-            }
+            .sort((a, b) => dist(a.pos, p.pos) - dist(b.pos, p.pos))[0];
+          if (target) {
+            attackTargets.push({ ...target.pos });
+            newProjectiles.push({
+              id: ++projectileIdCounter,
+              from: { ...p.pos },
+              to: { ...target.pos },
+              createdAt: now,
+              duration: Math.max(80, (dist(p.pos, target.pos) / PROJECTILE_SPEED) * 1000),
+              color: '#e1f5fe',
+              damage: playerDamage,
+              friendly: true,
+              targetKind: 'mob',
+              targetId: target.id,
+              pierce: pierceExtra,
+            });
             p.attackCooldown = attackCooldownDuration;
             playerAttacked = true;
           }
@@ -2698,6 +3101,8 @@ export default function App() {
       // Ally AI
       for (const a of currentAllies) {
         if (a.hp <= 0) continue;
+        // Summon Regen passive: heal each summon, capped at its max.
+        if (allyRegenPerSec > 0 && a.hp < a.maxHp) a.hp = Math.min(a.maxHp, a.hp + allyRegenPerSec * dt);
         a.attackCooldown = Math.max(0, a.attackCooldown - dt);
         const engageRange = a.ranged ? ALLY_RANGED_ENGAGE_RANGE : ALLY_ENGAGE_RANGE;
         const atkRange = a.ranged ? ALLY_RANGED_ATTACK_RANGE : ALLY_ATTACK_RANGE;
@@ -2739,6 +3144,30 @@ export default function App() {
             const step = ALLY_SPEED * dt;
             const ratio = Math.min(1, step / d);
             a.pos = { x: a.pos.x + dx * ratio, y: a.pos.y + dy * ratio };
+          }
+        }
+      }
+
+      // Burning enemies (marked by the Burn skill) blow up when they die,
+      // spreading a share of their max HP to nearby foes -- which can set off
+      // further burning deaths in a chain.
+      {
+        const pending = currentMobs.filter((m) => m.hp <= 0 && (m.burnPct ?? 0) > 0);
+        const exploded = new Set<number>();
+        while (pending.length > 0) {
+          const src = pending.shift()!;
+          if (exploded.has(src.id)) continue;
+          exploded.add(src.id);
+          const blast = src.maxHp * (src.burnPct ?? 0);
+          newFloatingTexts.push(makeFloatingText('boom!', src.pos, '#ff7043', now));
+          for (const m of currentMobs) {
+            if (m.id === src.id || m.hp <= 0) continue;
+            if (dist(m.pos, src.pos) <= BURN_EXPLODE_RADIUS) {
+              m.hp -= blast;
+              newFlashes.push({ id: ++hitFlashIdCounter, pos: { ...m.pos }, createdAt: now });
+              newFloatingTexts.push(makeFloatingText(`-${Math.round(blast)}`, m.pos, DAMAGE_TEXT_COLOR, now));
+              if (m.hp <= 0 && (m.burnPct ?? 0) > 0 && !exploded.has(m.id)) pending.push(m);
+            }
           }
         }
       }
@@ -2985,7 +3414,6 @@ export default function App() {
           const oldMaxHp = p.maxHp;
           p.maxHp += 10;
           p.hp = p.hp * (p.maxHp / oldMaxHp);
-          p.abilityPoints += 1;
         }
       }
 
@@ -3001,16 +3429,29 @@ export default function App() {
         if (waveQueueRef.current.length === 0) newWaveActive = false;
       }
 
-      // Field cleared and nothing spawning: pay out loot owed for every wave finished
-      // so far (waves the player rushed together still each drop their item).
+      // Each owed wave clears on its own: once a wave is done spawning and none
+      // of its own mobs are left alive, it drops its item and counts toward the
+      // gold. Rushing several waves together no longer merges their payouts.
       let waveJustCleared = false;
-      if (!newWaveActive && survivorMobs.length === 0 && lootOwedRef.current.length > 0) {
-        for (const w of lootOwedRef.current) remainingItems.push(spawnLoot(w));
-        lootOwedRef.current = [];
-        waveJustCleared = true;
-        // Fully restore health and mana once every minion from the wave is cleared.
-        p.hp = p.maxHp + hpBonus;
-        p.mana = effectiveMaxMana;
+      if (lootOwedRef.current.length > 0) {
+        const stillOwed: number[] = [];
+        for (const w of lootOwedRef.current) {
+          const doneSpawning = w !== waveRef.current || waveQueueRef.current.length === 0;
+          const anyAlive = survivorMobs.some((m) => m.wave === w);
+          if (doneSpawning && !anyAlive) {
+            remainingItems.push(spawnLoot(w));
+            waveJustCleared = true;
+            highestWaveClearedRef.current = Math.max(highestWaveClearedRef.current, w);
+          } else {
+            stillOwed.push(w);
+          }
+        }
+        lootOwedRef.current = stillOwed;
+        if (waveJustCleared) {
+          // Fully restore health and mana each time a wave is fully cleared.
+          p.hp = p.maxHp + hpBonus;
+          p.mana = effectiveMaxMana;
+        }
       }
 
       const newAbilities: Abilities = {
@@ -3033,6 +3474,17 @@ export default function App() {
       const isGameOver = p.hp <= 0;
 
       if (isGameOver) {
+        // The run has ended: bank its gold (1 per wave cleared, so 1+2+...+N)
+        // into the account. Test runs pay nothing.
+        if (!isTestRunRef.current && !goldBankedRef.current) {
+          goldBankedRef.current = true;
+          const earned = goldForWavesCleared(highestWaveClearedRef.current);
+          if (earned > 0) {
+            const m = metaRef.current;
+            commitMeta({ ...m, gold: m.gold + earned });
+            setLastRunGold(earned);
+          }
+        }
         // Delete this run's save on death.
         if (!isTestRunRef.current && currentRunIdRef.current) {
           const idToDelete = currentRunIdRef.current;
@@ -3055,8 +3507,8 @@ export default function App() {
           hp: p.hp,
           maxHp: p.maxHp,
           mana: p.mana,
-          abilityPoints: p.abilityPoints,
           abilities: newAbilities,
+          passive: passiveRef.current,
           equipped: newEquipped ?? equippedRef.current,
           bag: newBag ?? bagRef.current,
           materials: materialsRef.current,
@@ -3110,8 +3562,14 @@ export default function App() {
     };
   }, []);
 
-  const ability3Level = abilities[3].level;
-  const playerAttackRange = ability3Level > 0 ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
+  // Look up an equipped skill's level for the HUD read-outs below.
+  const equippedSkillLevel = (skill: SkillId): number => {
+    for (const k of [1, 2, 3] as AbilityId[]) if (abilities[k].skill === skill) return abilities[k].level;
+    return 0;
+  };
+  const ability3Level = equippedSkillLevel('ranged');
+  const isRangedDisplay = ability3Level > 0 || passive?.skill === 'pierce';
+  const playerAttackRange = isRangedDisplay ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
   const dmgBonusDisplay = equippedBonus(equipped, 'dmg');
   const atkSpdBonusPctDisplay = equippedBonus(equipped, 'atkspd');
   const manaBonusDisplay = equippedBonus(equipped, 'mana');
@@ -3122,11 +3580,6 @@ export default function App() {
   const displayAttackCooldown = (PLAYER_ATTACK_COOLDOWN * (player.hasteTimer > 0 ? 0.5 : 1)) / (1 + atkSpdBonusPctDisplay);
   const displayAtkSpeed = 1 / displayAttackCooldown;
 
-  const abilityMeta: Record<AbilityId, { label: string; color: string }> = {
-    1: { label: 'Summon', color: '#7e57c2' },
-    2: { label: 'Cone', color: '#ff8a50' },
-    3: { label: 'Ranged', color: '#26a69a' },
-  };
 
   function tooltipPositionStyle(x: number, y: number) {
     const width = 240;
@@ -3254,6 +3707,15 @@ export default function App() {
             </Text>
           </Pressable>
           <Text style={styles.menuMinorText}>·</Text>
+          <Pressable
+            onPress={() => {
+              playMenuPress();
+              setScreen('skilltree');
+            }}
+          >
+            <Text style={styles.menuMinorText}>Skills ({meta.gold}g)</Text>
+          </Pressable>
+          <Text style={styles.menuMinorText}>·</Text>
           <Pressable onPress={() => leaveMenu(handleStartTestRun)}>
             <Text style={styles.menuMinorText}>Test run</Text>
           </Pressable>
@@ -3293,6 +3755,101 @@ export default function App() {
             <Text style={styles.menuBackButtonText}>Back</Text>
           </Pressable>
         </View>
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
+  if (screen === 'skilltree') {
+    return (
+      <View style={styles.root}>
+        <ScrollView style={styles.skillTreeScroll} contentContainerStyle={styles.skillTreeContent}>
+          <Text style={styles.menuScreenTitle}>Skills · {meta.gold} gold</Text>
+
+          {/* The equipped loadout, shown the same way it appears in a run. */}
+          <View style={styles.loadoutPreview}>
+            {meta.loadout.map((skill) => (
+              <View key={skill} style={styles.quickCastSlot}>
+                <View style={[styles.quickCastButton, { backgroundColor: SKILL_META[skill].color }]}>
+                  <Text style={styles.quickCastIcon}>{SKILL_META[skill].icon}</Text>
+                </View>
+                <Text style={styles.abilityCostText}>{SKILL_META[skill].label}</Text>
+              </View>
+            ))}
+            {meta.passive && (
+              <View style={styles.quickCastSlot}>
+                <View style={[styles.passiveChip, { backgroundColor: SKILL_META[meta.passive].color }]}>
+                  <Text style={styles.passiveChipIcon}>{SKILL_META[meta.passive].icon}</Text>
+                </View>
+                <Text style={styles.abilityCostText}>{SKILL_META[meta.passive].label}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.skillTreeHint}>
+            Active {meta.loadout.length}/{MAX_EQUIPPED} · Passive {meta.passive ? SKILL_META[meta.passive].label : '—'}/{MAX_PASSIVE}
+          </Text>
+
+          {ROOT_SKILLS.map((root) => {
+            const rows = [root, ...ALL_SKILLS.filter((s) => SKILL_PARENT[s] === root)];
+            return (
+              <View key={root} style={styles.skillTreeGroup}>
+                {rows.map((skill) => {
+                  const level = meta.skillLevels[skill] ?? 0;
+                  const owned = level > 0;
+                  const parent = SKILL_PARENT[skill];
+                  const isChild = parent != null;
+                  const unlocked = !parent || (meta.skillLevels[parent] ?? 0) >= 1;
+                  const atMax = level >= ABILITY_MAX_LEVEL;
+                  const nextCost = skillLevelCost(level + 1);
+                  const canBuy = unlocked && !atMax && meta.gold >= nextCost;
+                  const passiveKind = isPassiveSkill(skill);
+                  const equipped = passiveKind ? meta.passive === skill : meta.loadout.includes(skill);
+                  const equipFull = !passiveKind && !equipped && meta.loadout.length >= MAX_EQUIPPED;
+                  const meta2 = SKILL_META[skill];
+                  return (
+                    <View key={skill} style={[styles.skillRow, isChild && styles.skillRowChild]}>
+                      <View style={[styles.skillSwatch, { backgroundColor: meta2.color }, !unlocked && styles.abilityLocked]}>
+                        <Text style={styles.skillSwatchIcon}>{meta2.icon}</Text>
+                      </View>
+                      <View style={styles.skillRowInfo}>
+                        <Text style={styles.skillRowName}>
+                          {isChild ? '↳ ' : ''}{meta2.label} · {owned ? `Lv ${level}/${ABILITY_MAX_LEVEL}` : unlocked ? 'not owned' : `needs ${SKILL_META[parent!].label}`}
+                        </Text>
+                        <Text style={styles.skillRowDesc}>{skillDescription(skill)}</Text>
+                      </View>
+                      <View style={styles.skillRowButtons}>
+                        <Pressable
+                          onPress={() => buySkillLevel(skill)}
+                          disabled={!canBuy}
+                          style={[styles.skillBuyButton, !canBuy && styles.skillButtonDisabled]}
+                        >
+                          <Text style={styles.skillBuyText}>{atMax ? 'MAX' : `${owned ? 'Level' : 'Buy'} ${nextCost}g`}</Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => toggleEquip(skill)}
+                          disabled={!owned || equipFull}
+                          style={[
+                            styles.skillEquipButton,
+                            equipped && styles.skillEquipButtonOn,
+                            (!owned || equipFull) && styles.skillButtonDisabled,
+                          ]}
+                        >
+                          <Text style={styles.skillEquipText}>
+                            {equipped ? 'Equipped' : passiveKind ? 'Passive' : 'Equip'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })}
+
+          <Pressable onPress={() => setScreen('menu')} style={styles.menuBackButton}>
+            <Text style={styles.menuBackButtonText}>Back</Text>
+          </Pressable>
+        </ScrollView>
         <StatusBar style="auto" />
       </View>
     );
@@ -3456,6 +4013,11 @@ export default function App() {
         <Pressable onPress={() => setMobStatsOpen(true)} style={styles.topBarButton}>
           <Text style={styles.topBarButtonText}>Mob Stats</Text>
         </Pressable>
+        {!gameOver && (
+          <Pressable onPress={handleExitRun} style={styles.exitRunButton}>
+            <Text style={styles.exitRunText}>Exit run</Text>
+          </Pressable>
+        )}
         {!waveActive && !gameOver && (
           <Pressable onPress={handleStartNextWave} style={styles.startWaveButton}>
             <Text style={styles.startWaveText}>Start Wave {wave + 1}</Text>
@@ -3563,11 +4125,12 @@ export default function App() {
 
       <View style={styles.quickCastBar}>
         {([1, 2, 3] as AbilityId[])
-          .filter((id) => abilities[id].level > 0)
+          .filter((id) => abilities[id].skill != null && abilities[id].level > 0)
           .map((id) => {
             const ab = abilities[id];
-            const meta = abilityMeta[id];
-            const cost = ABILITY_MANA_COST[id];
+            const skill = ab.skill!;
+            const meta = SKILL_META[skill];
+            const cost = meta.mana;
             const onCooldown = ab.cooldown > 0;
             const canCast = !onCooldown && player.mana >= cost;
             const isAiming = aimingAbility === id;
@@ -3581,21 +4144,32 @@ export default function App() {
                     { backgroundColor: meta.color },
                     !canCast && styles.abilityDim,
                     isAiming && styles.abilityAiming,
-                    id === 3 && player.hasteTimer > 0 && styles.abilityHaste,
+                    skill === 'ranged' && player.hasteTimer > 0 && styles.abilityHaste,
                   ]}
                 >
+                  <Text style={styles.quickCastIcon}>{meta.icon}</Text>
+                  <View style={styles.manaBadge}>
+                    <Text style={styles.manaBadgeText}>{cost}</Text>
+                  </View>
                   {onCooldown && (
                     <View style={styles.quickCastCooldownOverlay}>
                       <Text style={styles.cooldownText}>{Math.ceil(ab.cooldown)}</Text>
                     </View>
                   )}
                 </Pressable>
-                <Text style={styles.abilityCostText}>
-                  {cost} MP · {ABILITY_COOLDOWN_TIME[id]}s
-                </Text>
+                <Text style={styles.abilityCostText}>{meta.label}</Text>
               </View>
             );
           })}
+
+        {/* The equipped passive, shown smaller beside the active buttons. */}
+        {passive && (
+          <View style={styles.quickCastSlot}>
+            <View style={[styles.passiveChip, { backgroundColor: SKILL_META[passive.skill].color }]}>
+              <Text style={styles.passiveChipIcon}>{SKILL_META[passive.skill].icon}</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       <View style={styles.hud}>
@@ -3631,11 +4205,6 @@ export default function App() {
       <View style={styles.menuBar}>
         <Pressable onPress={() => setSkillsMenuOpen(true)} style={styles.menuButton}>
           <Text style={styles.menuButtonText}>Skills</Text>
-          {player.abilityPoints > 0 && (
-            <View style={styles.menuBadge}>
-              <Text style={styles.menuBadgeText}>{player.abilityPoints}</Text>
-            </View>
-          )}
         </Pressable>
         <Pressable onPress={() => setInvMenuOpen(true)} style={styles.menuButton}>
           <Text style={styles.menuButtonText}>Inventory</Text>
@@ -3653,13 +4222,17 @@ export default function App() {
           the box is the wrong shape, so it floats over them instead and its
           foot is placed where it looks right. Measured from the bottom of the
           screen, so it stays put whatever the bars do. */}
-      <CoinSackView
-        sackRef={coinSackRef}
-        left={DEBUG_COINSACK_TUNING ? tuneSackLeft : COINSACK_LEFT}
-        bottom={DEBUG_COINSACK_TUNING ? tuneSackBottom : COINSACK_BOTTOM}
-        width={DEBUG_COINSACK_TUNING ? tuneSackWidth : COINSACK_WIDTH}
-        muted={allSoundOff}
-      />
+      {/* Hidden during normal play -- the coin pouch used to sit over the skill
+          buttons. Still shown while tuning so its placement can be adjusted. */}
+      {DEBUG_COINSACK_TUNING && (
+        <CoinSackView
+          sackRef={coinSackRef}
+          left={tuneSackLeft}
+          bottom={tuneSackBottom}
+          width={tuneSackWidth}
+          muted={allSoundOff}
+        />
+      )}
 
       {/* --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING --- */}
       {DEBUG_COINSACK_TUNING && (
@@ -3736,9 +4309,7 @@ export default function App() {
           />
           <View style={styles.menuPanel}>
             <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle}>
-                Skills · {player.abilityPoints} point{player.abilityPoints === 1 ? '' : 's'} available
-              </Text>
+              <Text style={styles.menuTitle}>Equipped skills</Text>
               <Pressable
                 onPress={() => {
                   setSkillsMenuOpen(false);
@@ -3750,43 +4321,56 @@ export default function App() {
               </Pressable>
             </View>
 
-            {([1, 2, 3] as AbilityId[]).map((id) => {
-              const ab = abilities[id];
-              const meta = abilityMeta[id];
-              const locked = ab.level <= 0;
-              const canLevelUp = player.abilityPoints > 0 && ab.level < ABILITY_MAX_LEVEL;
-
-              return (
-                <View key={id} style={styles.listRow}>
-                  <View style={styles.listIconWrap}>
-                    <Pressable
-                      {...registerSlot(`skill-${id}`)}
-                      onPress={() => showTooltipAboveKey(`skill-${id}`, abilityDescription(id) + abilityStatsSuffix(id))}
-                      style={[styles.listIcon, { backgroundColor: meta.color }, locked && styles.abilityLocked]}
-                    >
-                      <View style={styles.pipsRow}>
-                        {[1, 2, 3, 4].map((pip) => (
-                          <View key={pip} style={[styles.pip, pip <= ab.level && styles.pipFilled]} />
-                        ))}
-                      </View>
-                    </Pressable>
-                    {canLevelUp && (
-                      <Pressable onPress={() => handleAbilityLevelUp(id)} style={styles.levelUpButton}>
-                        <Text style={styles.levelUpText}>+</Text>
+            {([1, 2, 3] as AbilityId[])
+              .filter((id) => abilities[id].skill != null)
+              .map((id) => {
+                const ab = abilities[id];
+                const skill = ab.skill!;
+                const meta = SKILL_META[skill];
+                return (
+                  <View key={id} style={styles.listRow}>
+                    <View style={styles.listIconWrap}>
+                      <Pressable
+                        {...registerSlot(`skill-${id}`)}
+                        onPress={() => showTooltipAboveKey(`skill-${id}`, skillDescription(skill) + skillStatsSuffix(skill))}
+                        style={[styles.listIcon, { backgroundColor: meta.color }]}
+                      >
+                        <View style={styles.pipsRow}>
+                          {[1, 2, 3, 4].map((pip) => (
+                            <View key={pip} style={[styles.pip, pip <= ab.level && styles.pipFilled]} />
+                          ))}
+                        </View>
                       </Pressable>
-                    )}
+                    </View>
+                    <View style={styles.listInfo}>
+                      <Text style={styles.listName}>
+                        {meta.icon} {meta.label} · Lv {ab.level}/{ABILITY_MAX_LEVEL}
+                      </Text>
+                      <Text style={styles.listSub}>
+                        {meta.cast === 'passive' ? 'Passive' : `${meta.mana} MP · ${meta.cooldown}s CD`}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.listInfo}>
-                    <Text style={styles.listName}>
-                      {meta.label} · Lv {ab.level}/{ABILITY_MAX_LEVEL}
-                    </Text>
-                    <Text style={styles.listSub}>
-                      {ABILITY_MANA_COST[id]} MP · {ABILITY_COOLDOWN_TIME[id]}s CD
-                    </Text>
+                );
+              })}
+            {passive && (
+              <View style={styles.listRow}>
+                <View style={styles.listIconWrap}>
+                  <View style={[styles.listIcon, { backgroundColor: SKILL_META[passive.skill].color }]}>
+                    <View style={styles.pipsRow}>
+                      {[1, 2, 3, 4].map((pip) => (
+                        <View key={pip} style={[styles.pip, pip <= passive.level && styles.pipFilled]} />
+                      ))}
+                    </View>
                   </View>
                 </View>
-              );
-            })}
+                <View style={styles.listInfo}>
+                  <Text style={styles.listName}>{SKILL_META[passive.skill].icon} {SKILL_META[passive.skill].label} · Lv {passive.level}/{ABILITY_MAX_LEVEL}</Text>
+                  <Text style={styles.listSub}>Passive</Text>
+                </View>
+              </View>
+            )}
+            <Text style={styles.listSub}>Buy, level and equip skills from the main menu.</Text>
           </View>
         </View>
       )}
@@ -3803,7 +4387,7 @@ export default function App() {
           />
           <View style={styles.menuPanel}>
             <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle}>Inventory · Materials: {materials}</Text>
+              <Text style={styles.menuTitle}>Inventory</Text>
               <Pressable
                 onPress={() => {
                   setInvMenuOpen(false);
@@ -3826,14 +4410,6 @@ export default function App() {
                 <View style={styles.bagGrid}>
                   {bag.map((item, i) => renderInvSlot(`bag-${i}`, item, styles.bagSlot))}
                 </View>
-              </View>
-
-              <View
-                {...registerSlot('salvage')}
-                style={styles.salvageArea}
-              >
-                <Text style={styles.salvageTitle}>Salvage</Text>
-                <Text style={styles.salvageSub}>drop item →{'\n'}materials = iLvl</Text>
               </View>
             </View>
           </View>
@@ -3898,6 +4474,9 @@ export default function App() {
       {gameOver && (
         <View style={styles.gameOverOverlay}>
           <Text style={styles.gameOverText}>Game Over</Text>
+          {!isTestRunRef.current && (
+            <Text style={styles.gameOverGold}>+{lastRunGold} gold earned</Text>
+          )}
           <Pressable onPress={handleBackToMenu} style={styles.retryButton}>
             <Text style={styles.retryText}>Main Menu</Text>
           </Pressable>
@@ -3971,6 +4550,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  exitRunButton: {
+    backgroundColor: '#b71c1c',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  exitRunText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 12,
   },
   startWaveButton: {
     backgroundColor: '#4caf50',
@@ -4076,6 +4665,43 @@ const styles = StyleSheet.create({
     height: 42,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  quickCastIcon: {
+    fontSize: 22,
+  },
+  manaBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 3,
+    backgroundColor: '#2196f3',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  manaBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  loadoutPreview: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 6,
+  },
+  passiveChip: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  passiveChipIcon: {
+    fontSize: 15,
   },
   quickCastCooldownOverlay: {
     position: 'absolute',
@@ -4445,6 +5071,16 @@ const styles = StyleSheet.create({
     gap: 16,
     paddingHorizontal: 24,
   },
+  skillTreeScroll: {
+    flex: 1,
+  },
+  skillTreeContent: {
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 24,
+    paddingTop: 48,
+    paddingBottom: 48,
+  },
   menuScreenTitle: {
     color: '#fff',
     fontSize: 28,
@@ -4521,6 +5157,50 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  gameOverGold: {
+    color: '#ffd54f',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 16,
+  },
+
+  // --- Main-menu skill tree / shop ---
+  skillTreeHint: { color: '#b0bec5', fontSize: 12, marginBottom: 12, textAlign: 'center' },
+  skillTreeGroup: {
+    marginBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    paddingTop: 8,
+  },
+  skillRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  skillRowChild: { paddingLeft: 16, opacity: 0.98 },
+  skillSwatch: { width: 26, height: 26, borderRadius: 4, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
+  skillSwatchIcon: { fontSize: 15 },
+  skillRowInfo: { flex: 1, paddingRight: 8 },
+  skillRowName: { color: '#eceff1', fontSize: 13, fontWeight: 'bold' },
+  skillRowDesc: { color: '#90a4ae', fontSize: 10, marginTop: 2 },
+  skillRowButtons: { flexDirection: 'row', alignItems: 'center' },
+  skillBuyButton: {
+    backgroundColor: '#5c6bc0',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 4,
+    marginRight: 6,
+    minWidth: 62,
+    alignItems: 'center',
+  },
+  skillBuyText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  skillEquipButton: {
+    backgroundColor: '#37474f',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 4,
+    minWidth: 62,
+    alignItems: 'center',
+  },
+  skillEquipButtonOn: { backgroundColor: '#2e7d32' },
+  skillEquipText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
+  skillButtonDisabled: { opacity: 0.35 },
 
   // --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING ---
   tunePanel: {
