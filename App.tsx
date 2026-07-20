@@ -982,10 +982,10 @@ const COINSACK_LEFT = (SCREEN_W - 254) / 2;
 const COINSACK_BOTTOM = 8;
 const COINSACK_WIDTH = 254;
 
-// On-screen sliders for placing the sack. Off now that the numbers above are
-// settled -- the panel is not rendered and its state costs nothing, so it is
-// one word to bring back when the layout is next in question.
-const DEBUG_COINSACK_TUNING = false;
+// On-screen sliders for placing the sack. On while the skull finds its spot --
+// it is landscape and three times the old sack's width, its default overlaps
+// Magnus's new skill buttons, and where it lands is Nicolai's call.
+const DEBUG_COINSACK_TUNING = true;
 
 /**
  * The shove a mob takes when it is struck.
