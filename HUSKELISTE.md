@@ -256,6 +256,35 @@ ur (pause fryser dem midt i faldet). Tal til øjnene: `CORPSE_LINGER` /
 
 ---
 
+## Hvordan vi laver effekter fremover (aftalt 21. juli)
+
+Nicolai spurgte om det ville være lettere at **tegne** effekterne. Svaret er
+ja — og ikke en smule, men en helt anden størrelsesorden:
+
+| | elementer | koster |
+|---|---|---|
+| Tegnet ark (ridderen, en zombie) | **1** | ingenting |
+| Regn | ~250 | fint |
+| Kegle-zonen | ~680 | mærkes |
+
+Et tegnet ark er **ét** element, uanset hvor mange detaljer der er i
+billedet — browseren tegner ét billede. Genererede pixels koster ét element
+**hver**, og hvert eneste skal beregnes, animeres og sammensættes for sig.
+**Detaljer er gratis i en tegning og lineært dyre i kode.**
+
+**Reglen fremover:** spørg altid først "kan det her være en tegning?" Har
+effekten et fast udseende — ild, eksplosion, magi, et slag — så tegn den som
+et ark med **8 rækker (én pr. retning, ligesom ridderen)**, så intet skal
+roteres. Kode-genererede effekter er kun til det, der skal følge levende tal:
+regn der skal dække enhver skærm, ringe der skal ramme rigtigt vand, en kegle
+der skal matche sin sande vinkel.
+
+**Konkret for kegle-zonen:** tegner Nicolai bølgen som et ark, ryger hele
+maskineriet (buer, spring-varianter, forsinkelses-klasser) ud, og prisen går
+fra ~680 elementer til 1. Timingen beholder vi — den er den værdifulde del.
+
+---
+
 ## Kraniet er parkeret — godkendt, men venter på sin plads
 
 Kronekraniet (`Cranium-Coin-bag`) er inde, virker og er **godkendt af Nicolai**
