@@ -1269,10 +1269,27 @@ const CONE_ZONE = {
    * a finer grain, not four times the cost.
    */
   cell: 4,
-  /** px/s the ignition runs outward at, so the zone reads as a sweep. */
-  sweepSpeed: 1500,
-  /** Ignition is quantised to this, which is the wave's own step size. */
-  delayStepMs: 30,
+  /**
+   * px/s the wave runs outward at. Slower than the old bare ignition (1500),
+   * because it now carries the hop and a wave has to be seen travelling to
+   * read as one -- the far end is reached in about seven tenths of a second.
+   */
+  sweepSpeed: 1100,
+  /**
+   * The wave front is quantised to this. 15 ms at the speed above puts each
+   * step about 16 px apart, so the front advances in something finer than
+   * the pixels it moves -- coarser and the wave arrives in visible bands.
+   */
+  delayStepMs: 15,
+  /**
+   * The stadium wave, Nicolai's ask of 21 July: as the front reaches each
+   * pixel it lights up and jumps. One wave, outward, once -- there is no
+   * repeat anywhere, and it costs nothing extra because every pixel already
+   * knew when its turn was.
+   */
+  hop: 5,
+  hopMs: 420,
+  hopSteps: 8,
   /**
    * The two straight edges, drawn nearly solid. This is what makes the zone
    * legible: a wedge this large cannot be filled densely without hundreds of
@@ -1319,13 +1336,29 @@ const coneZoneSheet = StyleSheet.create({
     animationTimingFunction: 'steps(4)',
     animationFillMode: 'both',
   } as never,
+  // Lighting up and jumping are one motion, not two animations stacked: the
+  // pixel already waits for the front to reach it, so the front may as well
+  // do both when it arrives. It lands back where it started and stays put --
+  // a single wave, and nothing repeats.
   cell: {
     position: 'absolute',
     width: CONE_ZONE.cell,
     height: CONE_ZONE.cell,
-    animationKeyframes: [{ '0%': { opacity: 0 }, '100%': { opacity: 1 } }],
-    animationDuration: '120ms',
-    animationTimingFunction: 'steps(2)',
+    // Transforms inside keyframes must be written as CSS text. React
+    // Native's array form -- transform: [{ translateY: -5 }] -- is dropped on
+    // the floor here without a word, leaving empty keyframes and a pixel that
+    // never moves. The rain and the ripples write strings for the same reason.
+    animationKeyframes: [
+      {
+        '0%': { opacity: 0, transform: 'translateY(0px)' },
+        '12%': { opacity: 1, transform: 'translateY(0px)' },
+        '45%': { transform: `translateY(-${CONE_ZONE.hop}px)` },
+        '78%': { transform: 'translateY(0px)' },
+        '100%': { opacity: 1, transform: 'translateY(0px)' },
+      },
+    ],
+    animationDuration: `${CONE_ZONE.hopMs}ms`,
+    animationTimingFunction: `steps(${CONE_ZONE.hopSteps})`,
     animationFillMode: 'both',
   } as never,
   ...(Object.fromEntries(

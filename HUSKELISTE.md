@@ -161,11 +161,20 @@ hvis tæppet blev roteret på plads. Testen for hver pixel er *keglens egen*
 det der lyser op, er det der rammes. Ren dekoration — skaden var og er
 øjeblikkelig.
 
+**Stadionbølgen** (Nicolai, 21. juli): der hvor bølgefronten når hver
+pixel, tænder den *og hopper* 5 px op og ned igen — én bølge, udefter,
+én gang. Den koster intet ekstra: pixlerne kendte i forvejen deres tur,
+så optænding og hop er én bevægelse. Fronten er sat ned til 1100 px/s
+(en bølge skal kunne *ses* rejse) og opløst i 15 ms-trin ≈ 16 px, så
+fronten er finere end de pixels, den flytter. Enden nås 717 ms, sidste
+hop lander 1137 ms, udtoningen begynder 1300 ms.
+
 **Drejeknapper i `CONE_ZONE`:** `cell` (pixelstørrelse), `edgeBand`/
 `edgeDensity` (kantens tykkelse/tæthed), `fillNear`/`fillFar`/
-`fillFalloff` (ditherens tæthed), `sweepSpeed` (luntens fart), `ms`/
-`fadeMs` (levetid), farverne, og `maxCells` (loftet — 430; værste
-simulerede tilfælde 426).
+`fillFalloff` (ditherens tæthed), `sweepSpeed` (bølgens fart), `hop`/
+`hopMs`/`hopSteps` (hoppets højde, længde og hakkethed), `ms`/`fadeMs`
+(levetid), farverne, og `maxCells` (loftet — 600; værste simulerede
+tilfælde 599).
 
 Keglens facit i øvrigt: vinklen er 42° (2×21), rækkevidden hele banens
 diagonal (~765 px) — skaden når altid forbi skærmkanten. Sigte-trekanten
