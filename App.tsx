@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CoinSackView, { COINSACK_ASSETS, CoinSackHandle, SACK_MIN_W } from './CoinSackView';
+import GameCanvasLoader from './GameCanvasLoader';
+import GameCanvasTextOverlay from './GameCanvasTextOverlay';
 import IntroSequence from './IntroSequence';
 import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
 import PerfOverlay, { bumpSimTick } from './PerfOverlay';
@@ -314,6 +316,9 @@ const DEBUG_RIM_TUNING = false;
 // it -- only the plaque that starts a run sits on top.
 const MENU_BG = require('./assets/sprites/menu/bg.jpg');
 const MENU_BUTTON = require('./assets/sprites/menu/button.png');
+const ITEM_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(ITEM_DEFS).map(([kind, definition]) => [kind, definition.color])
+);
 
 /**
  * Where the plaque goes, taken from the kit's own layout: a 380x675 stage with
@@ -507,6 +512,7 @@ const PlayField = memo(function PlayField({
   onMove,
   onRelease,
   children: _children,
+  enabled = true,
 }: {
   player: PlayerState;
   mobs: Mob[];
@@ -528,7 +534,9 @@ const PlayField = memo(function PlayField({
   onMove: (event: GestureResponderEvent) => void;
   onRelease: (event: GestureResponderEvent) => void;
   children?: ReactNode;
+  enabled?: boolean;
 }) {
+  if (!enabled) return null;
   const renderCone = (angleDeg: number) => {
     const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
     const baseWidth = 2 * CONE_RANGE * Math.tan(halfRad);
@@ -841,6 +849,9 @@ export default function App() {
   const waveActiveRef = useRef(waveActive);
   const gameOverRef = useRef(gameOver);
   const groundItemsRef = useRef(groundItems);
+  // The canvas reads these directly on its own animation clock.
+  const playerAttackRangeRef = useRef(0);
+  const aimAngleRef = useRef<number | null>(null);
   const equippedRef = useRef(equipped);
   const bagRef = useRef(bag);
   // One entry per wave that is still spawning, each with its own queue and its
@@ -2554,6 +2565,11 @@ export default function App() {
   const ability3Level = equippedSkillLevel('ranged');
   const isRangedDisplay = ability3Level > 0 || passive?.skill === 'pierce';
   const playerAttackRange = isRangedDisplay ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
+  playerAttackRangeRef.current = playerAttackRange;
+  aimAngleRef.current =
+    aimingAbility === 2 && aimPreviewPoint
+      ? (Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI
+      : null;
   const dmgBonusDisplay = equippedBonus(equipped, 'dmg');
   const atkSpdBonusPctDisplay = equippedBonus(equipped, 'atkspd');
   const manaBonusDisplay = equippedBonus(equipped, 'mana');
@@ -3089,7 +3105,82 @@ export default function App() {
         </View>
       </View>
 
+      <View
+        style={styles.playArea}
+        onStartShouldSetResponder={() => true}
+        onResponderGrant={handlePlayAreaGrant}
+        onResponderMove={handlePlayAreaMove}
+        onResponderRelease={handlePlayAreaRelease}
+      >
+        <Image source={BACKGROUND} style={styles.background} resizeMode="cover" />
+        {bloodSplats.map((b) => (
+          <SpriteSheet
+            key={b.id}
+            anims={BLOOD_ANIMS}
+            anim="blood"
+            animTime={(Date.now() - b.createdAt) / 1000}
+            facing={b.variant}
+            size={BLOOD_SIZE}
+            left={b.pos.x - BLOOD_SIZE / 2}
+            top={b.pos.y - BLOOD_SIZE / 2}
+          />
+        ))}
+        {RAIN_ENABLED && !weatherOff && PUDDLE_SPOTS.length > 0 && <RippleLayer />}
+        <GameCanvasLoader
+          width={SCREEN_W}
+          height={PLAY_H}
+          playerRef={playerRef}
+          mobsRef={mobsRef}
+          alliesRef={alliesRef}
+          projectilesRef={projectilesRef}
+          hitFlashesRef={hitFlashesRef}
+          floatingTextsRef={floatingTextsRef}
+          groundItemsRef={groundItemsRef}
+          itemColors={ITEM_COLORS}
+          playerAttackRangeRef={playerAttackRangeRef}
+          aimAngleRef={aimAngleRef}
+          playerAnims={ANIMS}
+          mobAnims={MOB_ANIMS}
+          glowSource={GLOW}
+          mobTypeColor={{ melee: MOB_TYPE_META.melee.color, ranged: MOB_TYPE_META.ranged.color, boss: MOB_TYPE_META.boss.color }}
+          spriteCell={SPRITE_CELL}
+          spriteCols={SPRITE_COLS}
+          spriteRows={SPRITE_ROWS}
+          playerSpriteSize={PLAYER_SPRITE_SIZE}
+          playerSpriteFootOffset={PLAYER_SPRITE_FOOT_OFFSET}
+          mobSpriteSize={MOB_SPRITE_SIZE}
+          mobSpriteFootOffset={MOB_SPRITE_FOOT_OFFSET}
+          allyRadius={ALLY_RADIUS}
+          coneRange={CONE_RANGE}
+          coneHalfAngleDeg={ABILITY2_HALF_ANGLE_DEG}
+          hitFlashDurationMs={HIT_FLASH_DURATION}
+          floatingTextDurationMs={FLOATING_TEXT_DURATION}
+          floatingTextRisePx={FLOATING_TEXT_RISE}
+          mobFlashColor={MOB_FLASH_COLOR}
+          mobFlashTime={MOB_FLASH_TIME}
+          mobFlashStrength={MOB_FLASH_STRENGTH}
+          rimColor={rim.color}
+          rimStrength={rim.strength}
+          glowColor={glow.color}
+          glowSize={glow.size}
+          glowOpacity={glow.opacity}
+          glowPulse={glow.pulse}
+          glowPeriodMs={glow.period}
+          glowFoot={glow.foot}
+        />
+        <GameCanvasTextOverlay
+          width={SCREEN_W}
+          height={PLAY_H}
+          groundItemsRef={groundItemsRef}
+          floatingTextsRef={floatingTextsRef}
+          floatingTextDurationMs={FLOATING_TEXT_DURATION}
+          floatingTextRisePx={FLOATING_TEXT_RISE}
+        />
+        {RAIN_ENABLED && !weatherOff && <RainLayer />}
+      </View>
+
       <PlayField
+        enabled={false}
         player={player}
         mobs={mobs}
         corpses={corpses}
