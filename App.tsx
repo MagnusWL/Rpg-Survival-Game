@@ -350,9 +350,11 @@ const RIM_STYLE: RimStyle = {
 
 const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r}, ${g}, ${b})`;
 
-// On-screen sliders for the rim light, in the same spirit as the coin sack's:
-// on while the numbers are being decided, one word to switch off after.
-const DEBUG_RIM_TUNING = true;
+// On-screen sliders for the rim light, in the same spirit as the coin sack's.
+// Off now that the moon looks right -- the panel is not rendered and its state
+// costs nothing, so it is one word to bring back when the colour is next in
+// question. RIM_STYLE above is what the game uses.
+const DEBUG_RIM_TUNING = false;
 
 // --- Rain -----------------------------------------------------------------
 // Every drop is worked out from the clock rather than stored and stepped: given
