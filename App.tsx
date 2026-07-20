@@ -975,6 +975,22 @@ const animDuration = (a: AnimDef) => {
   return d;
 };
 
+/**
+ * Seconds into an animation before a given frame first comes up.
+ *
+ * For hanging something on a picture rather than on a stopwatch: ask the
+ * choreography when it gets there, and the answer follows the choreography
+ * if it is ever rewritten.
+ */
+function frameStartTime(a: AnimDef, frame: number) {
+  let t = 0;
+  for (const s of playSteps(a)) {
+    if (s.frame === frame) return t;
+    t += s.dwell;
+  }
+  return 0;
+}
+
 // --- Sound ---------------------------------------------------------------
 // Built by tools/build-sounds.mjs from the raw pack in Lyde/.
 //
@@ -1246,8 +1262,13 @@ const CONE_ZONE = {
   /** Total life on screen, and the two parts of it. */
   ms: 2000,
   fadeMs: 700,
-  /** One pixel of the carpet, in screen px. The knight is about 40 across. */
-  cell: 8,
+  /**
+   * One pixel of the carpet, in screen px. The knight is about 40 across, so
+   * this is a tenth of him -- halved from 8 on Nicolai's eye. Halving the
+   * pixel quadruples the candidates, so the fill below was thinned to match:
+   * a finer grain, not four times the cost.
+   */
+  cell: 4,
   /** px/s the ignition runs outward at, so the zone reads as a sweep. */
   sweepSpeed: 1500,
   /** Ignition is quantised to this, which is the wave's own step size. */
@@ -1259,18 +1280,18 @@ const CONE_ZONE = {
    * with a light dither inside reads as a zone where an even scatter reads
    * as dust. `edgeBand` is how far in from the edge counts as the edge.
    */
-  edgeBand: 7,
+  edgeBand: 5,
   /** Unbroken on purpose: the edge's whole job is to draw the shape. */
   edgeDensity: 1,
   /**
    * The dither inside: strongest at his feet, thinning with distance but
    * never to nothing, so the zone reaches as far as the damage does.
    */
-  fillNear: 0.4,
-  fillFar: 0.1,
+  fillNear: 0.13,
+  fillFar: 0.035,
   fillFalloff: 460,
   /** Never mount more than this, however the wedge happens to fall. */
-  maxCells: 430,
+  maxCells: 600,
   /** The skill's own orange: the edge bright, the fill dithered under it. */
   edgeColors: ['rgba(255,196,107,0.8)', 'rgba(255,138,80,0.75)'],
   fillColors: ['rgba(255,138,80,0.45)', 'rgba(217,83,30,0.4)', 'rgba(255,196,107,0.35)'],
@@ -1315,9 +1336,24 @@ const coneZoneSheet = StyleSheet.create({
   ) as Record<string, object>),
 } as never) as Record<string, object>;
 
+/**
+ * The picture of the cast the ground answers on -- Nicolai's call: the 13th,
+ * where the pose starts rocking before its long freeze. Read off the
+ * choreography rather than written as a stopwatch value, so rewriting the
+ * order moves the ground with it.
+ */
+const RUPTURE_ZONE_FRAME = 12; // his 13th, counted from 0
+const RUPTURE_ZONE_DELAY_MS = Math.round(frameStartTime(ANIMS.rupture, RUPTURE_ZONE_FRAME) * 1000);
+
 type ConeZoneCell = { left: number; top: number; color: string; bucket: number; edge: boolean };
-/** One cast's zone: the cells are worked out once, at the moment it is cast. */
-type ConeZone = { id: number; cells: ConeZoneCell[]; createdAt: number };
+/**
+ * One cast's zone. The cells are worked out at the moment of the cast -- from
+ * where he stood and which way he faced then -- but `startAt` holds them back
+ * until the pose reaches its 13th picture. It is a timer rather than a watch
+ * on the animation itself, so a cast made on the run, where the pose is
+ * skipped entirely, still lights the ground it hit.
+ */
+type ConeZone = { id: number; cells: ConeZoneCell[]; startAt: number };
 
 /**
  * Which pixels of the field lie inside the cone about to be cast.
@@ -2965,7 +3001,9 @@ export default function App() {
       p.pos.y,
       (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI
     );
-    setConeZones((prev) => prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, createdAt: Date.now() }));
+    setConeZones((prev) =>
+      prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
+    );
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
     const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
@@ -3004,7 +3042,9 @@ export default function App() {
       const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
       // Ours too: the zone lit up on the ground, aimed the same way.
       const zoneCells = buildConeZone(p.pos.x, p.pos.y, (Math.atan2(dir.y, dir.x) * 180) / Math.PI);
-      setConeZones((prev) => prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, createdAt: Date.now() }));
+      setConeZones((prev) =>
+        prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
+      );
       const result = fireCone(
         p.pos,
         aim,
@@ -4106,8 +4146,9 @@ export default function App() {
         .filter((c) => c.age < animDuration(MOB_DIE_ANIMS[c.anim]) + CORPSE_LINGER + CORPSE_FADE)
         .concat(newCorpses);
       // The zones animate themselves in CSS; the loop only sweeps up the
-      // entries whose time is spent.
-      const survivorConeZones = coneZonesRef.current.filter((z) => now - z.createdAt < CONE_ZONE.ms);
+      // entries whose time is spent -- counted from when they come up, not
+      // from the cast that ordered them.
+      const survivorConeZones = coneZonesRef.current.filter((z) => now < z.startAt + CONE_ZONE.ms);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
@@ -4731,10 +4772,13 @@ export default function App() {
           aimPreviewPoint &&
           renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
 
-        {/* The cone's zone, on the ground plane under everyone's feet. */}
-        {coneZones.map((z) => (
-          <ConeZoneFx key={`czone-${z.id}`} cells={z.cells} />
-        ))}
+        {/* The cone's zone, on the ground plane under everyone's feet. It
+            mounts when the pose reaches its 13th picture, and mounting is
+            what starts its animation -- so the wait costs nothing until it
+            is due. */}
+        {coneZones.map((z) =>
+          z.startAt <= Date.now() ? <ConeZoneFx key={`czone-${z.id}`} cells={z.cells} /> : null
+        )}
 
         {groundItems.map((it) => {
           const def = ITEM_DEFS[it.item.kind];

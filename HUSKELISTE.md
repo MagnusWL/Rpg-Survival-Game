@@ -137,8 +137,23 @@ vejen på ~0,53 s), holdt, og opløst over 0,7 s. I alt 2 sekunder.
 
 Hvorfor kanter: zonen er *enorm* (42° × hele banen), og et jævnt tæppe
 ville koste 800+ pixels eller læse som støv. En optegnet kant koster kun
-længde — ikke areal. Målt i drift: 374 pixels, dom 449→816, **220 fps,
-hak 0**.
+længde — ikke areal.
+
+**Pixelstørrelsen halveret til 4 px** (Nicolai, 21. juli). Halvering
+firedobler kandidaterne, så fyldets tæthed blev skruet tilsvarende ned —
+finere korn, ikke firedobbelt pris: værste simulerede tilfælde 599 mod
+loftet 600 (mod 374/426 ved 8 px). Kanten beholdt sin tykkelse; den
+bærer formen.
+
+**Zonen venter nu på billede 13** i Ruptures koreografi — 967 ms efter
+kastet (Nicolai, 21. juli). Ventetiden er ikke skrevet som et tal men
+*regnet ud af koreografien* (`frameStartTime(ANIMS.rupture, 12)`), så
+den flytter sig selv, hvis `order` skrives om. Det er en timer, ikke en
+vagt på selve animationen — så et kast i løb, hvor posen springes over,
+stadig oplyser jorden. **Ikke set med øjne endnu:** ruden frøs (1 fps,
+cooldown løb aldrig ud), så 589 pixels à 4 px og de 967 ms er målt/
+udregnet, ikke beskuet. 8-px-udgaven var derimod set og målt: dom
+449→816, 220 fps, hak 0.
 
 Gitteret er skærmens, ikke kastets — pixels ville blive til skæve rudere,
 hvis tæppet blev roteret på plads. Testen for hver pixel er *keglens egen*
