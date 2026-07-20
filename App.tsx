@@ -32,7 +32,21 @@ const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - QUICK_CAST_BAR_HEIGHT - HUD_HEIGHT - 
 const BAR_WIDTH = 80;
 
 const PLAYER_RADIUS = 18;
-const PLAYER_SPEED = 220; // px/sec
+/**
+ * How fast he runs.
+ *
+ * 170 rather than 220. The run's animation is not tied to this -- it always
+ * cycles at 2.13 steps a second -- so the speed is what decides how much ground
+ * a step covers, and at 220 that was 103 px against his own height of 76. He
+ * was taking strides longer than he is tall. At 170 a step is 80 px, which is
+ * about his height, and that is what a run looks like.
+ *
+ * It only reads well downwards. Faster lengthens the stride until he skates;
+ * much below 140 he keeps the same cadence over less ground and starts to
+ * scurry. Below that the run would need tying to the speed the way the
+ * entrance walk is, which the machinery is already there for.
+ */
+const PLAYER_SPEED = 170; // px/sec
 
 // --- Knight sprite sheets -------------------------------------------------
 // Built by tools/build-sprites.mjs from the raw art in Grafik/Knight.
@@ -60,7 +74,7 @@ const INTRO_START_BELOW = 140;
 /** Where he stops, measured up from the bottom of the play area. */
 const INTRO_STOP_ABOVE_BOTTOM = 160;
 /** He walks in rather than running, so the entrance moves at a walk's pace. */
-const INTRO_WALK_SPEED = 80; // px/sec, against PLAYER_SPEED's 220
+const INTRO_WALK_SPEED = 80; // px/sec, against PLAYER_SPEED's 170
 
 /**
  * Steps drawn into one turn of a walk or run sheet.
