@@ -124,6 +124,11 @@ Rupture holder desuden vejret **0,2 s på billede 7 og billede 13** (Nicolais
 beats, 20. juli) — tallene står i `holds` på `ANIMS.rupture` og kan flyttes
 frit til andre billeder eller længder; mekanikken virker for enhver animation.
 
+Ancestor spiller **frem → tilbage → frem igen** (`passes` på `ANIMS.ancestor`,
+Nicolais figur, 20. juli) og ender stående på sidste billede — 2,4 s i alt.
+Vendepunkterne deler billede, så den drejer i stedet for at hakke. `holds` og
+`passes` kan kombineres frit, også på andre animationer.
+
 **ShieldBlockMid er IKKE bygget** — Nicolai: den skal trigge under et bestemt
 item, grenen findes senere. Kilden ligger klar i `Grafik/Knight`; den føjes
 til `SHEETS` i `tools/build-sprites.mjs`, når den får sin krog (et bygget

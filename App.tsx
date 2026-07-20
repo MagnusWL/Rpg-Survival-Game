@@ -160,10 +160,19 @@ type AnimDef = {
   /**
    * Frames the animation dwells on: the picture holds for `seconds` on top of
    * its ordinary 1/fps, then playback resumes at full rate. Frames count from
-   * 0 within the animation as played (after any skipped opening). Nicolai's
-   * tool for giving a cast its beats.
+   * 0 within the animation as played (after any skipped opening), and a frame
+   * shown by several passes holds every time. Nicolai's tool for giving a
+   * cast its beats.
    */
   holds?: { frame: number; seconds: number }[];
+  /**
+   * The passes the animation plays, in order; default is a single forward
+   * run. 'rev' walks the frames backwards. A junction does not repeat the
+   * shared frame, so a forward/backward pair turns around rather than
+   * stuttering on the endpoint. Nicolai's tool for a cast that swells,
+   * recedes and swells again.
+   */
+  passes?: ('fwd' | 'rev')[];
 };
 
 /** Frames an animation actually plays, once any skipped opening is taken off. */
@@ -269,6 +278,9 @@ const ANIMS: Record<AnimName, AnimDef> = {
     fps: 18,
     loop: false,
     interruptedByMoving: true,
+    // Nicolai's shape, 20 July: the cast rises, withdraws, and rises again
+    // to stay -- forward, backward, forward, ending on the last frame.
+    passes: ['fwd', 'rev', 'fwd'],
   },
 };
 
@@ -881,9 +893,44 @@ const ALL_SHEETS: number[] = [
 const MOB_SPRITE_SIZE = 128;
 const MOB_SPRITE_FOOT_OFFSET = 44;
 
-/** Seconds an animation takes to play once, any held frames included. */
-const animDuration = (a: AnimDef) =>
-  animSpan(a) / a.fps + (a.holds?.reduce((s, h) => s + h.seconds, 0) ?? 0);
+/** True when the animation cannot use the plain time-to-frame arithmetic. */
+const hasTimeline = (a: AnimDef) => !!(a.holds?.length || a.passes);
+
+/** Extra seconds a given frame holds for, on top of its 1/fps. */
+const holdFor = (a: AnimDef, frame: number) =>
+  a.holds?.find((h) => h.frame === frame)?.seconds ?? 0;
+
+/**
+ * The frames in the order they are shown, one entry per shown frame, built
+ * from `passes` and cached per definition -- animColumn runs every render for
+ * every mounted sheet, and this list never changes.
+ */
+const playOrderCache = new WeakMap<AnimDef, number[]>();
+function playOrder(a: AnimDef): number[] {
+  let order = playOrderCache.get(a);
+  if (!order) {
+    const span = animSpan(a);
+    order = [];
+    for (const p of a.passes ?? ['fwd']) {
+      const pass = Array.from({ length: span }, (_, i) => (p === 'fwd' ? i : span - 1 - i));
+      // The junction frame is already on screen; showing it twice would
+      // freeze the turn for a beat nobody asked for.
+      if (order.length && order[order.length - 1] === pass[0]) pass.shift();
+      order.push(...pass);
+    }
+    playOrderCache.set(a, order);
+  }
+  return order;
+}
+
+/** Seconds an animation takes to play once, passes and held frames included. */
+const animDuration = (a: AnimDef) => {
+  if (!hasTimeline(a)) return animSpan(a) / a.fps;
+  const order = playOrder(a);
+  let d = order.length / a.fps;
+  if (a.holds?.length) for (const f of order) d += holdFor(a, f);
+  return d;
+};
 
 // --- Sound ---------------------------------------------------------------
 // Built by tools/build-sounds.mjs from the raw pack in Lyde/.
@@ -975,24 +1022,26 @@ function playSfx(player: AudioPlayer | undefined) {
 
 /**
  * Column of the sheet to draw. One-shots stop on the last frame rather than
- * wrapping. With `holds`, time is walked frame by frame -- each spends its
- * 1/fps plus whatever hold it carries -- so a held picture simply lasts
- * longer while everything before and after runs at the ordinary rate.
+ * wrapping. With `holds` or `passes`, time is walked along the play order --
+ * each shown frame spends its 1/fps plus whatever hold it carries -- so a
+ * held picture simply lasts longer, and a reverse pass runs the pictures
+ * backwards, while everything else plays at the ordinary rate.
  */
 function animColumn(a: AnimDef, animTime: number) {
   const from = a.from ?? 0;
-  const span = animSpan(a);
-  if (a.holds?.length) {
+  if (hasTimeline(a)) {
+    const order = playOrder(a);
     let t = a.loop ? animTime % animDuration(a) : animTime;
-    let frame = 0;
-    while (frame < span - 1) {
-      const dwell = 1 / a.fps + (a.holds.find((h) => h.frame === frame)?.seconds ?? 0);
+    let i = 0;
+    while (i < order.length - 1) {
+      const dwell = 1 / a.fps + holdFor(a, order[i]);
       if (t < dwell) break;
       t -= dwell;
-      frame++;
+      i++;
     }
-    return from + frame;
+    return from + order[i];
   }
+  const span = animSpan(a);
   const frame = Math.floor(animTime * a.fps);
   return from + (a.loop ? frame % span : Math.min(frame, span - 1));
 }
