@@ -131,9 +131,13 @@ animation og trumfer `passes`/`holds`.
 ikke lavet endnu). Keglens facit fra koden: vinklen er 42° (2×21), og
 rækkevidden er hele banens diagonal (`Math.hypot(SCREEN_W, PLAY_H)`,
 ~765 px) — den når altid forbi skærmkanten, så "området" er reelt en
-uendelig kile. I dag tegnes den kun som sigte-forhåndsvisning (orange
-trekant, 28% dækning) mens man holder og sigter; quick-cast viser INTET.
-Effekt-animationen hører hjemme i affyringsøjeblikket, begge kastemåder.
+uendelig kile. **Keglen har i praksis INGEN synlig grafik i dag:** et tryk
+på ikonet fyrer øjeblikkeligt, ligeud, usynligt. Der FINDES en orange
+sigte-trekant og et helt sigte-flow i koden (`renderCone`,
+`aimingAbility`), men det er død kode — intet i spillet starter sigtet
+længere (kun `setAimingAbility(null)` kaldes; formentlig bænket da
+kvik-kast-bjælken kom). Nicolai opdagede det ved at lede efter trekanten
+forgæves. Effekt-animationen udfylder altså et totalt tomrum.
 
 Ancestor spiller **frem → tilbage → frem igen** (`passes` på `ANIMS.ancestor`,
 Nicolais figur, 20. juli) og ender stående på sidste billede — 2,4 s i alt.
