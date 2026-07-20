@@ -1,14 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CoinSackView, { CoinSackHandle, SACK_MIN_W } from './CoinSackView';
+import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Dimensions,
   GestureResponderEvent,
   Image,
   ImageSourcePropType,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -424,6 +427,47 @@ const MENU_BUTTON = require('./assets/sprites/menu/button.png');
 const MENU_BUTTON_TOP = 474 / 675;
 const MENU_BUTTON_WIDTH = 322 / 380;
 const MENU_BUTTON_ASPECT = 322 / 115;
+
+/** Where the plaque ends up, which the tear needs in order to draw it torn. */
+const MENU_BUTTON_RECT = {
+  x: (SCREEN_W * (1 - MENU_BUTTON_WIDTH)) / 2,
+  y: SCREEN_H * MENU_BUTTON_TOP,
+  w: SCREEN_W * MENU_BUTTON_WIDTH,
+  h: (SCREEN_W * MENU_BUTTON_WIDTH) / MENU_BUTTON_ASPECT,
+};
+
+/**
+ * Where the title sits, so the sparkles land on it.
+ *
+ * This one does have to follow the art, since it is lettering painted into the
+ * picture -- so it goes through the same cover fit the background is drawn with
+ * rather than being measured against the screen like the plaque is.
+ */
+const MENU_ART_ASPECT = 941 / 1672;
+const menuDrawnW = Math.max(SCREEN_W, SCREEN_H * MENU_ART_ASPECT);
+const menuDrawnH = Math.max(SCREEN_H, SCREEN_W / MENU_ART_ASPECT);
+const onMenuX = (fx: number) => (SCREEN_W - menuDrawnW) / 2 + fx * menuDrawnW;
+const onMenuY = (fy: number) => (SCREEN_H - menuDrawnH) / 2 + fy * menuDrawnH;
+const MENU_LOGO_RECT = {
+  x0: onMenuX(65 / 380),
+  y0: onMenuY(60 / 675),
+  x1: onMenuX(315 / 380),
+  y1: onMenuY(168 / 675),
+};
+
+/**
+ * The way out of the menu. Red first, then black over it, then back off once
+ * the field is behind it.
+ *
+ * Red rather than a plain dim because of what was just torn: the plaque comes
+ * apart in blood, and the screen going with it reads as the same event
+ * continuing rather than a scene change happening to follow one.
+ */
+const LEAVE_RED = '#5a0d0d';
+const LEAVE_RED_MS = 420;
+const LEAVE_BLACK_MS = 380;
+const LEAVE_HOLD_MS = 140;
+const RETURN_MS = 560;
 
 /**
  * Every sheet the game can draw, for loading up front.
@@ -1460,10 +1504,65 @@ export default function App() {
     useAudioPlayer(require('./assets/sounds/menu-press-4.wav')),
   ];
 
+  const tearRef = useRef<TearHandle>(null);
+  // The two layers of the way out. Held as refs so they carry on across the
+  // screen changing underneath them -- the fade has to outlive the menu.
+  const veilRed = useRef(new Animated.Value(0)).current;
+  const veilBlack = useRef(new Animated.Value(0)).current;
+  const leavingRef = useRef(false);
+
   /** The whole press, all four pieces struck together. */
   const playMenuPress = () => {
     for (const piece of menuPressSounds) playSfx(piece);
   };
+
+  /**
+   * Leaves the menu properly rather than cutting away from it.
+   *
+   * The plaque is given its full second and a third to come apart before
+   * anything else happens -- starting the run on the press meant the tear was
+   * ordered and then never seen. Then the screen goes with it, and the run only
+   * begins once there is black over the top, so the field never appears mid-fade.
+   */
+  const leaveMenu = (start: () => void) => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    playMenuPress();
+    tearRef.current?.fire();
+
+    // Every step is on a clock rather than hung off the previous animation's
+    // completion. An animation only finishes if frames are being drawn, and a
+    // tab that has been throttled draws almost none -- so gating the run on one
+    // meant pressing the button and never arriving, which is exactly what
+    // happened. The fades are decoration; the schedule is not.
+    const fadeAt = tearRef.current ? TEAR_MS : 0;
+    const switchAt = fadeAt + LEAVE_RED_MS + LEAVE_BLACK_MS;
+
+    setTimeout(() => {
+      Animated.timing(veilRed, { toValue: 1, duration: LEAVE_RED_MS, useNativeDriver: true }).start();
+    }, fadeAt);
+    setTimeout(() => {
+      Animated.timing(veilBlack, { toValue: 1, duration: LEAVE_BLACK_MS, useNativeDriver: true }).start();
+    }, fadeAt + LEAVE_RED_MS);
+
+    setTimeout(() => {
+      start();
+      setTimeout(() => {
+        Animated.timing(veilBlack, { toValue: 0, duration: RETURN_MS, useNativeDriver: true }).start();
+        // The red lingers a little longer, so the field surfaces out of a stain
+        // rather than out of a curtain.
+        Animated.timing(veilRed, { toValue: 0, duration: RETURN_MS + 140, useNativeDriver: true }).start();
+        leavingRef.current = false;
+      }, LEAVE_HOLD_MS);
+    }, switchAt);
+  };
+
+  const leaveVeil = (
+    <>
+      <Animated.View style={[styles.leaveVeil, { backgroundColor: LEAVE_RED, opacity: veilRed }]} />
+      <Animated.View style={[styles.leaveVeil, { backgroundColor: '#000', opacity: veilBlack }]} />
+    </>
+  );
 
   const [tooltip, setTooltip] = useState<TooltipState>(null);
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
@@ -2701,21 +2800,40 @@ export default function App() {
             picture instead of squashing the knight. */}
         <Image source={MENU_BG} style={styles.menuBg} resizeMode="cover" />
 
+        {/* On web the canvas draws the plaque itself, and tears it. Anywhere
+            else it is a plain image, since there is no canvas to tear it on. */}
+        {Platform.OS === 'web' ? (
+          <MenuTearButton
+            tearRef={tearRef}
+            screenW={SCREEN_W}
+            screenH={SCREEN_H}
+            button={MENU_BUTTON_RECT}
+            logo={MENU_LOGO_RECT}
+          />
+        ) : (
+          <Image
+            source={MENU_BUTTON}
+            style={{
+              position: 'absolute',
+              left: MENU_BUTTON_RECT.x,
+              top: MENU_BUTTON_RECT.y,
+              width: MENU_BUTTON_RECT.w,
+              height: MENU_BUTTON_RECT.h,
+            }}
+            resizeMode="contain"
+          />
+        )}
+
         <Pressable
-          onPress={() => {
-            playMenuPress();
-            handleStartNewRun();
-          }}
+          onPress={() => leaveMenu(handleStartNewRun)}
           style={{
             position: 'absolute',
-            left: (SCREEN_W * (1 - MENU_BUTTON_WIDTH)) / 2,
-            top: SCREEN_H * MENU_BUTTON_TOP,
-            width: SCREEN_W * MENU_BUTTON_WIDTH,
-            height: (SCREEN_W * MENU_BUTTON_WIDTH) / MENU_BUTTON_ASPECT,
+            left: MENU_BUTTON_RECT.x,
+            top: MENU_BUTTON_RECT.y,
+            width: MENU_BUTTON_RECT.w,
+            height: MENU_BUTTON_RECT.h,
           }}
-        >
-          <Image source={MENU_BUTTON} style={styles.menuButtonArt} resizeMode="contain" />
-        </Pressable>
+        />
 
         {/* Temporary, and deliberately out of the way: the design has one
             button and these two have nowhere to go yet. */}
@@ -2732,16 +2850,12 @@ export default function App() {
             </Text>
           </Pressable>
           <Text style={styles.menuMinorText}>·</Text>
-          <Pressable
-            onPress={() => {
-              playMenuPress();
-              handleStartTestRun();
-            }}
-          >
+          <Pressable onPress={() => leaveMenu(handleStartTestRun)}>
             <Text style={styles.menuMinorText}>Test run</Text>
           </Pressable>
         </View>
 
+        {leaveVeil}
         <StatusBar style="auto" />
       </View>
     );
@@ -3389,6 +3503,8 @@ export default function App() {
         </View>
       )}
 
+      {/* The same two layers the menu put up, coming back off over the field. */}
+      {leaveVeil}
       <StatusBar style="auto" />
     </View>
   );
@@ -3859,6 +3975,15 @@ const styles = StyleSheet.create({
     top: 0,
     width: SCREEN_W,
     height: SCREEN_H,
+  },
+  leaveVeil: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    pointerEvents: 'none',
   },
   menuButtonArt: { width: '100%', height: '100%' },
   // Temporary: the design has one button, and these two are parked out of the
