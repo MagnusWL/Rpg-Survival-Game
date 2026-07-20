@@ -71,22 +71,20 @@ bagefter — det tager få sekunder.
 
 ## Set, men ikke gjort noget ved
 
-**Vandpytterne rammer skævt på telefon.** Der er 196 pladser i
-`assets/sprites/effects/puddles.json`, men kun **23 af dem (12%) er inden for
-skærmen** på en iPhone 12 — resten ligger på den del af baggrunden som beskæres
-væk. Ringene har 60 pladser at vælge imellem, så de fleste af dem lander et sted
-ingen kan se. Filtrerer vi til de synlige, bliver det markant travlere omkring
-ridderen.
-
 **Introen fortæller ikke at man kan trykke sig videre.** Det virker, men en
 spiller opdager det ikke af sig selv.
 
-**Et hak kan stadig snige sig ind selv med vejr OG fodtrinslyd slået fra**
-(Nicolais observation, 20. juli, under hak-jagten). Vejret var langt den
-største synder og er løst, men der er en rest. Mistænkte der endnu ikke er
-målt: møntsækkens matter.js-løkke (kører altid, også tom), affaldsindsamling
-fra spilløkkens objekter, zombie-ark der pakkes ud ved første møde med en ny
-fjendetype, og flash-laget der monteres ved træffere. Målepanelet og de to
+**Hak-jagtens stilling (20. juli, aften):** vejret var hovedsynderen og er
+løst — CSS-loops, 10 synlige ringe, regn i 15 fps stop-motion, 230 dråber.
+60-loftet på spilløkken tog derefter det hvilende hak ("bedre fps" — Nicolai,
+efter test). Vandpyt-problemet fra tidligere på listen er løst i samme ombæring:
+ringene deles nu kun ud over synligt vand.
+
+Ikke målt endnu, hvis der jages videre: møntsækkens matter.js-løkke (kører
+altid, også tom — kunne få en A/B-kontakt som vejret), zombie-ark der pakkes
+ud ved første møde med en ny fjendetype (op til 5 × 7,5 MB midt i kampen —
+kunne varmes op under den sorte fade), og flash-laget der monteres ved
+træffere. Målepanelet og de to
 kontakter (DEBUG_PERF i App.tsx) står klar til jagten.
 
 ---
