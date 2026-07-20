@@ -55,6 +55,112 @@ const SHEETS = [
   'UnSheathSword',
 ];
 
+/**
+ * A rim light laid along the knight's lit edge, inside his own outline.
+ *
+ * Baked here rather than drawn by the game, because nothing the renderer can do
+ * at runtime clips a layer to a sprite's silhouette. Blend modes do not -- they
+ * change the colour where two layers meet but still paint where the one
+ * underneath is empty -- so a runtime version would need a real mask, which is
+ * web only. Baked, it costs nothing at all to draw and cannot spill.
+ *
+ * The light sits in the scene, not on him, so its direction is the same for
+ * every one of the eight facings: he turns, the moon does not.
+ *
+ * `toLight` points at the light in screen terms -- x right, y down -- so
+ * [-1, -1] is over his left shoulder. `band` is how far the light reaches in
+ * from the edge, in pixels at OUT_CELL. `strength` is 0 to 1.
+ */
+const RIM = {
+  enabled: true,
+  toLight: [-1, -1],
+  // He is only 35 to 42 px across inside the cell, so this is already a tenth
+  // of his width. Four read as half of him being lit rather than an edge.
+  band: 2,
+  color: [198, 214, 255], // cold, to read as moon against his warm ground glow
+  strength: 0.55,
+  /**
+   * What counts as him rather than as his shadow.
+   *
+   * Each frame carries its own drop shadow in the same picture, and without
+   * this the light finds the shadow's edges too and draws bright lines along
+   * the ground and across the blob, which looks like a bug because it is one.
+   *
+   * Transparency alone does not separate them. The shadow is soft at its rim
+   * but solid in the middle, so half of it passes an alpha test and its inner
+   * boundary then reads as an edge. Brightness does separate them, and cleanly:
+   * measured over a frame, the shadow is flat black -- 273 of 950 opaque pixels
+   * sit below brightness 2 -- and his darkest armour starts at 6, with almost
+   * nothing in between. So the test is both, and 4 sits in the gap.
+   *
+   * It applies both ways: a pixel that is not him neither takes the light nor
+   * blocks it, so the shadow is simply not there as far as the light is
+   * concerned.
+   */
+  bodyAlpha: 200,
+  bodyLuma: 4,
+};
+
+/**
+ * Walks in from every lit edge and brightens what it passes, in place.
+ *
+ * For each pixel inside a figure it steps toward the light until it leaves the
+ * figure. Leave within `band` pixels and the pixel is near a lit edge, so it is
+ * lightened by how close it was; leave later, or not at all, and it is left
+ * alone. That keeps the light strictly inside the outline -- it only ever
+ * brightens pixels that were already the character -- so alpha is never touched
+ * and the silhouette cannot grow.
+ *
+ * Steps that would cross into the neighbouring frame are treated as solid
+ * rather than as empty space. A sheet is a grid of separate drawings, and
+ * reading across the seam would light the edge of the cell instead of the edge
+ * of the man standing in it.
+ */
+function rimLight(data, width, height, cell, opts) {
+  const [lx, ly] = opts.toLight;
+  const len = Math.hypot(lx, ly) || 1;
+  const ux = lx / len;
+  const uy = ly / len;
+  const band = Math.max(1, opts.band);
+
+  /** Him, as opposed to his shadow or the empty space around him. */
+  const isBody = (i) =>
+    data[i + 3] >= opts.bodyAlpha &&
+    0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2] >= opts.bodyLuma;
+
+  for (let y = 0; y < height; y++) {
+    const cellTop = Math.floor(y / cell) * cell;
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (!isBody(i)) continue;
+
+      const cellLeft = Math.floor(x / cell) * cell;
+      let reach = 0;
+      for (let d = 1; d <= band; d++) {
+        const sx = Math.round(x + ux * d);
+        const sy = Math.round(y + uy * d);
+        const outsideCell =
+          sx < cellLeft || sx >= cellLeft + cell || sy < cellTop || sy >= cellTop + cell;
+        if (outsideCell) break; // treat the seam as solid: no light here
+        if (!isBody((sy * width + sx) * 4)) {
+          reach = d;
+          break;
+        }
+      }
+      if (!reach) continue;
+
+      // Brightest against the edge, gone by the far side of the band.
+      const amount = (1 - (reach - 1) / band) * opts.strength;
+      for (let c = 0; c < 3; c++) {
+        // Screen, which is how light adds: it can only lighten, and it cannot
+        // push past white however much of it lands.
+        const lit = opts.color[c] * amount;
+        data[i + c] = 255 - ((255 - data[i + c]) * (255 - lit)) / 255;
+      }
+    }
+  }
+}
+
 mkdirSync(OUT_DIR, { recursive: true });
 
 const scale = OUT_CELL / SRC_CELL;
@@ -80,10 +186,19 @@ for (const entry of SHEETS) {
   // Resize the whole sheet in one pass. Because every cell edge lands on an
   // exact multiple of OUT_CELL (128 -> 96 is a clean 3/4), no frame bleeds
   // into its neighbour.
-  await sharp(srcPath)
-    .resize(outW, outH, { kernel: 'lanczos3', fit: 'fill' })
-    .png({ compressionLevel: 9, palette: false })
-    .toFile(outPath);
+  let sheet = sharp(srcPath).resize(outW, outH, { kernel: 'lanczos3', fit: 'fill' });
+
+  // The rim goes on after the resize, so its band is measured in the pixels
+  // the game actually draws rather than in the source's.
+  if (RIM.enabled) {
+    const { data, info } = await sheet.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    rimLight(data, info.width, info.height, OUT_CELL, RIM);
+    sheet = sharp(data, {
+      raw: { width: info.width, height: info.height, channels: info.channels },
+    });
+  }
+
+  await sheet.png({ compressionLevel: 9, palette: false }).toFile(outPath);
 
   const before = statSync(srcPath).size;
   const after = statSync(outPath).size;
