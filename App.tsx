@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CoinSackView, { COINSACK_ASSETS, CoinSackHandle, SACK_MIN_W } from './CoinSackView';
 import IntroSequence from './IntroSequence';
 import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
+import PerfOverlay from './PerfOverlay';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
@@ -349,6 +350,10 @@ const RIM_STYLE: RimStyle = {
 };
 
 const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r}, ${g}, ${b})`;
+
+// A frame-time readout in the corner while we work out what is costing what.
+// Reports once a second, so watching is nearly free.
+const DEBUG_PERF = true;
 
 // On-screen sliders for the rim light, in the same spirit as the coin sack's.
 // Off now that the moon looks right -- the panel is not rendered and its state
@@ -3001,6 +3006,10 @@ export default function App() {
             Once per load: coming back from a run lands on the menu itself. */}
         {!introDone && <IntroSequence onDone={() => setIntroDone(true)} />}
 
+        {/* Here too, and above the story, since the intro's fog is the heaviest
+            thing on the screen at any point. Delete with DEBUG_PERF. */}
+        {DEBUG_PERF && <PerfOverlay />}
+
         <StatusBar style="auto" />
       </View>
     );
@@ -3690,6 +3699,10 @@ export default function App() {
           </Pressable>
         </View>
       )}
+
+      {/* Over everything, including the veil, so a fade cannot hide the numbers.
+          Delete with DEBUG_PERF. */}
+      {DEBUG_PERF && <PerfOverlay />}
 
       {/* The same two layers the menu put up, coming back off over the field. */}
       {leaveVeil}
