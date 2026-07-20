@@ -538,3 +538,45 @@ if (existsSync(MENU_SRC)) {
       `${(statSync(btIn).size / 1024).toFixed(0)} KB -> ${(statSync(btOut).size / 1024).toFixed(0)} KB`
   );
 }
+
+// --- Intro -----------------------------------------------------------------
+// The three story cards shown before the menu: the two of them at the fire, her
+// being carried off, and what he walks into looking for her.
+//
+// Numbered rather than named, because the order is the story. They arrive at
+// 941x1672 -- the same shape as the menu art, so they take the same cover fit --
+// and that is left alone: a phone at 2x draws them about 950 across, so the
+// source is already the right size and downscaling would only soften them.
+//
+// Quality 92 rather than the 86 the menu background gets. These are much darker,
+// and flat near-black gradients are where JPEG bands; measured against the
+// source, 86 puts 0.4-0.7% of samples more than 8 levels out where 92 keeps it
+// near 0.1%, for about 70 KB a card. Worth it on the first thing anyone sees.
+const INTRO_SRC = path.join(ROOT, 'Grafik', 'Intro');
+const INTRO_OUT = path.join(ROOT, 'assets', 'sprites', 'intro');
+const INTRO_CARDS = ['1', '2', '3'];
+const INTRO_QUALITY = 92;
+
+if (existsSync(INTRO_SRC)) {
+  mkdirSync(INTRO_OUT, { recursive: true });
+  const lines = [];
+
+  for (const card of INTRO_CARDS) {
+    const from = path.join(INTRO_SRC, `${card}.png`);
+    if (!existsSync(from)) {
+      lines.push(`      ${card}: mangler i Grafik/Intro`);
+      continue;
+    }
+    const to = path.join(INTRO_OUT, `${card}.jpg`);
+    const meta = await sharp(from).metadata();
+    await sharp(from).jpeg({ quality: INTRO_QUALITY, mozjpeg: true }).toFile(to);
+    lines.push(
+      `      ${card}: ${meta.width}x${meta.height}  ` +
+        `${(statSync(from).size / 1024).toFixed(0)} KB -> ${(statSync(to).size / 1024).toFixed(0)} KB JPEG ` +
+        `(-${Math.round((1 - statSync(to).size / statSync(from).size) * 100)}%)`
+    );
+  }
+
+  console.log(`\nIntro: ${INTRO_CARDS.length} historiebilleder`);
+  for (const line of lines) console.log(line);
+}

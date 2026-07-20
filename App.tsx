@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CoinSackView, { COINSACK_ASSETS, CoinSackHandle, SACK_MIN_W } from './CoinSackView';
+import IntroSequence from './IntroSequence';
 import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
 import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
@@ -1400,6 +1401,12 @@ function buildStateFromSave(save: RunSave): GameState {
 
 export default function App() {
   const [screen, setScreen] = useState<'menu' | 'continue' | 'game'>('menu');
+  /**
+   * Whether the story has been through once. It never goes back to false, so
+   * the intro plays on the first sight of the menu and not on the way back to
+   * it from a run.
+   */
+  const [introDone, setIntroDone] = useState(false);
   const [savedRuns, setSavedRuns] = useState<RunSave[]>([]);
   const [runsLoaded, setRunsLoaded] = useState(false);
   const [player, setPlayer] = useState<PlayerState>(makePlayer());
@@ -2868,6 +2875,11 @@ export default function App() {
         </View>
 
         {leaveVeil}
+
+        {/* The story, over the top of a menu that is already built and waiting.
+            Once per load: coming back from a run lands on the menu itself. */}
+        {!introDone && <IntroSequence onDone={() => setIntroDone(true)} />}
+
         <StatusBar style="auto" />
       </View>
     );
