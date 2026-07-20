@@ -1226,134 +1226,175 @@ const ABILITY_MAX_LEVEL = 4;
 const CONE_RANGE = Math.hypot(SCREEN_W, PLAY_H);
 const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
 
-// --- The cone's ground-rupture (ours, Nicolai's ask of 20 July) -------------
-// The skill always fired invisibly; this is the picture it never had: a spark
-// at the boots and a wave of glowing pixel shards tearing outward inside the
-// cone's true angle, quantised into steps like the rest of the pixel art, and
-// gone in under a second. Decoration only -- the damage was instant before
-// and stays instant.
+// --- The cone's zone, drawn (ours, Nicolai's ask of 20 July) ----------------
+// The skill always fired invisibly. This shows the ground it actually covers:
+// the true wedge, laid out as a carpet of small pixels that light up from the
+// knight outward, hold, and dissolve. Decoration only -- the damage was
+// instant before and stays instant, and these squares are the same cone the
+// damage test uses, not an impression of it.
 //
-// Built to the weather's lesson: every movement is a CSS keyframe compiled
-// through StyleSheet.create (inline keyframes silently do nothing), the burst
-// is a memo component, and nothing ticks in JS -- the game loop only removes
-// the entry when its time is up.
-const CONE_FX_MS = 700;
-const CONE_FX = {
-  shards: 30,
-  minRadius: 12,
-  /** How far out the last shard is born; with `travel` on top this is the wave's reach. */
-  maxRadius: 150,
-  travel: 85,
-  /** px/s -- each shard waits radius/speed, so ignition runs outward like a fuse. */
-  waveSpeed: 520,
-  shardMs: 380,
-  minSize: 4,
-  maxSize: 9,
-  steps: 5,
-  /** The skill's own orange family plus dark earth chips. */
-  colors: ['#ff8a50', '#ff8a50', '#ffc46b', '#d9531e', '#5c3b23'],
-};
-
-const coneFxSheet = StyleSheet.create({
-  shard: {
-    position: 'absolute',
-    animationKeyframes: [
-      {
-        '0%': { opacity: 0, transform: [{ translateX: 0 }] },
-        '12%': { opacity: 1 },
-        '100%': { opacity: 0, transform: [{ translateX: CONE_FX.travel }] },
-      },
-    ],
-    animationDuration: `${CONE_FX.shardMs}ms`,
-    animationTimingFunction: `steps(${CONE_FX.steps})`,
-    animationFillMode: 'both',
-  } as never,
-  flash: {
-    position: 'absolute',
-    animationKeyframes: [
-      {
-        '0%': { opacity: 0, transform: [{ scale: 0.4 }] },
-        '30%': { opacity: 1 },
-        '100%': { opacity: 0, transform: [{ scale: 1.3 }] },
-      },
-    ],
-    animationDuration: '240ms',
-    animationTimingFunction: 'steps(3)',
-    animationFillMode: 'both',
-  } as never,
-  flashBox: {
-    left: -9,
-    top: -9,
-    width: 18,
-    height: 18,
-    backgroundColor: '#ffc46b',
-  },
-});
-
-/** Deterministic dice, so the three variants are the same on every load. */
-const mulberry = (seed: number) => () => {
-  seed |= 0;
-  seed = (seed + 0x6d2b79f5) | 0;
-  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+// The grid is the FIELD's, not the cast's: cells are picked off a screen-
+// aligned lattice and only their membership depends on the angle. A grid
+// built in the cone's own frame and rotated into place would draw diamonds
+// at every facing but the four square ones.
+//
+// Built to the weather's lesson: the movement is CSS compiled through
+// StyleSheet.create (inline keyframes silently do nothing), the carpet is a
+// memo component whose props never change, and nothing ticks in JS -- the
+// game loop only drops the entry when its time is up.
+const CONE_ZONE = {
+  /** Total life on screen, and the two parts of it. */
+  ms: 2000,
+  fadeMs: 700,
+  /** One pixel of the carpet, in screen px. The knight is about 40 across. */
+  cell: 8,
+  /** px/s the ignition runs outward at, so the zone reads as a sweep. */
+  sweepSpeed: 1500,
+  /** Ignition is quantised to this, which is the wave's own step size. */
+  delayStepMs: 30,
+  /**
+   * The two straight edges, drawn nearly solid. This is what makes the zone
+   * legible: a wedge this large cannot be filled densely without hundreds of
+   * pixels, but its outline costs length rather than area, and an outline
+   * with a light dither inside reads as a zone where an even scatter reads
+   * as dust. `edgeBand` is how far in from the edge counts as the edge.
+   */
+  edgeBand: 7,
+  /** Unbroken on purpose: the edge's whole job is to draw the shape. */
+  edgeDensity: 1,
+  /**
+   * The dither inside: strongest at his feet, thinning with distance but
+   * never to nothing, so the zone reaches as far as the damage does.
+   */
+  fillNear: 0.4,
+  fillFar: 0.1,
+  fillFalloff: 460,
+  /** Never mount more than this, however the wedge happens to fall. */
+  maxCells: 430,
+  /** The skill's own orange: the edge bright, the fill dithered under it. */
+  edgeColors: ['rgba(255,196,107,0.8)', 'rgba(255,138,80,0.75)'],
+  fillColors: ['rgba(255,138,80,0.45)', 'rgba(217,83,30,0.4)', 'rgba(255,196,107,0.35)'],
 };
 
 /**
- * Three pre-rolled shard layouts, picked round-robin per cast so bursts do
- * not all look identical. Rolled once at module load and compiled through
- * StyleSheet.create exactly like the rain's drops, so casting allocates no
- * styles at runtime.
+ * Ignition delays as a small bank of pre-compiled classes rather than inline
+ * values: keyframes only compile through StyleSheet.create here, and keeping
+ * the whole animation in one place means a cell carries nothing but its
+ * position and colour.
  */
-const CONE_FX_VARIANTS = [1, 2, 3].map((n) => {
-  const rnd = mulberry(n * 9973);
-  const specs = Array.from({ length: CONE_FX.shards }, () => {
-    const angleDeg = (rnd() * 2 - 1) * ABILITY2_HALF_ANGLE_DEG;
-    const radius = CONE_FX.minRadius + rnd() * (CONE_FX.maxRadius - CONE_FX.minRadius);
-    const size = Math.round(CONE_FX.minSize + rnd() * (CONE_FX.maxSize - CONE_FX.minSize));
-    const color = CONE_FX.colors[Math.floor(rnd() * CONE_FX.colors.length)];
-    const delayMs = Math.round((radius / CONE_FX.waveSpeed) * 1000 + rnd() * 40);
-    return { angleDeg, radius, size, color, delayMs };
-  });
-  const sheet = StyleSheet.create(
-    Object.fromEntries(
-      specs.map((s, i) => [
-        `s${i}`,
-        {
-          left: s.radius,
-          top: -s.size / 2,
-          width: s.size,
-          height: s.size,
-          backgroundColor: s.color,
-          animationDelay: `${s.delayMs}ms`,
-        },
-      ])
-    ) as never
-  ) as Record<string, object>;
-  return { specs, sheet };
-});
+const CONE_DELAY_BUCKETS = Math.ceil(((CONE_RANGE / CONE_ZONE.sweepSpeed) * 1000) / CONE_ZONE.delayStepMs) + 1;
 
-/** One cast's burst on the field. */
-type ConeBlast = { id: number; x: number; y: number; angleDeg: number; variant: number; createdAt: number };
+const coneZoneSheet = StyleSheet.create({
+  layer: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: SCREEN_W,
+    height: PLAY_H,
+    pointerEvents: 'none',
+    animationKeyframes: [{ '0%': { opacity: 1 }, '100%': { opacity: 0 } }],
+    animationDuration: `${CONE_ZONE.fadeMs}ms`,
+    animationDelay: `${CONE_ZONE.ms - CONE_ZONE.fadeMs}ms`,
+    animationTimingFunction: 'steps(4)',
+    animationFillMode: 'both',
+  } as never,
+  cell: {
+    position: 'absolute',
+    width: CONE_ZONE.cell,
+    height: CONE_ZONE.cell,
+    animationKeyframes: [{ '0%': { opacity: 0 }, '100%': { opacity: 1 } }],
+    animationDuration: '120ms',
+    animationTimingFunction: 'steps(2)',
+    animationFillMode: 'both',
+  } as never,
+  ...(Object.fromEntries(
+    Array.from({ length: CONE_DELAY_BUCKETS }, (_, i) => [
+      `d${i}`,
+      { animationDelay: `${i * CONE_ZONE.delayStepMs}ms` },
+    ])
+  ) as Record<string, object>),
+} as never) as Record<string, object>;
+
+type ConeZoneCell = { left: number; top: number; color: string; bucket: number; edge: boolean };
+/** One cast's zone: the cells are worked out once, at the moment it is cast. */
+type ConeZone = { id: number; cells: ConeZoneCell[]; createdAt: number };
 
 /**
- * No props change after mount, so React never reconciles a burst again --
- * the compositor owns it until the loop removes the entry.
+ * Which pixels of the field lie inside the cone about to be cast.
+ *
+ * The test is the cone's own: within range, and within the half-angle of the
+ * cast direction -- the same two questions fireCone asks of every mob, so
+ * what lights up is what gets hit.
  */
-const ConeBlastFx = memo(function ConeBlastFx({ variant }: { variant: number }) {
-  const { specs, sheet } = CONE_FX_VARIANTS[variant];
+function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[] {
+  const { cell, edgeColors, fillColors } = CONE_ZONE;
+  const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
+  const cosHalf = Math.cos(halfRad);
+  const tanHalf = Math.tan(halfRad);
+  const ang = (angleDeg * Math.PI) / 180;
+  const dirX = Math.cos(ang);
+  const dirY = Math.sin(ang);
+  const cells: ConeZoneCell[] = [];
+  for (let top = 0; top < PLAY_H; top += cell) {
+    for (let left = 0; left < SCREEN_W; left += cell) {
+      const dx = left + cell / 2 - ox;
+      const dy = top + cell / 2 - oy;
+      const len = Math.hypot(dx, dy);
+      if (len < 1 || len > CONE_RANGE) continue;
+      if ((dx / len) * dirX + (dy / len) * dirY < cosHalf) continue;
+      // How far in from the nearer straight edge this pixel sits, measured
+      // across the wedge: zero on the edge itself, growing toward the axis.
+      const along = dx * dirX + dy * dirY;
+      const lateral = Math.abs(dy * dirX - dx * dirY);
+      const inFromEdge = along * tanHalf - lateral;
+      const onEdge = inFromEdge <= CONE_ZONE.edgeBand;
+      const density = onEdge
+        ? CONE_ZONE.edgeDensity
+        : Math.max(
+            CONE_ZONE.fillFar,
+            CONE_ZONE.fillNear - (CONE_ZONE.fillNear - CONE_ZONE.fillFar) * (len / CONE_ZONE.fillFalloff)
+          );
+      if (Math.random() > density) continue;
+      const palette = onEdge ? edgeColors : fillColors;
+      cells.push({
+        left,
+        top,
+        edge: onEdge,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        bucket: Math.min(
+          CONE_DELAY_BUCKETS - 1,
+          Math.round((len / CONE_ZONE.sweepSpeed) * 1000 / CONE_ZONE.delayStepMs)
+        ),
+      });
+    }
+  }
+  // A cast along the field's diagonal covers far more ground than one into a
+  // corner. Thinning keeps the worst case as cheap as the ordinary one -- and
+  // it takes only from the fill, because a gap-toothed edge stops drawing the
+  // shape, which is the whole job.
+  if (cells.length > CONE_ZONE.maxCells) {
+    const edges = cells.filter((c) => c.edge);
+    const fill = cells.filter((c) => !c.edge);
+    const keep = Math.max(0, (CONE_ZONE.maxCells - edges.length) / fill.length);
+    return edges.concat(fill.filter(() => Math.random() < keep));
+  }
+  return cells;
+}
+
+/**
+ * The carpet. Its props never change after mount, so React never reconciles
+ * it again -- the compositor owns every pixel until the loop drops the entry.
+ */
+const ConeZoneFx = memo(function ConeZoneFx({ cells }: { cells: ConeZoneCell[] }) {
   return (
-    <>
-      <View style={[coneFxSheet.flash, coneFxSheet.flashBox]} />
-      <View style={{ position: 'absolute', transform: [{ rotate: '45deg' }] }}>
-        <View style={[coneFxSheet.flash, coneFxSheet.flashBox]} />
-      </View>
-      {specs.map((s, i) => (
-        <View key={i} style={{ position: 'absolute', transform: [{ rotate: `${s.angleDeg}deg` }] }}>
-          <View style={[coneFxSheet.shard, sheet[`s${i}`]]} />
-        </View>
+    <View style={coneZoneSheet.layer}>
+      {cells.map((c, i) => (
+        <View
+          key={i}
+          style={[coneZoneSheet.cell, coneZoneSheet[`d${c.bucket}`], { left: c.left, top: c.top, backgroundColor: c.color }]}
+        />
       ))}
-    </>
+    </View>
   );
 });
 const ABILITY3_HASTE_DURATION = 5;
@@ -1474,7 +1515,7 @@ let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
 let bloodIdCounter = 0;
 let corpseIdCounter = 0;
-let coneBlastIdCounter = 0;
+let coneZoneIdCounter = 0;
 let itemIdCounter = 0;
 let floatingTextIdCounter = 0;
 
@@ -2325,7 +2366,7 @@ export default function App() {
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
   const [bloodSplats, setBloodSplats] = useState<BloodSplat[]>([]);
   const [corpses, setCorpses] = useState<Corpse[]>([]);
-  const [coneBlasts, setConeBlasts] = useState<ConeBlast[]>([]);
+  const [coneZones, setConeZones] = useState<ConeZone[]>([]);
 
   // The tuning panel drives these while DEBUG_COINSACK_TUNING is on; the
   // constants above take over the moment it is switched off.
@@ -2549,7 +2590,7 @@ export default function App() {
   const hitFlashesRef = useRef(hitFlashes);
   const bloodSplatsRef = useRef(bloodSplats);
   const corpsesRef = useRef(corpses);
-  const coneBlastsRef = useRef(coneBlasts);
+  const coneZonesRef = useRef(coneZones);
   /** The kit's engine, once it has built itself. Null on anything but web. */
   const coinSackRef = useRef<CoinSackHandle>(null);
   const floatingTextsRef = useRef(floatingTexts);
@@ -2633,7 +2674,7 @@ export default function App() {
   hitFlashesRef.current = hitFlashes;
   bloodSplatsRef.current = bloodSplats;
   corpsesRef.current = corpses;
-  coneBlastsRef.current = coneBlasts;
+  coneZonesRef.current = coneZones;
   floatingTextsRef.current = floatingTexts;
   waveRef.current = wave;
   waveActiveRef.current = waveActive;
@@ -2918,18 +2959,13 @@ export default function App() {
     if (dieTimerRef.current != null || ab.skill !== 'cone' || p.mana < cost) return;
     // Ours: the cast pose. The skill's own work below stays exactly as it was.
     pendingCastAnimRef.current = 'rupture';
-    // Ours too: the rupture wave on the ground, toward the aimed point.
-    const blastId = ++coneBlastIdCounter;
-    setConeBlasts((prev) =>
-      prev.concat({
-        id: blastId,
-        x: p.pos.x,
-        y: p.pos.y,
-        angleDeg: (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI,
-        variant: blastId % CONE_FX_VARIANTS.length,
-        createdAt: Date.now(),
-      })
+    // Ours too: the zone lit up on the ground, toward the aimed point.
+    const zoneCells = buildConeZone(
+      p.pos.x,
+      p.pos.y,
+      (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI
     );
+    setConeZones((prev) => prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, createdAt: Date.now() }));
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
     const result = fireCone(p.pos, { x: locationX, y: locationY }, mobsRef.current, baseDmg, dmgPercent, CONE_RANGE, ABILITY2_HALF_ANGLE_DEG);
@@ -2966,18 +3002,9 @@ export default function App() {
       // Fire at once, straight ahead of where the knight is facing.
       const dir = directionFromFacing(p.facing);
       const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
-      // Ours too: the rupture wave on the ground, aimed the same way.
-      const blastId = ++coneBlastIdCounter;
-      setConeBlasts((prev) =>
-        prev.concat({
-          id: blastId,
-          x: p.pos.x,
-          y: p.pos.y,
-          angleDeg: (Math.atan2(dir.y, dir.x) * 180) / Math.PI,
-          variant: blastId % CONE_FX_VARIANTS.length,
-          createdAt: Date.now(),
-        })
-      );
+      // Ours too: the zone lit up on the ground, aimed the same way.
+      const zoneCells = buildConeZone(p.pos.x, p.pos.y, (Math.atan2(dir.y, dir.x) * 180) / Math.PI);
+      setConeZones((prev) => prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, createdAt: Date.now() }));
       const result = fireCone(
         p.pos,
         aim,
@@ -3075,7 +3102,7 @@ export default function App() {
     hitFlashesRef.current = [];
     bloodSplatsRef.current = [];
     corpsesRef.current = [];
-    coneBlastsRef.current = [];
+    coneZonesRef.current = [];
     floatingTextsRef.current = [];
     waveRef.current = s.wave;
     waveActiveRef.current = false;
@@ -3102,7 +3129,7 @@ export default function App() {
     setHitFlashes([]);
     setBloodSplats([]);
     setCorpses([]);
-    setConeBlasts([]);
+    setConeZones([]);
     setFloatingTexts([]);
     setWave(s.wave);
     setWaveActive(false);
@@ -4078,9 +4105,9 @@ export default function App() {
         .map((c) => ({ ...c, age: c.age + dt }))
         .filter((c) => c.age < animDuration(MOB_DIE_ANIMS[c.anim]) + CORPSE_LINGER + CORPSE_FADE)
         .concat(newCorpses);
-      // The rupture bursts animate themselves in CSS; the loop only sweeps
-      // up the entries whose time is spent.
-      const survivorConeBlasts = coneBlastsRef.current.filter((b) => now - b.createdAt < CONE_FX_MS);
+      // The zones animate themselves in CSS; the loop only sweeps up the
+      // entries whose time is spent.
+      const survivorConeZones = coneZonesRef.current.filter((z) => now - z.createdAt < CONE_ZONE.ms);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
@@ -4146,7 +4173,7 @@ export default function App() {
       hitFlashesRef.current = survivorFlashes;
       bloodSplatsRef.current = survivorBlood;
       corpsesRef.current = survivorCorpses;
-      coneBlastsRef.current = survivorConeBlasts;
+      coneZonesRef.current = survivorConeZones;
       floatingTextsRef.current = survivorFloatingTexts;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
@@ -4163,7 +4190,7 @@ export default function App() {
       setHitFlashes(survivorFlashes);
       setBloodSplats(survivorBlood);
       setCorpses(survivorCorpses);
-      setConeBlasts(survivorConeBlasts);
+      setConeZones(survivorConeZones);
       setFloatingTexts(survivorFloatingTexts);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
@@ -4704,15 +4731,9 @@ export default function App() {
           aimPreviewPoint &&
           renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
 
-        {/* The rupture bursts, on the ground plane under everyone's feet. */}
-        {coneBlasts.map((b) => (
-          <View
-            key={`cfx-${b.id}`}
-            pointerEvents="none"
-            style={{ position: 'absolute', left: b.x, top: b.y, transform: [{ rotate: `${b.angleDeg}deg` }] }}
-          >
-            <ConeBlastFx variant={b.variant} />
-          </View>
+        {/* The cone's zone, on the ground plane under everyone's feet. */}
+        {coneZones.map((z) => (
+          <ConeZoneFx key={`czone-${z.id}`} cells={z.cells} />
         ))}
 
         {groundItems.map((it) => {

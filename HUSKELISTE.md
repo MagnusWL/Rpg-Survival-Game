@@ -127,17 +127,30 @@ trin-notationen (20. juli): åndedrag 0,3 s på billede 7, tre sving
 ét vist billede og kan bære sin egen pause; `order` findes på enhver
 animation og trumfer `passes`/`holds`.
 
-**Cone-området har fået sit jordskred** (bygget 20. juli, nat — Nicolais
-bestilling "noget der fyrer hen over jorden og fader ud", førsteudkast til
-hans øjne). Ved hvert kast: pixel-glimt ved støvlerne + 30 glødende
-jord-splinter, der river sig udad inden for keglens rigtige 42°, tændt
-udefter som en lunte (~520 px/s), hakkende i steps(5), døde efter 0,7 s
-og ~235 px. Ren dekoration — skaden var altid øjeblikkelig og er urørt.
-Bygget efter vejr-lektionen: alt i compositoren via `StyleSheet.create`,
-tre forud-rullede varianter, nul JS pr. frame; løkken fejer kun entry'en.
-**Drejeknapper:** `CONE_FX` i App.tsx (antal, rækkevidde, fart, farver,
-steps) — bevist i DOM (32 elementer, kompileret animation, fejet til
-tiden); selve udseendet er Nicolais dom.
+**Cone-zonen tegnes nu** (`CONE_ZONE` i App.tsx). Første forsøg var
+flyvende splinter — Nicolais dom: *"bare en bunke store pixels der blæser
+op"*. Det han ville have, var **selve angrebszonen synliggjort** med et
+tæppe af små pixels. Version 2 gør det: keglens to kanter tegnes som
+ubrudte pixel-streger, og indenfor ligger en dither, der er tættest ved
+støvlerne og tynder ud — tændt udefter som en lunte (1500 px/s, hele
+vejen på ~0,53 s), holdt, og opløst over 0,7 s. I alt 2 sekunder.
+
+Hvorfor kanter: zonen er *enorm* (42° × hele banen), og et jævnt tæppe
+ville koste 800+ pixels eller læse som støv. En optegnet kant koster kun
+længde — ikke areal. Målt i drift: 374 pixels, dom 449→816, **220 fps,
+hak 0**.
+
+Gitteret er skærmens, ikke kastets — pixels ville blive til skæve rudere,
+hvis tæppet blev roteret på plads. Testen for hver pixel er *keglens egen*
+(rækkevidde + halvvinkel), altså samme spørgsmål som skaden stiller, så
+det der lyser op, er det der rammes. Ren dekoration — skaden var og er
+øjeblikkelig.
+
+**Drejeknapper i `CONE_ZONE`:** `cell` (pixelstørrelse), `edgeBand`/
+`edgeDensity` (kantens tykkelse/tæthed), `fillNear`/`fillFar`/
+`fillFalloff` (ditherens tæthed), `sweepSpeed` (luntens fart), `ms`/
+`fadeMs` (levetid), farverne, og `maxCells` (loftet — 430; værste
+simulerede tilfælde 426).
 
 Keglens facit i øvrigt: vinklen er 42° (2×21), rækkevidden hele banens
 diagonal (~765 px) — skaden når altid forbi skærmkanten. Sigte-trekanten
