@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CoinSackView, { COINSACK_ASSETS, CoinSackHandle, SACK_MIN_W } from './CoinSackView';
+import GameCanvasLoader from './GameCanvasLoader';
+import GameCanvasTextOverlay from './GameCanvasTextOverlay';
 import IntroSequence from './IntroSequence';
 import MenuTearButton, { TEAR_MS, TearHandle } from './MenuTearButton';
 import { Asset } from 'expo-asset';
@@ -885,6 +887,9 @@ const ITEM_DEFS: Record<
   healthregen: { name: 'Amulet', color: '#9ccc65', perLevel: 1, format: (t) => `+${t} health regen/s` },
 };
 const ITEM_KINDS: ItemKind[] = ['dmg', 'atkspd', 'mana', 'manaregen', 'health', 'healthregen'];
+const ITEM_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(ITEM_DEFS).map(([k, v]) => [k, v.color])
+);
 
 const MOB_TYPE_META: Record<MobType, { name: string; color: string; radius: number }> = {
   melee: { name: 'Melee', color: '#e05555', radius: MOB_RADIUS },
@@ -1718,6 +1723,10 @@ export default function App() {
   const waveActiveRef = useRef(waveActive);
   const gameOverRef = useRef(gameOver);
   const groundItemsRef = useRef(groundItems);
+  /** Mirrors the current effective attack range each render, for GameCanvas's ring. */
+  const playerAttackRangeRef = useRef(0);
+  /** Cone aim direction in degrees while aiming ability 2; null otherwise. */
+  const aimAngleRef = useRef<number | null>(null);
   const equippedRef = useRef(equipped);
   const bagRef = useRef(bag);
   const waveQueueRef = useRef<MobType[]>([]);
@@ -2848,6 +2857,11 @@ export default function App() {
 
   const ability3Level = abilities[3].level;
   const playerAttackRange = ability3Level > 0 ? RANGED_ATTACK_RANGE : PLAYER_ATTACK_RANGE;
+  playerAttackRangeRef.current = playerAttackRange;
+  aimAngleRef.current =
+    aimingAbility === 2 && aimPreviewPoint
+      ? (Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI
+      : null;
   const dmgBonusDisplay = equippedBonus(equipped, 'dmg');
   const atkSpdBonusPctDisplay = equippedBonus(equipped, 'atkspd');
   const manaBonusDisplay = equippedBonus(equipped, 'mana');
@@ -2869,41 +2883,6 @@ export default function App() {
     const left = Math.max(10, Math.min(SCREEN_W - width - 10, x - width / 2));
     const bottom = Math.max(10, SCREEN_H - y + 14);
     return { left, width, bottom };
-  }
-
-  function renderCone(angleDeg: number) {
-    const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
-    const baseWidth = 2 * CONE_RANGE * Math.tan(halfRad);
-    const rotation = angleDeg - 90;
-    return (
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: player.pos.x - baseWidth / 2,
-          top: player.pos.y - CONE_RANGE,
-          width: baseWidth,
-          height: CONE_RANGE * 2,
-          transform: [{ rotate: `${rotation}deg` }],
-        }}
-      >
-        <View
-          style={{
-            position: 'absolute',
-            top: CONE_RANGE,
-            left: 0,
-            width: 0,
-            height: 0,
-            borderLeftWidth: baseWidth / 2,
-            borderRightWidth: baseWidth / 2,
-            borderBottomWidth: CONE_RANGE,
-            borderLeftColor: 'transparent',
-            borderRightColor: 'transparent',
-            borderBottomColor: 'rgba(255,138,80,0.28)',
-          }}
-        />
-      </View>
-    );
   }
 
   const shownWave = waveActive ? wave : wave + 1;
@@ -3030,157 +3009,6 @@ export default function App() {
     );
   }
 
-  // Swap this for another GlowStyle to change his light -- while a buff runs,
-  // say. Everything below reads from it.
-  const glow = PLAYER_GLOW;
-
-  // And his moon edge, from the panel while it is up and from the constant
-  // after. Strength at zero simply draws nothing, so the sliders can take it
-  // away as well as set it.
-  const rim: RimStyle = DEBUG_RIM_TUNING
-    ? { color: [tuneRimR, tuneRimG, tuneRimB], strength: tuneRimStrength / 100, blend: tuneRimBlend }
-    : RIM_STYLE;
-
-  // Breathes on the wall clock rather than the animation, so it keeps its own
-  // slow rhythm whatever the knight happens to be doing.
-  const glowSize =
-    glow.size * (1 + Math.sin(((Date.now() % glow.period) / glow.period) * Math.PI * 2) * glow.pulse);
-
-  // Everyone standing on the ground is drawn as one list sorted by how far down
-  // the screen they are, so whoever is nearer the camera covers whoever is
-  // behind them. Drawn separately -- as they were -- a zombie standing behind
-  // the knight still painted over him, which 128 px sprites made obvious.
-  //
-  // Sorting on the feet rather than the centre, since that is where a character
-  // actually meets the ground.
-  const groundActors = [
-    ...allies.map((a) => ({
-      key: `ally-${a.id}`,
-      y: a.pos.y,
-      node: (
-        <View key={`ally-${a.id}`}>
-          <View
-            style={[
-              styles.ally,
-              { left: a.pos.x - ALLY_RADIUS, top: a.pos.y - ALLY_RADIUS, backgroundColor: a.ranged ? '#b39ddb' : '#9575cd' },
-            ]}
-          />
-          <View style={[styles.mobHpBarBg, { left: a.pos.x - ALLY_RADIUS, top: a.pos.y - ALLY_RADIUS - 8, width: ALLY_RADIUS * 2 }]}>
-            <View style={[styles.mobHpBarFill, { width: ALLY_RADIUS * 2 * (a.hp / a.maxHp), backgroundColor: '#7e57c2' }]} />
-          </View>
-        </View>
-      ),
-    })),
-    {
-      // Its own entry rather than sitting inside the knight's, so that it ends
-      // up a direct child of the play area alongside the ground.
-      //
-      // Blending only reaches as far as the nearest stacking context, and
-      // react-native-web gives every positioned view a z-index, which creates
-      // one. Wrapped with the knight, the glow could only blend against him --
-      // the mode changed and nothing looked different. Out here it can reach the
-      // ground it is supposed to be lighting.
-      //
-      // Same y as the knight and listed first, so a stable sort keeps it under
-      // him while anyone standing in front still covers it.
-      key: 'player-glow',
-      y: player.pos.y,
-      node: (
-        // Deaf to touches, or it would swallow taps in the one spot the player
-        // aims at most -- right where their own character is. The wrapper
-        // carries that, since neither Image nor ImageStyle takes it.
-        <View
-          key="player-glow"
-          style={{
-            position: 'absolute',
-            left: player.pos.x - glowSize / 2,
-            top: player.pos.y + glow.foot - glowSize / 2,
-            width: glowSize,
-            height: glowSize,
-            pointerEvents: 'none',
-            // 'screen' and its kin only lighten, which is how light behaves and
-            // lets the stone show through it.
-            mixBlendMode: glow.blend,
-          }}
-        >
-          <Image
-            source={GLOW}
-            style={{
-              width: glowSize,
-              height: glowSize,
-              opacity: glow.opacity,
-              tintColor: glow.color,
-            }}
-          />
-        </View>
-      ),
-    },
-    {
-      key: 'player',
-      y: player.pos.y,
-      node: (
-        // Anchored on the sprite's feet rather than its centre, so the knight
-        // stands on pos instead of hovering over it. Every animation shares the
-        // same cell size, so he does not jump when it changes.
-        <SpriteSheet
-          key="player"
-          anims={ANIMS}
-          anim={player.anim}
-          animTime={player.animTime * player.animSpeed}
-          facing={player.facing}
-          size={PLAYER_SPRITE_SIZE}
-          left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
-          top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
-          rim={rim}
-        />
-      ),
-    },
-    ...mobs.map((m) => ({
-      key: `mob-${m.id}`,
-      y: m.pos.y,
-      node: (
-        <View key={`mob-${m.id}`}>
-          {/* Only the plain melee mob has art so far. Ranged and boss stay as
-              circles, which also keeps them easy to tell apart at a glance. */}
-          {m.type === 'melee' ? (
-            <SpriteSheet
-              anims={MOB_ANIMS}
-              anim={m.anim}
-              animTime={m.animTime}
-              facing={m.facing}
-              size={MOB_SPRITE_SIZE}
-              left={m.pos.x - MOB_SPRITE_SIZE / 2}
-              top={m.pos.y + MOB_SPRITE_FOOT_OFFSET - MOB_SPRITE_SIZE}
-              // Fades over its short life rather than switching off, so a hit
-              // reads as a pulse rather than a stutter.
-              flash={{
-                color: MOB_FLASH_COLOR,
-                opacity: (m.flashTime / MOB_FLASH_TIME) * MOB_FLASH_STRENGTH,
-              }}
-            />
-          ) : (
-            <View
-              style={{
-                position: 'absolute',
-                left: m.pos.x - m.radius,
-                top: m.pos.y - m.radius,
-                width: m.radius * 2,
-                height: m.radius * 2,
-                borderRadius: m.radius,
-                backgroundColor: MOB_TYPE_META[m.type].color,
-              }}
-            />
-          )}
-          <View style={[styles.mobHpBarBg, { left: m.pos.x - m.radius, top: m.pos.y - m.radius - 8, width: m.radius * 2 }]}>
-            <View style={[styles.mobHpBarFill, { width: m.radius * 2 * (m.hp / m.maxHp) }]} />
-          </View>
-        </View>
-      ),
-    })),
-  ]
-    .sort((a, b) => a.y - b.y)
-    .map((actor) => actor.node);
-
   return (
     <View style={styles.root}>
       <View style={styles.topBar}>
@@ -3204,39 +3032,6 @@ export default function App() {
       >
         {/* The ground, behind everything else in the play area. */}
         <Image source={BACKGROUND} style={styles.background} resizeMode="cover" />
-
-        <View
-          pointerEvents="none"
-          style={[
-            styles.rangeRing,
-            {
-              width: playerAttackRange * 2,
-              height: playerAttackRange * 2,
-              borderRadius: playerAttackRange,
-              left: player.pos.x - playerAttackRange,
-              top: player.pos.y - playerAttackRange,
-            },
-          ]}
-        />
-
-        {aimingAbility === 2 &&
-          aimPreviewPoint &&
-          renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
-
-        {groundItems.map((it) => {
-          const def = ITEM_DEFS[it.item.kind];
-          return (
-            <View
-              key={it.item.id}
-              style={[
-                styles.groundItem,
-                { left: it.pos.x - ITEM_SIZE / 2, top: it.pos.y - ITEM_SIZE / 2, backgroundColor: def.color },
-              ]}
-            >
-              <Text style={styles.groundItemText}>{it.item.level}</Text>
-            </View>
-          );
-        })}
 
         {/* Blood lands on the ground, so it goes under everyone standing on it. */}
         {bloodSplats.map((b) => (
@@ -3285,7 +3080,65 @@ export default function App() {
           </View>
         )}
 
-        {groundActors}
+        {/* Everything that moves every frame -- range ring, cone preview, ground
+            items, player/mob/ally sprites, HP bars, projectiles, hit flashes,
+            floating text -- lives on its own Skia canvas here, with its own
+            render clock isolated from the rest of the app. See GameCanvas.tsx. */}
+        <GameCanvasLoader
+          width={SCREEN_W}
+          height={PLAY_H}
+          playerRef={playerRef}
+          mobsRef={mobsRef}
+          alliesRef={alliesRef}
+          projectilesRef={projectilesRef}
+          hitFlashesRef={hitFlashesRef}
+          floatingTextsRef={floatingTextsRef}
+          groundItemsRef={groundItemsRef}
+          itemColors={ITEM_COLORS}
+          playerAttackRangeRef={playerAttackRangeRef}
+          aimAngleRef={aimAngleRef}
+          playerAnims={ANIMS}
+          mobAnims={MOB_ANIMS}
+          glowSource={GLOW}
+          mobTypeColor={{
+            melee: MOB_TYPE_META.melee.color,
+            ranged: MOB_TYPE_META.ranged.color,
+            boss: MOB_TYPE_META.boss.color,
+          }}
+          spriteCell={SPRITE_CELL}
+          spriteCols={SPRITE_COLS}
+          spriteRows={SPRITE_ROWS}
+          playerSpriteSize={PLAYER_SPRITE_SIZE}
+          playerSpriteFootOffset={PLAYER_SPRITE_FOOT_OFFSET}
+          mobSpriteSize={MOB_SPRITE_SIZE}
+          mobSpriteFootOffset={MOB_SPRITE_FOOT_OFFSET}
+          allyRadius={ALLY_RADIUS}
+          coneRange={CONE_RANGE}
+          coneHalfAngleDeg={ABILITY2_HALF_ANGLE_DEG}
+          hitFlashDurationMs={HIT_FLASH_DURATION}
+          floatingTextDurationMs={FLOATING_TEXT_DURATION}
+          floatingTextRisePx={FLOATING_TEXT_RISE}
+          mobFlashColor={MOB_FLASH_COLOR}
+          mobFlashTime={MOB_FLASH_TIME}
+          mobFlashStrength={MOB_FLASH_STRENGTH}
+          rimColor={RIM_STYLE.color}
+          rimStrength={RIM_STYLE.strength}
+          glowColor={PLAYER_GLOW.color}
+          glowSize={PLAYER_GLOW.size}
+          glowOpacity={PLAYER_GLOW.opacity}
+          glowPulse={PLAYER_GLOW.pulse}
+          glowPeriodMs={PLAYER_GLOW.period}
+          glowFoot={PLAYER_GLOW.foot}
+        />
+
+        <GameCanvasTextOverlay
+          width={SCREEN_W}
+          height={PLAY_H}
+          groundItemsRef={groundItemsRef}
+          floatingTextsRef={floatingTextsRef}
+          floatingTextDurationMs={FLOATING_TEXT_DURATION}
+          floatingTextRisePx={FLOATING_TEXT_RISE}
+        />
 
         {/* In front of everyone, as weather between the scene and the camera.
             Deaf to touches, or sixty streaks would eat every tap on the field. */}
@@ -3317,35 +3170,6 @@ export default function App() {
             })}
           </View>
         )}
-
-        {projectiles.map((pr) => {
-          const progress = Math.min(1, (Date.now() - pr.createdAt) / pr.duration);
-          const x = pr.from.x + (pr.to.x - pr.from.x) * progress;
-          const y = pr.from.y + (pr.to.y - pr.from.y) * progress;
-          return <View key={pr.id} style={[styles.projectile, { left: x - 4, top: y - 4, backgroundColor: pr.color }]} />;
-        })}
-
-        {hitFlashes.map((f) => {
-          const age = Date.now() - f.createdAt;
-          const opacity = Math.max(0, 1 - age / HIT_FLASH_DURATION);
-          return <View key={f.id} style={[styles.hitFlash, { left: f.pos.x - 10, top: f.pos.y - 10, opacity }]} />;
-        })}
-
-        {floatingTexts.map((f) => {
-          const age = Date.now() - f.createdAt;
-          const t = Math.min(1, age / FLOATING_TEXT_DURATION);
-          const opacity = Math.max(0, 1 - t);
-          const y = f.pos.y - t * FLOATING_TEXT_RISE;
-          return (
-            <Text
-              key={f.id}
-              pointerEvents="none"
-              style={[styles.floatingText, { left: f.pos.x - 25, top: y - 10, color: f.color, opacity }]}
-            >
-              {f.text}
-            </Text>
-          );
-        })}
 
       </View>
 
