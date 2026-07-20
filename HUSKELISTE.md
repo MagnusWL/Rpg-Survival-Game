@@ -162,12 +162,25 @@ det der lyser op, er det der rammes. Ren dekoration — skaden var og er
 øjeblikkelig.
 
 **Stadionbølgen** (Nicolai, 21. juli): der hvor bølgefronten når hver
-pixel, tænder den *og hopper* 5 px op og ned igen — én bølge, udefter,
-én gang. Den koster intet ekstra: pixlerne kendte i forvejen deres tur,
-så optænding og hop er én bevægelse. Fronten er sat ned til 1100 px/s
-(en bølge skal kunne *ses* rejse) og opløst i 15 ms-trin ≈ 16 px, så
-fronten er finere end de pixels, den flytter. Enden nås 717 ms, sidste
-hop lander 1137 ms, udtoningen begynder 1300 ms.
+pixel, blusser den op, springer, falder tilbage og laver et lille
+efterhop. Én bølge, udefter, én gang. Den koster intet ekstra: pixlerne
+kendte i forvejen deres tur, så optænding og spring er én bevægelse.
+Fronten kører 1100 px/s (en bølge skal kunne *ses* rejse) i 15 ms-trin
+≈ 16 px. Enden nås 717 ms, sidste spring lander ~1280 ms, udtoningen
+begynder 1300 ms.
+
+Første forsøg var **dødt, og regnestykket forklarer hvorfor:** 5 px hop
+delt i 8 trin = 0,6 px ad gangen, altså mindre end én pixel — ingen
+bevægelse overhovedet. Nu: seks forskellige spring (`CONE_HOPS`, løft
+8–28 px, alle hele multipla af pixlen, i 4 trin så hvert trin er mindst
+én pixel), pixlen svulmer op til 2,4× undervejs, og springene deles ud
+tilfældigt så bølgen har tekstur. Kanten får de to laveste spring — den
+skal blive ved med at tegne formen, mens fyldet danser.
+
+**Stadig på hylden, hvis den mangler liv endnu:** et farveglimt (pixlen
+skifter til lys gul i springets top og falder tilbage til sin egen
+farve). Kræver at farven bages ind i springklasserne — 6 spring × 3
+farver = 18 regler i stedet for 6. Billigt, men ikke prøvet.
 
 **Drejeknapper i `CONE_ZONE`:** `cell` (pixelstørrelse), `edgeBand`/
 `edgeDensity` (kantens tykkelse/tæthed), `fillNear`/`fillFar`/

@@ -1283,13 +1283,18 @@ const CONE_ZONE = {
   delayStepMs: 15,
   /**
    * The stadium wave, Nicolai's ask of 21 July: as the front reaches each
-   * pixel it lights up and jumps. One wave, outward, once -- there is no
-   * repeat anywhere, and it costs nothing extra because every pixel already
-   * knew when its turn was.
+   * pixel it flares, leaps, and drops back with a second small bounce. One
+   * wave, outward, once -- nothing repeats, and it costs nothing extra
+   * because every pixel already knew when its turn was.
+   *
+   * The first attempt read as dead, and the arithmetic says why: a 5 px hop
+   * cut into 8 steps moves the pixel 0.6 px at a time, which is less than
+   * one pixel and so is no movement at all. The leaps below are whole
+   * multiples of the pixel, cut into few enough steps that every step is at
+   * least one pixel wide -- see CONE_HOPS.
    */
-  hop: 5,
-  hopMs: 420,
-  hopSteps: 8,
+  hopMs: 560,
+  hopSteps: 4,
   /**
    * The two straight edges, drawn nearly solid. This is what makes the zone
    * legible: a wedge this large cannot be filled densely without hundreds of
@@ -1315,6 +1320,63 @@ const CONE_ZONE = {
 };
 
 /**
+ * The leaps a pixel can take, dealt out per pixel so the wave has texture
+ * instead of one motion repeated hundreds of times -- a crowd doing the wave
+ * is not a crowd doing the same jump.
+ *
+ * Every height is a whole number of pixels, and with 4 steps each one moves
+ * at least a pixel per step, which is what makes the leap read at all. The
+ * first two are for the outline: it hops with everything else, but low, so
+ * the shape stays drawn while the fill dances.
+ */
+const CONE_HOPS = [
+  { lift: 8, pop: 1.6 },
+  { lift: 12, pop: 1.8 },
+  { lift: 16, pop: 2 },
+  { lift: 20, pop: 2.2 },
+  { lift: 24, pop: 2 },
+  { lift: 28, pop: 2.4 },
+];
+const CONE_EDGE_HOPS = 2; // the first two belong to the outline
+
+/**
+ * One style per leap. Each carries its own keyframes because the height is
+ * baked into them; the pixel picks a class and inherits the whole motion.
+ *
+ * The shape of a leap: flare and swell as the front arrives, rise, fall
+ * back, then a smaller second bounce so it lands like something alive
+ * rather than being set down. It settles a little dimmer than its peak --
+ * the energy has passed through.
+ */
+const coneHopStyles = StyleSheet.create(
+  Object.fromEntries(
+    CONE_HOPS.map((h, i) => [
+      `h${i}`,
+      {
+        // Transforms inside keyframes must be written as CSS text. React
+        // Native's array form -- transform: [{ translateY: -5 }] -- is
+        // dropped on the floor here without a word, leaving empty keyframes
+        // and a pixel that never moves. The rain writes strings too.
+        animationKeyframes: [
+          {
+            '0%': { opacity: 0, transform: 'translateY(0px) scale(1)' },
+            '8%': { opacity: 1, transform: `translateY(-${h.lift / 4}px) scale(${h.pop})` },
+            '30%': { opacity: 1, transform: `translateY(-${h.lift}px) scale(${h.pop * 0.9})` },
+            '55%': { opacity: 1, transform: 'translateY(0px) scale(1)' },
+            '70%': { transform: `translateY(-${Math.round(h.lift * 0.35)}px) scale(1.3)` },
+            '85%': { transform: 'translateY(0px) scale(1)' },
+            '100%': { opacity: 0.8, transform: 'translateY(0px) scale(1)' },
+          },
+        ],
+        animationDuration: `${CONE_ZONE.hopMs}ms`,
+        animationTimingFunction: `steps(${CONE_ZONE.hopSteps})`,
+        animationFillMode: 'both',
+      },
+    ])
+  ) as never
+) as Record<string, object>;
+
+/**
  * Ignition delays as a small bank of pre-compiled classes rather than inline
  * values: keyframes only compile through StyleSheet.create here, and keeping
  * the whole animation in one place means a cell carries nothing but its
@@ -1336,31 +1398,13 @@ const coneZoneSheet = StyleSheet.create({
     animationTimingFunction: 'steps(4)',
     animationFillMode: 'both',
   } as never,
-  // Lighting up and jumping are one motion, not two animations stacked: the
-  // pixel already waits for the front to reach it, so the front may as well
-  // do both when it arrives. It lands back where it started and stays put --
-  // a single wave, and nothing repeats.
+  // Just the square. Lighting up and leaping arrive together, from the leap
+  // class the pixel is dealt -- the front does both when it reaches it.
   cell: {
     position: 'absolute',
     width: CONE_ZONE.cell,
     height: CONE_ZONE.cell,
-    // Transforms inside keyframes must be written as CSS text. React
-    // Native's array form -- transform: [{ translateY: -5 }] -- is dropped on
-    // the floor here without a word, leaving empty keyframes and a pixel that
-    // never moves. The rain and the ripples write strings for the same reason.
-    animationKeyframes: [
-      {
-        '0%': { opacity: 0, transform: 'translateY(0px)' },
-        '12%': { opacity: 1, transform: 'translateY(0px)' },
-        '45%': { transform: `translateY(-${CONE_ZONE.hop}px)` },
-        '78%': { transform: 'translateY(0px)' },
-        '100%': { opacity: 1, transform: 'translateY(0px)' },
-      },
-    ],
-    animationDuration: `${CONE_ZONE.hopMs}ms`,
-    animationTimingFunction: `steps(${CONE_ZONE.hopSteps})`,
-    animationFillMode: 'both',
-  } as never,
+  },
   ...(Object.fromEntries(
     Array.from({ length: CONE_DELAY_BUCKETS }, (_, i) => [
       `d${i}`,
@@ -1378,7 +1422,7 @@ const coneZoneSheet = StyleSheet.create({
 const RUPTURE_ZONE_FRAME = 12; // his 13th, counted from 0
 const RUPTURE_ZONE_DELAY_MS = Math.round(frameStartTime(ANIMS.rupture, RUPTURE_ZONE_FRAME) * 1000);
 
-type ConeZoneCell = { left: number; top: number; color: string; bucket: number; edge: boolean };
+type ConeZoneCell = { left: number; top: number; color: string; bucket: number; edge: boolean; hop: number };
 /**
  * One cast's zone. The cells are worked out at the moment of the cast -- from
  * where he stood and which way he faced then -- but `startAt` holds them back
@@ -1425,10 +1469,15 @@ function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[]
           );
       if (Math.random() > density) continue;
       const palette = onEdge ? edgeColors : fillColors;
+      // The outline takes the low leaps, the fill the tall ones.
+      const hop = onEdge
+        ? Math.floor(Math.random() * CONE_EDGE_HOPS)
+        : CONE_EDGE_HOPS + Math.floor(Math.random() * (CONE_HOPS.length - CONE_EDGE_HOPS));
       cells.push({
         left,
         top,
         edge: onEdge,
+        hop,
         color: palette[Math.floor(Math.random() * palette.length)],
         bucket: Math.min(
           CONE_DELAY_BUCKETS - 1,
@@ -1460,7 +1509,12 @@ const ConeZoneFx = memo(function ConeZoneFx({ cells }: { cells: ConeZoneCell[] }
       {cells.map((c, i) => (
         <View
           key={i}
-          style={[coneZoneSheet.cell, coneZoneSheet[`d${c.bucket}`], { left: c.left, top: c.top, backgroundColor: c.color }]}
+          style={[
+            coneZoneSheet.cell,
+            coneHopStyles[`h${c.hop}`],
+            coneZoneSheet[`d${c.bucket}`],
+            { left: c.left, top: c.top, backgroundColor: c.color },
+          ]}
         />
       ))}
     </View>
