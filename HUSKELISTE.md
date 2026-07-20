@@ -77,6 +77,12 @@ dem væk** — skubbet der før red usynligt på det skjulte sving, leveres nu a
 sparket (frame 6, hvor benet er ude). Bevægelse afbryder sparket, og et
 afbrudt spark skubber ingen. Skadestal er urørte — kun skub og animation.
 
+Sparket kommer kun **halvdelen af gangene** (ét møntkast i det øjeblik
+flinchen slutter — Nicolais valg, 20. juli). Taber mønten, rejser han sig
+bare, og ingen bliver skubbet den gang: skubbet bor på sparket, så uden
+spark intet skub. Sparket gør ingen skade nogensinde — skaden faldt
+allerede med svinget.
+
 **Ikke set i drift endnu:** forhåndsvisningen frøs under alle forsøg, så
 sekvensen hurt→kick er bevist i logik og typecheck, ikke med øjne. Nicolai
 tester ved at stille sig i en flok.
@@ -85,8 +91,8 @@ tester ved at stille sig i en flok.
 - Sparket er **lydløst** — der findes ingen spark-lyd i pakken. Skal have en.
 - Plan B fra diskussionen (skaden venter også på sparket) er stadig kun en
   tanke — det er balancearbejde og skal over Magnus's bord.
-- Kontaktframe (6), rækkevidde (70) og vifte (120°) er førstegæt til Nicolais
-  øjne.
+- Kontaktframe (6), rækkevidde (70), vifte (120°) og chancen (50%,
+  `KICK_CHANCE`) er førstegæt til Nicolais øjne.
 
 ---
 

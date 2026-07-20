@@ -235,10 +235,13 @@ const ANIMS: Record<AnimName, AnimDef> = {
  * The kick's reach and where it lands, all Nicolai's choices of 20 July.
  *
  * It follows a flinch only when someone is actually inside this range -- a
- * kick into empty air looks daft -- and it shoves everyone in the arc, not
- * just whoever the invisible swing touched: clearing space is what a kick is
- * for. The shove itself is the same knockback a visible swing deals, moved
- * here from the swing nobody saw.
+ * kick into empty air looks daft -- and only half the time: one coin flip in
+ * the frame the flinch ends keeps it a flourish rather than a reflex. It
+ * shoves everyone in the arc, not just whoever the invisible swing touched:
+ * clearing space is what a kick is for. The shove itself is the same
+ * knockback a visible swing deals, moved here from the swing nobody saw --
+ * which means on the flips where no kick comes, that blow shoves nobody at
+ * all. Nicolai knows and wants it so: the kick deals no damage either way.
  *
  * Contact lands on frame 6 of 15: the leg is out and the shove fires with it
  * rather than on the wind-up.
@@ -247,6 +250,8 @@ const KICK_RANGE = 70;
 /** Half-angle of the arc, as a dot-product threshold: cos(60) = a 120 degree fan. */
 const KICK_ARC_COS = 0.5;
 const KICK_CONTACT_FRAME = 6;
+/** Chance a flinch is answered with the kick at all. */
+const KICK_CHANCE = 0.5;
 
 /** The screen-space direction a facing row looks in; row 0 is east, clockwise. */
 const facingVector = (facing: number): Vec => {
@@ -3391,11 +3396,14 @@ export default function App() {
         // hit between swings, he staggers, then boots the crowd off him. Only
         // if someone is actually within reach (a kick into empty air looks
         // daft), and never over the player's own movement -- wanting out
-        // outranks the flourish. The mob scan sits last so it only runs in
-        // the one frame the flinch has just ended.
+        // outranks the flourish. The coin flip runs once, in the one frame
+        // the flinch has just ended; lose it and he simply recovers, and
+        // nobody is shoved. The mob scan sits last, after the flip, so the
+        // cheap dice spare the walk through the crowd.
         !oneShotBusy &&
         p.anim === 'hurt' &&
         !moving &&
+        Math.random() < KICK_CHANCE &&
         currentMobs.some((m) => {
           if (m.hp <= 0) return false;
           const dx = m.pos.x - p.pos.x;
