@@ -1259,9 +1259,16 @@ const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
 // memo component whose props never change, and nothing ticks in JS -- the
 // game loop only drops the entry when its time is up.
 const CONE_ZONE = {
-  /** Total life on screen, and the two parts of it. */
-  ms: 2000,
-  fadeMs: 700,
+  /**
+   * How long one pixel's whole life lasts, from the front reaching it to it
+   * having drifted away. Every pixel runs this same span, started at its own
+   * distance-delay -- which is what makes the zone fade from the tip outward
+   * rather than all at once: the near pixels began first, so they finish
+   * first. Nicolai's ask of 21 July.
+   */
+  cellLifeMs: 1500,
+  /** How far a pixel drifts up as it dies. Four steps, so four whole pixels. */
+  drift: 16,
   /**
    * One pixel of the carpet, in screen px. The knight is about 40 across, so
    * this is a tenth of him -- halved from 8 on Nicolai's eye. Halving the
@@ -1293,31 +1300,51 @@ const CONE_ZONE = {
    * multiples of the pixel, cut into few enough steps that every step is at
    * least one pixel wide -- see CONE_HOPS.
    */
-  hopMs: 560,
   hopSteps: 4,
   /**
-   * The two straight edges, drawn nearly solid. This is what makes the zone
-   * legible: a wedge this large cannot be filled densely without hundreds of
-   * pixels, but its outline costs length rather than area, and an outline
-   * with a light dither inside reads as a zone where an even scatter reads
-   * as dust. `edgeBand` is how far in from the edge counts as the edge.
+   * The blow itself -- Nicolai's ask of 21 July: the wave needs a line you
+   * can point at and say that is what strikes.
+   *
+   * So the pixels are laid on arcs of constant distance instead of scattered.
+   * The front is itself a ring of constant distance, so it reaches a whole
+   * arc at the same instant and lights it as one line, which then travels.
+   * Dotted rather than solid (half the pixels of the arc) because a solid
+   * line of 4 px squares costs twice as much and reads no better.
+   */
+  arcGap: 36,
+  arcDensity: 0.5,
+  /**
+   * The wedge's two straight edges, now a hint rather than a frame -- toned
+   * down on Nicolai's eye once the arcs took over the job of showing the
+   * shape. `edgeBand` is how far in from the edge still counts as the edge.
    */
   edgeBand: 5,
-  /** Unbroken on purpose: the edge's whole job is to draw the shape. */
-  edgeDensity: 1,
-  /**
-   * The dither inside: strongest at his feet, thinning with distance but
-   * never to nothing, so the zone reaches as far as the damage does.
-   */
-  fillNear: 0.13,
-  fillFar: 0.035,
+  edgeDensity: 0.55,
+  /** The scatter between the arcs: a little texture, nothing more. */
+  fillNear: 0.04,
+  fillFar: 0.015,
   fillFalloff: 460,
   /** Never mount more than this, however the wedge happens to fall. */
-  maxCells: 600,
-  /** The skill's own orange: the edge bright, the fill dithered under it. */
-  edgeColors: ['rgba(255,196,107,0.8)', 'rgba(255,138,80,0.75)'],
-  fillColors: ['rgba(255,138,80,0.45)', 'rgba(217,83,30,0.4)', 'rgba(255,196,107,0.35)'],
+  maxCells: 640,
+  /**
+   * The strike line burns brightest; the edge and the scatter sit under it.
+   * These are the colours at the peak of the leap -- the animation dims
+   * every pixel to about half once the front has passed, so what is left
+   * behind the line is a trail rather than a second line.
+   */
+  arcColors: ['rgba(255,228,175,0.95)', 'rgba(255,196,107,0.9)'],
+  edgeColors: ['rgba(255,138,80,0.32)', 'rgba(217,83,30,0.3)'],
+  fillColors: ['rgba(255,138,80,0.35)', 'rgba(217,83,30,0.3)', 'rgba(255,196,107,0.3)'],
 };
+
+/**
+ * How long a whole cast stays on the field: the wave's journey to the far
+ * corner plus one pixel's life at the end of it, and a little slack. Derived
+ * rather than written down, so changing the speed or the life cannot leave
+ * the sweep cutting pixels off mid-drift.
+ */
+const CONE_ZONE_MS =
+  Math.round((CONE_RANGE / CONE_ZONE.sweepSpeed) * 1000) + CONE_ZONE.cellLifeMs + 80;
 
 /**
  * The leaps a pixel can take, dealt out per pixel so the wave has texture
@@ -1341,12 +1368,15 @@ const CONE_EDGE_HOPS = 2; // the first two belong to the outline
 
 /**
  * One style per leap. Each carries its own keyframes because the height is
- * baked into them; the pixel picks a class and inherits the whole motion.
+ * baked into them; the pixel picks a class and inherits its whole life.
  *
- * The shape of a leap: flare and swell as the front arrives, rise, fall
- * back, then a smaller second bounce so it lands like something alive
- * rather than being set down. It settles a little dimmer than its peak --
- * the energy has passed through.
+ * That life, in one animation: the front arrives and the pixel flares and
+ * swells, rises, drops back, bounces once more -- and then, for the two
+ * thirds of the time that remain, drifts slowly upward and fades out. The
+ * drift and the fade live here rather than on the layer above precisely so
+ * they inherit the pixel's own distance-delay: the tip of the cone began
+ * first, so the tip dies first, and the fade travels outward exactly as the
+ * strike did.
  */
 const coneHopStyles = StyleSheet.create(
   Object.fromEntries(
@@ -1360,15 +1390,20 @@ const coneHopStyles = StyleSheet.create(
         animationKeyframes: [
           {
             '0%': { opacity: 0, transform: 'translateY(0px) scale(1)' },
-            '8%': { opacity: 1, transform: `translateY(-${h.lift / 4}px) scale(${h.pop})` },
-            '30%': { opacity: 1, transform: `translateY(-${h.lift}px) scale(${h.pop * 0.9})` },
-            '55%': { opacity: 1, transform: 'translateY(0px) scale(1)' },
-            '70%': { transform: `translateY(-${Math.round(h.lift * 0.35)}px) scale(1.3)` },
-            '85%': { transform: 'translateY(0px) scale(1)' },
-            '100%': { opacity: 0.8, transform: 'translateY(0px) scale(1)' },
+            // The blow: brightest and biggest in the instant it lands.
+            '3%': { opacity: 1, transform: `translateY(-${Math.round(h.lift * 0.3)}px) scale(${h.pop})` },
+            '12%': { opacity: 1, transform: `translateY(-${h.lift}px) scale(${h.pop * 0.85})` },
+            '22%': { opacity: 0.5, transform: 'translateY(0px) scale(1)' },
+            '28%': { opacity: 0.5, transform: `translateY(-${Math.round(h.lift * 0.3)}px) scale(1.25)` },
+            // Landed and dimmed to a trail, so the bright line is the front
+            // alone and everything behind it is embers.
+            '34%': { opacity: 0.45, transform: 'translateY(0px) scale(1)' },
+            // One long interval, so its 4 steps are 4 px each: the pixel
+            // climbs a whole pixel at a time, slowly, and is gone.
+            '100%': { opacity: 0, transform: `translateY(-${CONE_ZONE.drift}px) scale(1)` },
           },
         ],
-        animationDuration: `${CONE_ZONE.hopMs}ms`,
+        animationDuration: `${CONE_ZONE.cellLifeMs}ms`,
         animationTimingFunction: `steps(${CONE_ZONE.hopSteps})`,
         animationFillMode: 'both',
       },
@@ -1385,6 +1420,9 @@ const coneHopStyles = StyleSheet.create(
 const CONE_DELAY_BUCKETS = Math.ceil(((CONE_RANGE / CONE_ZONE.sweepSpeed) * 1000) / CONE_ZONE.delayStepMs) + 1;
 
 const coneZoneSheet = StyleSheet.create({
+  // A plain frame now. The layer used to fade the whole zone out at once,
+  // which made it vanish as a sheet; each pixel dies on its own clock
+  // instead, so the dying sweeps outward from the tip the way the blow did.
   layer: {
     position: 'absolute',
     left: 0,
@@ -1392,12 +1430,7 @@ const coneZoneSheet = StyleSheet.create({
     width: SCREEN_W,
     height: PLAY_H,
     pointerEvents: 'none',
-    animationKeyframes: [{ '0%': { opacity: 1 }, '100%': { opacity: 0 } }],
-    animationDuration: `${CONE_ZONE.fadeMs}ms`,
-    animationDelay: `${CONE_ZONE.ms - CONE_ZONE.fadeMs}ms`,
-    animationTimingFunction: 'steps(4)',
-    animationFillMode: 'both',
-  } as never,
+  },
   // Just the square. Lighting up and leaping arrive together, from the leap
   // class the pixel is dealt -- the front does both when it reaches it.
   cell: {
@@ -1422,7 +1455,7 @@ const coneZoneSheet = StyleSheet.create({
 const RUPTURE_ZONE_FRAME = 12; // his 13th, counted from 0
 const RUPTURE_ZONE_DELAY_MS = Math.round(frameStartTime(ANIMS.rupture, RUPTURE_ZONE_FRAME) * 1000);
 
-type ConeZoneCell = { left: number; top: number; color: string; bucket: number; edge: boolean; hop: number };
+type ConeZoneCell = { left: number; top: number; color: string; bucket: number; arc: boolean; hop: number };
 /**
  * One cast's zone. The cells are worked out at the moment of the cast -- from
  * where he stood and which way he faced then -- but `startAt` holds them back
@@ -1440,7 +1473,7 @@ type ConeZone = { id: number; cells: ConeZoneCell[]; startAt: number };
  * what lights up is what gets hit.
  */
 function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[] {
-  const { cell, edgeColors, fillColors } = CONE_ZONE;
+  const { cell, arcColors, edgeColors, fillColors } = CONE_ZONE;
   const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
   const cosHalf = Math.cos(halfRad);
   const tanHalf = Math.tan(halfRad);
@@ -1461,22 +1494,28 @@ function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[]
       const lateral = Math.abs(dy * dirX - dx * dirY);
       const inFromEdge = along * tanHalf - lateral;
       const onEdge = inFromEdge <= CONE_ZONE.edgeBand;
-      const density = onEdge
-        ? CONE_ZONE.edgeDensity
-        : Math.max(
-            CONE_ZONE.fillFar,
-            CONE_ZONE.fillNear - (CONE_ZONE.fillNear - CONE_ZONE.fillFar) * (len / CONE_ZONE.fillFalloff)
-          );
+      // On one of the strike lines: a ring of constant distance, which is
+      // the shape of the front itself, so the whole arc is reached at once.
+      const onArc = len % CONE_ZONE.arcGap < cell;
+      const density = onArc
+        ? CONE_ZONE.arcDensity
+        : onEdge
+          ? CONE_ZONE.edgeDensity
+          : Math.max(
+              CONE_ZONE.fillFar,
+              CONE_ZONE.fillNear - (CONE_ZONE.fillNear - CONE_ZONE.fillFar) * (len / CONE_ZONE.fillFalloff)
+            );
       if (Math.random() > density) continue;
-      const palette = onEdge ? edgeColors : fillColors;
-      // The outline takes the low leaps, the fill the tall ones.
-      const hop = onEdge
-        ? Math.floor(Math.random() * CONE_EDGE_HOPS)
-        : CONE_EDGE_HOPS + Math.floor(Math.random() * (CONE_HOPS.length - CONE_EDGE_HOPS));
+      const palette = onArc ? arcColors : onEdge ? edgeColors : fillColors;
+      // The line leaps highest -- it is the blow. The rest keeps its feet
+      // nearer the ground so the line stays the thing being watched.
+      const hop = onArc
+        ? CONE_EDGE_HOPS + Math.floor(Math.random() * (CONE_HOPS.length - CONE_EDGE_HOPS))
+        : Math.floor(Math.random() * CONE_EDGE_HOPS);
       cells.push({
         left,
         top,
-        edge: onEdge,
+        arc: onArc,
         hop,
         color: palette[Math.floor(Math.random() * palette.length)],
         bucket: Math.min(
@@ -1488,13 +1527,13 @@ function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[]
   }
   // A cast along the field's diagonal covers far more ground than one into a
   // corner. Thinning keeps the worst case as cheap as the ordinary one -- and
-  // it takes only from the fill, because a gap-toothed edge stops drawing the
-  // shape, which is the whole job.
+  // it spares the strike lines, because thinning those would break up the one
+  // thing the eye is meant to follow.
   if (cells.length > CONE_ZONE.maxCells) {
-    const edges = cells.filter((c) => c.edge);
-    const fill = cells.filter((c) => !c.edge);
-    const keep = Math.max(0, (CONE_ZONE.maxCells - edges.length) / fill.length);
-    return edges.concat(fill.filter(() => Math.random() < keep));
+    const lines = cells.filter((c) => c.arc);
+    const rest = cells.filter((c) => !c.arc);
+    const keep = Math.max(0, (CONE_ZONE.maxCells - lines.length) / rest.length);
+    return lines.concat(rest.filter(() => Math.random() < keep));
   }
   return cells;
 }
@@ -4235,7 +4274,7 @@ export default function App() {
       // The zones animate themselves in CSS; the loop only sweeps up the
       // entries whose time is spent -- counted from when they come up, not
       // from the cast that ordered them.
-      const survivorConeZones = coneZonesRef.current.filter((z) => now < z.startAt + CONE_ZONE.ms);
+      const survivorConeZones = coneZonesRef.current.filter((z) => now < z.startAt + CONE_ZONE_MS);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);

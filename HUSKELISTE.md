@@ -161,33 +161,39 @@ hvis tæppet blev roteret på plads. Testen for hver pixel er *keglens egen*
 det der lyser op, er det der rammes. Ren dekoration — skaden var og er
 øjeblikkelig.
 
-**Stadionbølgen** (Nicolai, 21. juli): der hvor bølgefronten når hver
-pixel, blusser den op, springer, falder tilbage og laver et lille
-efterhop. Én bølge, udefter, én gang. Den koster intet ekstra: pixlerne
-kendte i forvejen deres tur, så optænding og spring er én bevægelse.
-Fronten kører 1100 px/s (en bølge skal kunne *ses* rejse) i 15 ms-trin
-≈ 16 px. Enden nås 717 ms, sidste spring lander ~1280 ms, udtoningen
-begynder 1300 ms.
+**Stadionbølgen = slaget** (Nicolai, 21. juli, tredje omgang). Pixlerne
+ligger nu på **buer** med 36 px mellemrum i stedet for spredt tilfældigt.
+Fronten er selv en ring af konstant afstand, så den rammer en hel bue på
+samme øjeblik og tænder den som **én streg**, der derefter rejser udad —
+det er dén, man skal forstå slår. Stregen er stiplet (halvdelen af buens
+pixels): en massiv streg koster det dobbelte og læser ikke bedre.
+
+En pixels liv, i én animation (1,5 s): fronten rammer → den blusser op og
+svulmer til 2,4× → springer 8–28 px → falder → lille efterhop → **dæmpes
+til ca. halv styrke** (så den lysende streg er fronten alene, og alt bag
+den er gløder) → **driver langsomt 16 px opad og toner ud**.
+
+Tre ting følger gratis af, at drift og udtoning bor på pixlen selv i
+stedet for på laget: zonen **toner ud fra spidsen og udad**, fordi de
+nære pixels begyndte først; der er ingen fælles udtoning, der får det
+hele til at forsvinde som et lagen; og bølgen behøver ingen ekstra
+elementer.
 
 Første forsøg var **dødt, og regnestykket forklarer hvorfor:** 5 px hop
-delt i 8 trin = 0,6 px ad gangen, altså mindre end én pixel — ingen
-bevægelse overhovedet. Nu: seks forskellige spring (`CONE_HOPS`, løft
-8–28 px, alle hele multipla af pixlen, i 4 trin så hvert trin er mindst
-én pixel), pixlen svulmer op til 2,4× undervejs, og springene deles ud
-tilfældigt så bølgen har tekstur. Kanten får de to laveste spring — den
-skal blive ved med at tegne formen, mens fyldet danser.
+delt i 8 trin = 0,6 px ad gangen, mindre end én pixel — ingen bevægelse
+overhovedet. Alle løft er nu hele multipla af pixlen i 4 trin.
 
-**Stadig på hylden, hvis den mangler liv endnu:** et farveglimt (pixlen
-skifter til lys gul i springets top og falder tilbage til sin egen
-farve). Kræver at farven bages ind i springklasserne — 6 spring × 3
-farver = 18 regler i stedet for 6. Billigt, men ikke prøvet.
+Kanten er **tonet ned** (tæthed 0,55, alfa ~0,3) — buerne har overtaget
+jobbet med at vise formen.
 
-**Drejeknapper i `CONE_ZONE`:** `cell` (pixelstørrelse), `edgeBand`/
-`edgeDensity` (kantens tykkelse/tæthed), `fillNear`/`fillFar`/
-`fillFalloff` (ditherens tæthed), `sweepSpeed` (bølgens fart), `hop`/
-`hopMs`/`hopSteps` (hoppets højde, længde og hakkethed), `ms`/`fadeMs`
-(levetid), farverne, og `maxCells` (loftet — 600; værste simulerede
-tilfælde 599).
+**Drejeknapper i `CONE_ZONE`:** `cell` (pixelstørrelse), `arcGap`/
+`arcDensity` (stregernes afstand og stiplethed), `edgeBand`/`edgeDensity`
+(kantens tykkelse/tæthed), `fillNear`/`fillFar`/`fillFalloff` (ditheren
+mellem stregerne), `sweepSpeed` (bølgens fart), `cellLifeMs` (en pixels
+levetid), `drift` (hvor langt den driver op), `hopSteps` (hakketheden),
+`CONE_HOPS` (de seks spring), farverne, og `maxCells` (loftet — 640;
+værste simulerede tilfælde 640). Hele kastets levetid regnes ud af
+farten og levetiden (`CONE_ZONE_MS`), så intet klippes midt i driften.
 
 Keglens facit i øvrigt: vinklen er 42° (2×21), rækkevidden hele banens
 diagonal (~765 px) — skaden når altid forbi skærmkanten. Sigte-trekanten
