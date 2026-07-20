@@ -120,12 +120,20 @@ linjepar pr. sted). Kastes der i løb, springes posen over, og bevægelse
 afbryder den — samme regel som sparket.
 
 **Førstegæt til Nicolais øjne:** die 14 fps + 0,45 s hvil; begge kast 18 fps.
-Ruptures koreografi står nu **skrevet helt ud** i `order` på `ANIMS.rupture`
-(Nicolais beats, slebet over tre omgange samme aften): åndedrag 0,2 s på
-billede 7, så svinger billede 12↔13 to gange, frysning 0,4 s på 13, og halen
-spiller ud — 1,54 s i alt. Hvert trin i listen er ét vist billede og kan
-bære sin egen pause, så nye sving/gentagelser er ren opremsning. `order`
-findes på enhver animation og trumfer `passes`/`holds`.
+Ruptures koreografi står **skrevet helt ud** i `order` på `ANIMS.rupture`,
+og den nuværende liste er **Nicolais egen** — han skrev den selv i
+trin-notationen (20. juli): åndedrag 0,3 s på billede 7, tre sving
+12↔13, frysning 0,5 s på 13, hale — 1,86 s i alt. Hvert trin i listen er
+ét vist billede og kan bære sin egen pause; `order` findes på enhver
+animation og trumfer `passes`/`holds`.
+
+**Cone-området skal have sin egen effekt-animation** (Nicolai, 20. juli —
+ikke lavet endnu). Keglens facit fra koden: vinklen er 42° (2×21), og
+rækkevidden er hele banens diagonal (`Math.hypot(SCREEN_W, PLAY_H)`,
+~765 px) — den når altid forbi skærmkanten, så "området" er reelt en
+uendelig kile. I dag tegnes den kun som sigte-forhåndsvisning (orange
+trekant, 28% dækning) mens man holder og sigter; quick-cast viser INTET.
+Effekt-animationen hører hjemme i affyringsøjeblikket, begge kastemåder.
 
 Ancestor spiller **frem → tilbage → frem igen** (`passes` på `ANIMS.ancestor`,
 Nicolais figur, 20. juli) og ender stående på sidste billede — 2,4 s i alt.

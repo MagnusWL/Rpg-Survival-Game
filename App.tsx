@@ -274,16 +274,15 @@ const ANIMS: Record<AnimName, AnimDef> = {
     fps: 18,
     loop: false,
     interruptedByMoving: true,
-    // Nicolai's choreography, 20 July, written out step by step: a breath on
-    // the 7th picture, then pictures 12 and 13 swing twice before the long
-    // freeze on 13, and the tail plays out. (His numbers count from 1; these
-    // count from 0.)
+    // Nicolai's choreography, 20 July -- this exact list is his, written in
+    // the step notation and handed over verbatim: longer breath, a third
+    // swing, longer freeze.
     order: [
       0, 1, 2, 3, 4, 5,
-      { frame: 6, hold: 0.2 },
+      { frame: 6, hold: 0.3 },
       7, 8, 9, 10,
-      11, 12, 11,
-      { frame: 12, hold: 0.4 },
+      11, 12, 11, 12, 11,
+      { frame: 12, hold: 0.5 },
       13, 14,
     ],
   },
