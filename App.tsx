@@ -982,10 +982,20 @@ const COINSACK_LEFT = (SCREEN_W - 254) / 2;
 const COINSACK_BOTTOM = 8;
 const COINSACK_WIDTH = 254;
 
-// On-screen sliders for placing the sack. On while the skull finds its spot --
-// it is landscape and three times the old sack's width, its default overlaps
-// Magnus's new skill buttons, and where it lands is Nicolai's call.
-const DEBUG_COINSACK_TUNING = true;
+/**
+ * The crowned skull, parked. Nicolai's call, 20 July: the design is approved
+ * -- "den er flot" -- but it stays off the field until it has a placement
+ * that clears Magnus's loadout bar, and until then it should not cost a
+ * frame. Off means not rendered at all: no engine, no physics, no canvas,
+ * and its seventeen assets are left out of the boot prefetch too.
+ *
+ * Bringing it back is this word plus DEBUG_COINSACK_TUNING for the sliders.
+ */
+const COINSACK_ENABLED = false;
+
+// On-screen sliders for placing the sack -- meaningless without the skull, so
+// both flags come back together when it is next in question.
+const DEBUG_COINSACK_TUNING = false;
 
 /**
  * The shove a mob takes when it is struck.
@@ -2346,7 +2356,7 @@ export default function App() {
   // built until they have arrived, so leaving them until the run starts meant
   // the sack assembled itself in front of the player.
   useEffect(() => {
-    Asset.loadAsync([...ALL_SHEETS, ...COINSACK_ASSETS]).catch(() => {});
+    Asset.loadAsync(COINSACK_ENABLED ? [...ALL_SHEETS, ...COINSACK_ASSETS] : ALL_SHEETS).catch(() => {});
   }, []);
 
   // One track for the menu, another once a run is under way.
@@ -4263,7 +4273,7 @@ export default function App() {
           that still overlaps those buttons -- where it finally sits is
           Nicolai's to settle with the tuning panel, and Magnus's concern is
           the constraint to settle it against. */}
-      {!sackOff && (
+      {COINSACK_ENABLED && !sackOff && (
         <CoinSackView
           sackRef={coinSackRef}
           left={DEBUG_COINSACK_TUNING ? tuneSackLeft : COINSACK_LEFT}
@@ -4551,12 +4561,15 @@ export default function App() {
           >
             <Text style={styles.perfSwitchText}>{musicOff ? 'musik FRA' : 'musik til'}</Text>
           </Pressable>
-          <Pressable
-            onPress={() => setSackOff((v) => !v)}
-            style={[styles.perfSwitch, sackOff && styles.perfSwitchOff]}
-          >
-            <Text style={styles.perfSwitchText}>{sackOff ? 'sæk FRA' : 'sæk til'}</Text>
-          </Pressable>
+          {/* A dead switch is a lie -- it only shows while the skull exists. */}
+          {COINSACK_ENABLED && (
+            <Pressable
+              onPress={() => setSackOff((v) => !v)}
+              style={[styles.perfSwitch, sackOff && styles.perfSwitchOff]}
+            >
+              <Text style={styles.perfSwitchText}>{sackOff ? 'sæk FRA' : 'sæk til'}</Text>
+            </Pressable>
+          )}
         </View>
       )}
 

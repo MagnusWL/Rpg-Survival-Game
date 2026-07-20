@@ -81,13 +81,22 @@ regel og billede altid passer sammen).
 
 ---
 
-## Den gamle møntsæk ligger klar til fortrydelse
+## Kraniet er parkeret — godkendt, men venter på sin plads
 
-Kraniet (`Cranium-Coin-bag`) afløste snoresækken 20. juli. Den gamle kørsel
-ligger urørt tilbage: `vendor/coin-sack/` plus kunsten i `assets/coinsack/14f/`
-og `shade.png`. Vil Nicolai have sækken igen, er det CoinSackView der peges
-tilbage — lydene er de samme filer. Bliver kraniet hængende, kan de gamle
-mapper ryddes op inden PR'en.
+Kronekraniet (`Cranium-Coin-bag`) er inde, virker og er **godkendt af Nicolai**
+("den er flot") — men det er slået fra 20. juli om aftenen, så det ikke koster
+en frame mens det venter. Slukket betyder helt væk: ingen motor, ingen fysik,
+og dets 17 filer hentes heller ikke ved start.
+
+**Kald det frem igen:** sæt `COINSACK_ENABLED = true` i `App.tsx`, og
+`DEBUG_COINSACK_TUNING = true` for placerings-sliderne. Puslespillet der
+venter: standardpladsen (68/8/254) ligger bag **Magnus's nye Ranged-knap** fra
+hans loadout-bjælke — det var derfor han selv bænkede den gamle pung. Under
+254 i bredde blødgøres pixel-looket (buffer 1:1 ved præcis 254).
+
+Den gamle snoresæk ligger stadig urørt til fortrydelse: `vendor/coin-sack/`
+plus kunsten i `assets/coinsack/14f/` og `shade.png` — lydene er de samme
+filer. Når et af de to designs er endeligt, ryddes det andet op inden PR'en.
 
 ---
 
