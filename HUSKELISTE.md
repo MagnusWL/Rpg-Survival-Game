@@ -1,9 +1,43 @@
 # Huskeliste — ting vi har skubbet til side
 
-Alt herunder ligger i koden lige nu. Intet af det er glemt, men intet af det er
-færdigt heller. Filen er kun til os to og kan slettes inden PR'en.
+Alt herunder er ikke glemt, men heller ikke færdigt. Filen er kun til os to.
 
-Sidst gennemgået 20. juli 2026.
+Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
+
+---
+
+## KORTET: hvor tingene bor nu (21. juli, aften)
+
+**Grene:**
+- `master` — Magnus's. Web-spillet ("source of truth for behavior") +
+  **`defold-port/`**, hans komplette native Defold-port.
+- `feature/defold-assets` — **VORES gren nu**: grafik, sprites, lyd, musik,
+  animation i Defold-æraen. Skåret af master.
+- `feature/knight-sprites` — web-æraens gren, færdig og fuldt pushet. Bærer
+  Atlas-pakningen (de beskårne ark), som master ALDRIG fik. Fryses som arkiv.
+
+**Sprite-ark, tre hjem — og én jernregel:**
+- `Grafik/` — rå kildekunst, git-ignoreret, røres aldrig. Begge møller
+  bygger herfra. Ubrugt råkunst arkiveres i `Grafik/arkiv/` (inden for
+  ignore-hegnet).
+- `assets/sprites/` — web-spillets ark. På denne gren: **almindelige
+  128-gitre** (upakkede).
+- `defold-port/assets/sprites/` — portens **egne kopier**, almindelige
+  128-gitre. **Defolds tile sources kræver faste 128-celler — giv den
+  ALDRIG pakkede ark.** Pakning i Defold = Magnus's teksturkomprimering.
+
+**Arkivet:** `arkiv/` i roden (sporet, med README der logger hvad/hvornår/
+hvorfor) til udgåede kode-ting; `arkiv/lokalt/` (ignoreret) til lokale
+testfiler; `Grafik/arkiv/` til råkunst. **Intet slettes.**
+
+**Defold-editoren:** `Downloads\Defold-x86_64-win32\Defold\Defold.exe` —
+åbn `defold-port/game.project`, tryk F5. Konsollen skal vise
+`PORT TESTS: N passed, 0 failed`.
+
+Bemærk: afsnittene herunder er skrevet i web-æraen. Tallene og
+beslutningerne gælder stadig (de ER porterings-specifikationen), men
+"i spillet nu" betyder web-udgaven — Defold-portens tilstand skal
+efterprøves punkt for punkt, efterhånden som vi tester den.
 
 ---
 
@@ -23,6 +57,13 @@ når de er slukket — de bliver slet ikke tegnet.
 ---
 
 ## Midlertidigt synligt i spillet
+
+**Musik og regnlyd starter SLUKKET** (21. juli, Nicolais ønske mens vi tester
+animationer). `useState(true)` på `musicOff` i App.tsx — **skal tilbage til
+`false` inden PR'en.** Samtidig følger regnens ambience nu musik-kontakten i
+stedet for kun master-kontakten, og rækken hedder derfor "Music & rain";
+vejr-kontakten er med vilje holdt udenfor, så man kan få stilhed med regn
+stadig faldende. Den kobling er ikke midlertidig — kun default'en er.
 
 **"Continue · Test run"** nederst i menuen. Designet har én knap, og de to her
 er parkeret nede i hjørnet med lille skrift indtil det er afgjort hvor de hører
@@ -256,6 +297,40 @@ ur (pause fryser dem midt i faldet). Tal til øjnene: `CORPSE_LINGER` /
 
 ---
 
+## Defold-flytningen (Magnus er i gang — plan, intet gjort)
+
+Nicolai nævnte 21. juli, at Magnus er ved at flytte spillet til **Defold**.
+Kunsten, lydene og alle design-tal overlever; kun web-rørføringen skiftes ud.
+Denne liste er reelt porterings-specifikationen. Fordelingen, når dagen kommer:
+
+**Bages til flipbøger** (kittene kører én gang i web-udgaven, billederne
+optages og pakkes — designerens motor tegner selv sine frames):
+- RESCUE HER-rivningen (én forestilling, ~20-30 billeder)
+- Intro-effekterne: bål, øjne, tåge (loops, beskåret til deres områder)
+- CRUEL-glimtet (eller genskabes trivielt)
+
+**Genopbygges** (interaktivt/levende — kan ikke filmes):
+- Kraniet: Defolds indbyggede Box2D-fysik + kittets kunst, lyde og tal
+- Regn + vandringe: Defolds partikelsystem; vores tal er opskriften
+
+**Flytter som de er:** alle sprite-ark, kegle-stregerne (allerede en flipbog),
+alle lyde. Koreografierne (`order`-lister) er Defolds *native* animationsform.
+
+**Motor-råd der først gælder i Defold:** mipmaps FRA på pixel art;
+ASTC/ETC2-komprimering på baggrunde men test sprites med øjne (4×4-blokke
+kan smøre skarpe kanter).
+
+**Venter på:** Magnus's bekræftelse + tidshorisont. Derefter bygger Claude
+optage-værktøjet (en side der kører hvert kit og gemmer canvas-billeder).
+
+**Rundturen er testet** (21. juli): Magnus kørte `Melee.png` gennem Defold, og
+udgaven er **pixel-identisk** med kilden — 0 afvigelser af 7,9 mio. px, ingen
+resampling, ingen premultiply, intet farveskift. Kun PNG'en er pakket om (11%
+mindre fil). Vejen ind i Defold er **kilderne i `Grafik/`** (ensartet gitter =
+Defolds tile source-format), ikke vores pakkede web-atlasser.
+
+---
+
 ## Hvad spillet vejer (målt 21. juli)
 
 To helt forskellige tal, og kun det ene er et problem:
@@ -283,6 +358,98 @@ der først viser sig på en telefon.
 disken og `idle-rim.png` fylder 17 KB — i hukommelsen fylder de nøjagtig det
 samme. Et ark er 1920×1024 pixels à 4 bytes. Punktum.
 
+### ATLAS-PAKNINGEN — navnet på arbejdsgangen
+
+Sådan hedder den, når vi taler om den: **atlas-pakning**. Opskriften:
+1. Beskær hvert **billede** (ikke hvert ark) til sin egen tætteste kasse.
+2. Pak kasserne tæt (hylde-pakning, aldrig roteret, 2 px luft).
+3. Skriv facitlisten i `atlas.json` — seks tal pr. billede, inkl. hvor det
+   sad i den gamle 128-celle.
+4. Spillet lægger forskydningen tilbage ved tegning → ankeret bevares.
+5. **Bevis** med `node tools/verify-sprites.mjs <ref> <mappe>` at hvert
+   eneste billede er pixel-identisk med originalen fra git.
+
+**Gjort:** ridderen (150 → 39 MB, 2400 billeder bevist) og fjenderne
+(53 → 7 MB, **86% sparet** — zombien fylder ned til 9% af sin celle; 840
+billeder bevist). Spillet i alt: **260 → 104 MB**.
+
+**Ikke pakket endnu:**
+- `effects/blood.png` — 5 rækker × 15 billeder, 4,7 MB udpakket. Kan tages
+  med samme opskrift (renderen forstår allerede `rows`), men er småpenge.
+- `effects/glow.png` og kegle-stregerne — allerede små/pakkede; intet at hente.
+- Intro-/menubilleder — fotografier, ikke sprite-gitre; atlas-pakning gælder ikke.
+- Kraniet — vendored kit, røres ikke.
+
+### Pakning: GJORT 21. juli — ridderen 150 → 39 MB
+
+Hvert **billede** er beskåret til sin egen kasse og pakket tæt (ChatGPTs idé,
+målt bedre end min første version: én kasse pr. *ark* gav 97 MB, én pr.
+*billede* giver 39). Layoutet ligger i `assets/sprites/knight/atlas.json` —
+seks tal pr. billede: hvor det ligger i arket, hvor stort det er, og hvor det
+sad i den gamle 128-celle. Spillet lægger den sidste forskydning tilbage, så
+ankeret er uændret.
+
+**Bevist identisk:** `node tools/verify-sprites.mjs 631b25c~1` sammenligner
+alle 2400 billeder pixel for pixel mod de oprindelige utrimmede ark. Ingen
+afvigelse. Værktøjet er gemt — det er dét, der gør sådan et indgreb
+forsvarligt, for øjet kan ikke revidere 2400 billeder.
+
+**Fælden, værd at huske:** klippeboksen var stadig 128×128, mens cellerne var
+krympet — så nabobillederne sivede ind i rammen. Klippet skal følge billedet.
+Fanget ved at måle hvor silhuetten *landede*, ikke ved at kigge.
+
+**Rul tilbage:** `PACK.enabled = false` øverst i `tools/build-sprites.mjs` +
+`npm run build:sprites` → almindelige 15×8-ark igen, og spillet følger med af
+sig selv. Originalerne ligger desuden i git.
+
+**Spillet i alt: 260 → 149 MB.** Zombierne er **ikke** pakket endnu og er nu
+den største post (52,5 MB) — samme greb dér, og de har mere luft end ridderen.
+
+**Hvad pakningen gør ved ydelsen (målt 21. juli):** løbende fps er *uændret*
+(236 fps, hak 0) — at tegne et billede koster det samme uanset teksturens
+størrelse. Men **afkodningen er 4-5× billigere**: idle 1,3 ms, melee 5,2 ms,
+mod 1,97 mio. pixels pr. ark før. Det er præcis den udgift, Magnus beskrev som
+*"7,5 MB decode på main thread = 90 ms hak"*. Derfor er pakningen af
+zombierne mere end hukommelse: Magnus har netop sat dem til at **skifte kilde
+direkte**, hvilket betaler afkodningen igen hver gang.
+
+**Prisen jeg tilføjede, nu målt:** rammens størrelse ændrer sig pr. billede
+(før fast 128), så browseren omberegner layout. Isoleret i en test med 20 lag
+opdateret hver frame: **0,142 → 0,237 ms, altså 0,095 ms ekstra = 0,57% af et
+60 fps-budget.** Og det er det pessimistiske tal — ridderen skifter billede
+10-24 gange i sekundet, ikke 60, så i praksis omkring 0,025 ms. Reelt, men
+uden betydning. (Måling i det *kørende* spil mislykkedes: 6 rAF-frames på 6
+sekunder, altså frossen rude — tallene derfra kasseret.)
+
+---
+
+### Baggrunden for beskæringen (målt 21. juli)
+
+Cellerne er 128×128, men figuren fylder dem sjældent. Målt på hvert ark
+(tætteste kasse der rummer alle 120 celler, så ét fælles anker bevares):
+
+| ark | indhold | tomt |
+|---|---|---|
+| idle-rim | 44×73 | **80%** |
+| walk-rim | 52×75 | 76% |
+| idle | 60×79 | 71% |
+| walk | 72×88 | 61% |
+| takedamage | 80×96 | 53% |
+| run | 88×97 | 48% |
+| unsheathsword | 124×117 | 11% |
+
+**Ridderen: 150 MB → 83 MB (45% sparet).** Lysmaskerne er de tommeste af
+alle — rim-lyset klæber tæt til figuren, så der er næsten kun luft omkring.
+
+**Beskæring + rim bagt ind = 150 MB → 41 MB.** Samme skarphed, intet
+udseende ændret. Det er bedre end 64 px-arkene (38 MB) uden at koste
+en eneste detalje.
+
+Arbejdet: byggeriet gemmer hvert arks forskydning, `AnimDef` får den med,
+og `SpriteSheet` lægger den til når den tegner. Ankeret bevares *fordi*
+forskydningen følger med — den gamle bekymring om at ridderen ville hoppe
+mellem animationer gælder kun ved én fælles beskæring, ikke ved én pr. ark.
+
 ### Beslutning der venter: skal rim-lyset bages ind? (Nicolai, 21. juli)
 
 Nicolai foreslår at gøre rim-lyset til en **permanent del af arkene**, så vi
@@ -305,6 +472,14 @@ ville skulle bruges *før* bygningen i stedet for under spillet.
 maskerne (`RIM` i `tools/build-sprites.mjs`); den skal blot lægge dem oven på
 arket i stedet for at skrive dem ved siden af, og `AnimDef.rim` + rim-laget i
 `SpriteSheet` kan så ryge ud.
+
+### Farvereduktion og palette-teksturer: virker ikke her
+
+Færre farver gør PNG'en mindre **på disken**, men ikke i hukommelsen —
+browseren pakker altid ud til 4 bytes pr. pixel. En ægte palette-tekstur
+(1 byte pr. pixel, 75% sparet) kræver en shader, og den dør har vi ikke
+adgang til med almindelige billeder i en browser. **Kunne åbne sig**, hvis
+spillet en dag flytter ind i Magnus's `wip/skia-play-area-canvas`.
 
 ### Mindre ark? Afprøvet og lagt fra os (21. juli)
 
