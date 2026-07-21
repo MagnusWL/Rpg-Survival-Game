@@ -620,9 +620,17 @@ export default function App() {
   // 330 elements are not built at all -- display:none only stopped the paint.
   const [sfxOff, setSfxOff] = useState(false);
   const [weatherOff, setWeatherOff] = useState(false);
-  // Music apart from the clips: it goes through its own players below, not
-  // through playSfx, so it needs its own switch.
-  const [musicOff, setMusicOff] = useState(false);
+  /**
+   * Music apart from the clips: it goes through its own players below, not
+   * through playSfx, so it needs its own switch. It carries the rain's
+   * ambience with it -- both are background rather than events, and Nicolai
+   * wanted the pair silenced together while testing.
+   *
+   * TEMPORARY: starts off, at his request, so a test run is quiet without
+   * having to reach for the panel each reload. Put this back to false before
+   * the PR -- it is on HUSKELISTE.
+   */
+  const [musicOff, setMusicOff] = useState(true);
   /**
    * The master: everything at once. Clips, both music tracks, the rain
    * ambience and the coin sack's own audio context -- the sack is the one
@@ -1033,7 +1041,14 @@ export default function App() {
 
       // Weather belongs to the field, so it runs with a run and stops with it.
       // Nothing to cross-fade: it is quiet enough to simply start.
-      if (screen === 'game' && RAIN_ENABLED && !allSoundOff) {
+      //
+      // It answers the music switch as well as the master. The rain is
+      // background the same way the music is -- neither marks an event -- and
+      // Nicolai wants the two quiet together while he watches animations. The
+      // weather switch is left out of it on purpose: that one is for taking
+      // the rain off the screen, and silence with the rain still falling is a
+      // thing worth being able to ask for.
+      if (screen === 'game' && RAIN_ENABLED && !allSoundOff && !musicOff) {
         rainAmbience.loop = true;
         rainAmbience.play();
       } else {
@@ -2662,7 +2677,9 @@ export default function App() {
           </View>
           {renderSettingRow('Sound', !allSoundOff, () => setAllSoundOff((v) => !v))}
           {renderSettingRow('Sound effects', !sfxOff, () => setSfxOff((v) => !v))}
-          {renderSettingRow('Music', !musicOff, () => setMusicOff((v) => !v))}
+          {/* Named for both, because it silences both: the two tracks and the
+              rain's ambience, which are background rather than events. */}
+          {renderSettingRow('Music & rain', !musicOff, () => setMusicOff((v) => !v))}
           {renderSettingRow('Weather', !weatherOff, () => setWeatherOff((v) => !v))}
           {COINSACK_ENABLED && renderSettingRow('Coin sack', !sackOff, () => setSackOff((v) => !v))}
           {DEBUG_PERF && renderSettingRow('Technical info', techAreaOn, () => setTechAreaOn((v) => !v))}

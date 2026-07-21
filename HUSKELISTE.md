@@ -24,6 +24,13 @@ når de er slukket — de bliver slet ikke tegnet.
 
 ## Midlertidigt synligt i spillet
 
+**Musik og regnlyd starter SLUKKET** (21. juli, Nicolais ønske mens vi tester
+animationer). `useState(true)` på `musicOff` i App.tsx — **skal tilbage til
+`false` inden PR'en.** Samtidig følger regnens ambience nu musik-kontakten i
+stedet for kun master-kontakten, og rækken hedder derfor "Music & rain";
+vejr-kontakten er med vilje holdt udenfor, så man kan få stilhed med regn
+stadig faldende. Den kobling er ikke midlertidig — kun default'en er.
+
 **"Continue · Test run"** nederst i menuen. Designet har én knap, og de to her
 er parkeret nede i hjørnet med lille skrift indtil det er afgjort hvor de hører
 hjemme.
