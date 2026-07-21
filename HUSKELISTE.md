@@ -306,18 +306,27 @@ maskerne (`RIM` i `tools/build-sprites.mjs`); den skal blot lægge dem oven på
 arket i stedet for at skrive dem ved siden af, og `AnimDef.rim` + rim-laget i
 `SpriteSheet` kan så ryge ud.
 
-### Opløsningen: en fejlslutning rettet 21. juli
+### Mindre ark? Afprøvet og lagt fra os (21. juli)
 
-Kommentaren i `build-sprites.mjs` afviste at gå fra 128 til 96 px celler,
-fordi det kun sparede 16-25% af **filstørrelsen**. Det var målt på det
-forkerte: i hukommelsen er besparelsen præcis kvadratisk — **96 sparer 44%,
-64 sparer 75%**. Mod 150 MB er det rigtige penge. Prisen er skarphed:
-ridderen tegnes ved præcis 128, så mindre ark skal skaleres op igen.
-Lysmaskerne kunne derimod sagtens være halve — kanten er 2 px og blød.
+I hukommelsen sparer mindre celler præcis kvadratisk: 96 px = 44%, 64 px =
+75%. Testet med `node tools/test-resolution.mjs` (skriver kun ét
+sammenligningsbillede, rører ingen ark):
 
-Konklusionen for effekter: at bytte hukommelse for frames er rigtigt, men
-budgettet er ikke uendeligt. Regnens ~4 MB for at fjerne 230 permanente lag
-er en fremragende handel. Nye 150-MB-poster er det ikke.
+- **96 blød** — udvasket, sværdet flyder ud. Nej.
+- **96 nearest** — hakket; 1,33 går ikke op, så pixelrækker forsvinder ujævnt. Nej.
+- **64 nearest** — knivskarp (2× går op), men grovere: sværdet bliver en klump.
+  Legitim stil, men et *udseendevalg*.
+
+**Nicolais dom: vi lader det være.** 64 ligger i baghånden, hvis en telefon
+en dag siger stop. Rim-bagningen ovenfor sparer mere (75 MB) og koster intet.
+
+### Regnen: den store tilbageværende (ikke gjort)
+
+**230 animerede lag, permanent** — mod keglens 8 i to sekunder. Det er
+langt den største post nu. Bages som ét gentaget felt: ~4 MB for at gå fra
+230 lag til 1-2. Risici: gentagelsen kan ses (modtræk: større tern + to lag
+i forskellig fart), og dybden fra dråbernes egen variation går tabt.
+Vandringene (10 lag) er ikke besværet værd.
 
 ---
 
