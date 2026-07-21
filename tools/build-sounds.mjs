@@ -1,5 +1,5 @@
 /**
- * Builds game-ready sound effects from the raw pack in Lyde/.
+ * Builds game-ready sound effects from the raw pack in Raw_Assets/Lyde/.
  *
  * The source files are 96 kHz / 24-bit studio masters, roughly 830 KB each, and
  * two thirds of every file is silence. Three lossless-sounding steps handle it:
@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC_DIR = path.join(ROOT, 'Lyde');
+const SRC_DIR = path.join(ROOT, 'Raw_Assets', 'Lyde');
 const OUT_DIR = path.join(ROOT, 'assets', 'sounds');
 
 import { RATE, PEAK_DB, EQ, SOUNDS, trimFilters, eqFilters, clipFilters } from './sound-config.mjs';

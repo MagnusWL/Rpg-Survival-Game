@@ -1,5 +1,5 @@
 /**
- * Puts every candidate in Grafik/Baggrund side by side, with the darkening and
+ * Puts every candidate in Raw_Assets/Grafik/Baggrund side by side, with the darkening and
  * vignette from build-sprites.mjs already applied -- so what you see is how each
  * would actually look in the game rather than how it looks on disk.
  *
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DIR = path.join(ROOT, 'Grafik', 'Baggrund');
+const DIR = path.join(ROOT, 'Raw_Assets', 'Grafik', 'Baggrund');
 const OUT = process.argv[2];
 
 // kept in step with build-sprites.mjs
@@ -20,7 +20,7 @@ const VIGNETTE = { start: 0.45, strength: 0.55 };
 
 const files = readdirSync(DIR).filter((f) => /\.(png|jpe?g)$/i.test(f)).sort();
 if (!files.length) {
-  console.error('Ingen baggrunde i Grafik/Baggrund');
+  console.error('Ingen baggrunde i Raw_Assets/Grafik/Baggrund');
   process.exit(1);
 }
 

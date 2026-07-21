@@ -17,9 +17,10 @@ Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
   Atlas-pakningen (de beskårne ark), som master ALDRIG fik. Fryses som arkiv.
 
 **Sprite-ark, tre hjem — og én jernregel:**
-- `Grafik/` — rå kildekunst, git-ignoreret, røres aldrig. Begge møller
-  bygger herfra. Ubrugt råkunst arkiveres i `Grafik/arkiv/` (inden for
-  ignore-hegnet).
+- `Raw_Assets/` — **menneskets indbakke** (Nicolai, 21. juli): al rå kunst,
+  lyd og musik i `Grafik/`, `Lyde/` og `Music/` under ét git-ignoreret tag.
+  Røres aldrig af møllerne, kun læses. Ubrugt råmateriale arkiveres i
+  `Raw_Assets/Grafik/arkiv/` osv. — inden for ignore-hegnet.
 - `assets/sprites/` — web-spillets ark. På denne gren: **almindelige
   128-gitre** (upakkede).
 - `defold-port/assets/sprites/` — portens **egne kopier**, almindelige

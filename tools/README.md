@@ -44,7 +44,7 @@ named folders do not.
 
 ## Sound
 
-The raw pack in `Lyde/` is 96 kHz / 24-bit studio masters, ~830 KB per clip, and
+The raw pack in `Raw_Assets/Lyde/` is 96 kHz / 24-bit studio masters, ~830 KB per clip, and
 **two thirds of every file is silence**. That padding is not just weight: the
 0.18 s of leading quiet would delay the swing sound past a fifth of the attack
 animation, so trimming it is a timing fix first and a size win second.
@@ -72,8 +72,8 @@ Requires ffmpeg on PATH: `winget install Gyan.FFmpeg`.
 
 | | |
 |---|---|
-| `npm run build:sprites` | Rebuilds `assets/sprites/knight/` from `Grafik/`. Edit `SHEETS` to add animations. |
-| `npm run build:sounds` | Rebuilds `assets/sounds/` from `Lyde/`. Trims silence, 48 kHz, 16-bit, bakes in `EQ`. Needs ffmpeg. |
+| `npm run build:sprites` | Rebuilds `assets/sprites/knight/` from `Raw_Assets/Grafik/`. Edit `SHEETS` to add animations. |
+| `npm run build:sounds` | Rebuilds `assets/sounds/` from `Raw_Assets/Lyde/`. Trims silence, 48 kHz, 16-bit, bakes in `EQ`. Needs ffmpeg. |
 | `npm run build:eq` | Regenerates `tools/eq-preview.html` for dialling in `EQ` by ear. Open it from disk. |
 | `node tools/verify-grid.mjs` | Checks the source art still matches the 15x8x128 assumption. Run after adding art. |
 | `node tools/check-facing.mjs out.png` | Renders which row `facingFromDelta` picks per compass direction. The regression check for facing. |

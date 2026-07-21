@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { RATE, PEAK_DB, EQ, SOUNDS, trimFilters } from './sound-config.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC_DIR = path.join(ROOT, 'Lyde');
+const SRC_DIR = path.join(ROOT, 'Raw_Assets', 'Lyde');
 const OUT = path.join(ROOT, 'tools', 'eq-preview.html');
 
 /**
@@ -67,7 +67,7 @@ for (const { out, src } of SOUNDS) {
 }
 
 if (clips.length === 0) {
-  console.error('Ingen kildelyde fundet i Lyde/.');
+  console.error('Ingen kildelyde fundet i Raw_Assets/Lyde/.');
   process.exit(1);
 }
 

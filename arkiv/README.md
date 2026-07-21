@@ -10,6 +10,6 @@ grund, saa det kan hentes tilbage med et enkelt trak.
 | `coinsack-shade.png` | `assets/coinsack/shade.png` | 21. juli 2026 | samme |
 | `lokalt/` | rod + tools | 21. juli 2026 | lokale testfiler, aldrig i git |
 
-Raa kildekunst arkiveres IKKE her men i `Grafik/arkiv/` og `Lyde/arkiv/`,
+Raa kildekunst arkiveres IKKE her men i `Raw_Assets/Grafik/arkiv/` og `Raw_Assets/Lyde/arkiv/`,
 saa den bliver inden for git-ignore-hegnet -- store binaerfiler skal ikke
 kunne komme i repoet ved et uheld.

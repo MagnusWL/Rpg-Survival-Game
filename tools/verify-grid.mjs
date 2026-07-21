@@ -1,8 +1,11 @@
 import sharp from 'sharp';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const DIR = 'C:\\Users\\skarn\\Claude_Code_Private\\RPG_Survival\\Grafik\\Knight';
+// Derived from the script's own location rather than hardcoded to one
+// machine, which it embarrassingly was until 21 July.
+const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'Raw_Assets', 'Grafik', 'Knight');
 const CELL = 128;
 const ALPHA_MIN = 8;
 

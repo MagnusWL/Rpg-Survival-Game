@@ -47,10 +47,13 @@ yarn-error.*
 # scripts produce under assets/ instead. See tools/README.md.
 #
 # Anchored with a leading slash on purpose: without it these match at any depth,
-# and "Music/" would swallow the built assets/music/ as well.
-/Grafik/
-/Lyde/
-/Music/
+# and a bare "Music/" pattern would swallow the built assets/music/ as well.
+#
+# Raw_Assets/ is the human inbox: Nicolai drops raw art in Grafik/, raw sound
+# in Lyde/ and raw tracks in Music/, all inside this one ignored root. The
+# mills in tools/ read from here and write game-ready files to assets/ (web)
+# -- nothing raw may enter the repo.
+/Raw_Assets/
 
 # Generated tuning pages -- rebuilt by "npm run build:eq" and "build:rain", and
 # they embed the audio and the ground, so there is no reason to version them.

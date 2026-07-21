@@ -1,5 +1,5 @@
 /**
- * Builds the music tracks from the raw WAVs in Music/.
+ * Builds the music tracks from the raw WAVs in Raw_Assets/Music/.
  *
  * Two things separate this from build-sounds.mjs:
  *
@@ -80,7 +80,7 @@ let totalBefore = 0;
 let totalAfter = 0;
 
 for (const { out, src } of MUSIC) {
-  const inPath = path.join(ROOT, src);
+  const inPath = path.join(ROOT, 'Raw_Assets', src);
   if (!existsSync(inPath)) {
     console.error(`MANGLER: ${src}`);
     continue;
@@ -124,7 +124,7 @@ for (const { out, src } of MUSIC) {
 }
 
 for (const entry of AMBIENCE) {
-  const inPath = path.join(ROOT, entry.src);
+  const inPath = path.join(ROOT, 'Raw_Assets', entry.src);
   if (!existsSync(inPath)) {
     console.error(`MANGLER: ${entry.src}`);
     continue;

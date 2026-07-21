@@ -1,5 +1,5 @@
 /**
- * Builds game-ready sprite sheets from the raw 1920x1024 source art in Grafik/.
+ * Builds game-ready sprite sheets from the raw 1920x1024 source art in Raw_Assets/Grafik/.
  *
  * Source layout (verified, see tools/verify-grid.mjs):
  *   15 columns x 8 rows of 128x128 cells = 120 frames.
@@ -17,7 +17,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC_DIR = path.join(ROOT, 'Grafik', 'Knight');
+/** The human inbox: all raw art lives under here, outside git's fence. */
+const RAW = path.join(ROOT, 'Raw_Assets');
+const SRC_DIR = path.join(RAW, 'Grafik', 'Knight');
 const OUT_DIR = path.join(ROOT, 'assets', 'sprites', 'knight');
 
 /**
@@ -245,7 +247,7 @@ console.log(`\nSkrevet til ${path.relative(ROOT, OUT_DIR)}`);
 // packed sheet, so these get assembled into the same 15x8 grid the knight uses.
 
 const ZOMBIE_SRC = path.join(
-  ROOT, 'Grafik', 'Enemies', '2D HD Zombie individual sprites', 'ZombieMale2'
+  RAW, 'Grafik', 'Enemies', '2D HD Zombie individual sprites', 'ZombieMale2'
 );
 const ZOMBIE_OUT = path.join(ROOT, 'assets', 'sprites', 'zombie');
 
@@ -267,7 +269,7 @@ const ZOMBIE_ANIMS = [
 // packed as rows instead, so picking one is the same lookup as picking a facing
 // and the renderer needs no special case.
 const BLOOD_SRC = path.join(
-  ROOT, 'Grafik', 'Enemies', '2D HD Zombie individual sprites', 'Blood'
+  RAW, 'Grafik', 'Enemies', '2D HD Zombie individual sprites', 'Blood'
 );
 const BLOOD_VARIANTS = ['Blood1', 'Blood2', 'Blood3', 'Blood4', 'Blood5'];
 
@@ -338,7 +340,7 @@ async function packFrameFolders(folders, outPath) {
 }
 
 if (!existsSync(ZOMBIE_SRC)) {
-  console.log('\n(Springer fjender over -- Grafik/Enemies findes ikke)');
+  console.log('\n(Springer fjender over -- Raw_Assets/Grafik/Enemies findes ikke)');
 } else {
   mkdirSync(ZOMBIE_OUT, { recursive: true });
   console.log('\nFjender: samler loese billeder til ark');
@@ -370,8 +372,8 @@ if (!existsSync(ZOMBIE_SRC)) {
 // not water. Measured coverage was as low as 62%. Points sampled from the mask
 // itself cannot miss, and they leave the runtime with less to do rather than
 // more -- it picks one and draws there.
-const PUDDLE_ART = path.join(ROOT, 'Grafik', 'Baggrund', 'effekt', 'water puddles on background.png');
-const PUDDLE_MASK = path.join(ROOT, 'Grafik', 'Baggrund', 'effekt', 'waterpuddles placement for effekt.png');
+const PUDDLE_ART = path.join(RAW, 'Grafik', 'Baggrund', 'effekt', 'water puddles on background.png');
+const PUDDLE_MASK = path.join(RAW, 'Grafik', 'Baggrund', 'effekt', 'waterpuddles placement for effekt.png');
 const PUDDLE_OUT = path.join(ROOT, 'assets', 'sprites', 'effects', 'puddles.json');
 
 /** Keeps ripples off the rim, so a ring spreads into water rather than out of it. */
@@ -536,7 +538,7 @@ const GLOW_SIZE = 256;
 // portrait at 2x needs about 1108 px of height and the source has 1086, so it
 // lands near 1:1. Anything smaller gets stretched back up and turns to mush.
 /**
- * Which of the candidates in Grafik/Baggrund to use. Change the filename, run
+ * Which of the candidates in Raw_Assets/Grafik/Baggrund to use. Change the filename, run
  * the build again, and the game picks it up -- the output name never changes,
  * so nothing in App.tsx has to know which one is in play.
  *
@@ -545,7 +547,7 @@ const GLOW_SIZE = 256;
  */
 const BG_CHOICE = 'Background.png';
 
-const BG_SRC = path.join(ROOT, 'Grafik', 'Baggrund', BG_CHOICE);
+const BG_SRC = path.join(RAW, 'Grafik', 'Baggrund', BG_CHOICE);
 const BG_OUT = path.join(ROOT, 'assets', 'sprites', 'background.jpg');
 
 /**
@@ -658,7 +660,7 @@ if (existsSync(BLOOD_SRC)) {
 // indistinguishable at a glance and a fraction of the size. The plaque needs
 // its alpha, so it stays PNG, and is brought down to twice the width it is
 // drawn at, which is as much as a phone at 2x can show.
-const MENU_SRC = path.join(ROOT, 'Grafik', 'Menu', 'Mobile game menu buttons3', 'dropin', 'assets');
+const MENU_SRC = path.join(RAW, 'Grafik', 'Menu', 'Mobile game menu buttons3', 'dropin', 'assets');
 const MENU_OUT = path.join(ROOT, 'assets', 'sprites', 'menu');
 const MENU_BUTTON_W = 720;
 
@@ -708,7 +710,7 @@ if (existsSync(MENU_SRC)) {
 // The campfire's background matters especially: the flames are painted out of
 // it, because the fire is the animation. Reach for the older 1.png and the
 // scene ends up burning twice.
-const INTRO_SRC = path.join(ROOT, 'Grafik', 'Intro');
+const INTRO_SRC = path.join(RAW, 'Grafik', 'Intro');
 const INTRO_OUT = path.join(ROOT, 'assets', 'sprites', 'intro');
 const INTRO_CARDS = [
   { card: '1', from: path.join('1 Campfire', 'dropin-campfire', 'assets', 'campfire.png') },
