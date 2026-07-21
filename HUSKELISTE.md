@@ -6,6 +6,57 @@ Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
 
 ---
 
+## I GANG LIGE NU: RESCUE HER-rivningen ind i Defold (afbrudt ved compact)
+
+Nicolais spørgsmål "er et spritesheet ikke bedre end en film?" er allerede
+svaret: **optagelsen ER et spritesheet.** Motoren tegner billederne én gang
+(det er "filmen"), og resultatet er `tear.atlas` — 20 billeder, spillet som
+ethvert andet ark. Ingen video findes.
+
+**Gjort og virker:**
+- `tools/record-server.mjs` — optage-studiets server (statisk + POST /frame).
+  Startes: `node tools/record-server.mjs`, kør siden på `localhost:8123`.
+- `tools/record-tear.html` — kører kittets motor på **virtuel tid**
+  (performance.now, Date.now OG rAF udskiftet før konstruktion → deterministisk
+  og immun over for rude-frysning). Geometri = portens egne brøker på 390×844.
+  42 billeder @ 30 fps optaget til `tools/recordings/tear/` (ignoreret, kan
+  genskabes).
+- `tools/pack-tear.mjs` — fælles kasse over alle billeder (390×413 @ (0,431)),
+  vælger billedtal efter 2048-teksturloftet: **20 billeder @ 15 fps** (stride
+  2, 2 halebilleder ofret — settle-posen), 12,3 MB udpakket. Skriver
+  `defold-port/assets/sprites/tear/tear-XX.png` + `placement.json` +
+  `defold-port/main/tiles/tear.atlas` (animation "tear",
+  PLAYBACK_ONCE_FORWARD).
+
+**MANGLER (næste skridt efter compact):**
+1. `defold-port/main/gui/menu.gui`: tilføj textures-blok med
+   `name: "tear" texture: "/main/tiles/tear.atlas"` (samme form som "ui").
+2. `defold-port/main/gui/menu.gui_script`: byg skjult tear-node i init
+   (centrum **(195.0, 206.5)** i gui-koordinater (y op), størrelse
+   **390×413** — tal fra placement.json). Plaque-tryk: i stedet for straks
+   `session.actions.start_new_run()` → sæt `self.tearing`, skjul
+   `self.plaque` (gui.set_enabled false), vis tear-noden,
+   `gui.play_flipbook(node, hash("tear"), function() start_new_run() end)`.
+   Ved `self.tearing`: slug al input (menuen er en dør, ikke et panel).
+   Kun plaquen river — Continue/Test run starter stadig straks (som web).
+   ui-hjælperne: `ui.tex_box` sætter texture "ui" — tear-noden skal have
+   `gui.set_texture(n, "tear")` i stedet; skriv den manuelt eller udvid
+   hjælperen.
+3. Nicolai F5-tester: rivning → spilstart når filmen er færdig (~1,3 s).
+4. Er 15 fps for hakket i snappet, er alternativet halv opløsning @ 30 fps
+   (~6,8 MB) — én linje i pack-tear (resize før crop) + ny pakning.
+
+**Genbrug:** samme studie (server + virtuel-tid-harness + pakker) er skabelonen
+for intro-effekterne (bål/øjne/tåge — loops) og CRUEL-glimtet.
+
+**Det lovede dobbelt-leverings-workflow** (møllerne skriver til både
+`assets/` og `defold-port/assets/` + komponentfiler i ét hug) er stadig
+**ubygget** — bygges første gang Nicolai afleverer nyt råmateriale, mod det
+ægte behov. Rivningen her var første skridt: den skriver allerede direkte
+til defold-port.
+
+---
+
 ## KORTET: hvor tingene bor nu (21. juli, aften)
 
 **Grene:**

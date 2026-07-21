@@ -62,3 +62,6 @@ tools/rain-preview.html
 
 # Local-only archive: never in git; the tracked arkiv/ entries are enough.
 /arkiv/lokalt/
+
+# Recordings are mill intermediates: regenerable from the harness pages.
+/tools/recordings/

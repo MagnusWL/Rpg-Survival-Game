@@ -1,0 +1,15 @@
+{
+  "screen": {
+    "W": 390,
+    "H": 844
+  },
+  "box": {
+    "x": 0,
+    "y": 431,
+    "w": 390,
+    "h": 413
+  },
+  "frames": 20,
+  "fps": 15,
+  "note": "box er i skaerm-koordinater (y nedad) paa 390x844; gui-noden skal staa med centrum i (box.x+box.w/2, H-(box.y+box.h/2)) og stoerrelse (box.w, box.h)"
+}

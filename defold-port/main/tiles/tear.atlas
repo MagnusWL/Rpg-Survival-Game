@@ -1,0 +1,67 @@
+animations {
+  id: "tear"
+  images {
+    image: "/assets/sprites/tear/tear-00.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-01.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-02.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-03.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-04.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-05.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-06.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-07.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-08.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-09.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-10.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-11.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-12.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-13.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-14.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-15.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-16.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-17.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-18.png"
+  }
+  images {
+    image: "/assets/sprites/tear/tear-19.png"
+  }
+  playback: PLAYBACK_ONCE_FORWARD
+  fps: 15
+}
+margin: 2
+extrude_borders: 2
