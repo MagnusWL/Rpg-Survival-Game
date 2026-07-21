@@ -1,0 +1,43 @@
+[project]
+title = Emoji Autobattler (Defold Port)
+version = 0.1.0
+
+[bootstrap]
+main_collection = /main/main.collection
+
+[script]
+shared_state = 1
+
+[display]
+width = 390
+height = 844
+high_dpi = 1
+
+[render]
+clear_color_red = 0.106
+clear_color_green = 0.106
+clear_color_blue = 0.169
+clear_color_alpha = 1
+
+[sprite]
+max_count = 16384
+
+[sound]
+max_sound_instances = 64
+max_component_count = 64
+
+[gui]
+max_count = 32
+
+[collection]
+max_instances = 8192
+
+[factory]
+max_count = 32
+
+[physics]
+type = 2D
+gravity_y = 0
+
+[input]
+game_binding = /input/game.input_binding

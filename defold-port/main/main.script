@@ -1,0 +1,126 @@
+-- App controller: screen state machine, run lifecycle, and the sim tick.
+-- GUIs render from session; this script owns transitions and side effects.
+local session = require("game.session")
+local sim = require("game.sim")
+local meta_mod = require("game.meta")
+local audio = require("game.audio")
+local effects = require("game.effects")
+local tests = require("game.tests")
+
+local function show_screen(name)
+	session.screen = name
+	session.overlay = nil
+	session.tooltip = nil
+	for gui_name, screen in pairs({ menu_gui = "menu", continue_gui = "continue", skilltree_gui = "skilltree", game_gui = "game" }) do
+		msg.post("#" .. gui_name, screen == name and "enable" or "disable")
+	end
+	audio.refresh_music()
+end
+
+local function begin_run(game_state, run_id, is_test)
+	session.current_run_id = run_id
+	session.is_test_run = is_test
+	session.gold_banked = false
+	session.last_run_gold = 0
+	session.game_over_shown = false
+	session.sim = sim.new(game_state, { run_id = run_id, is_test_run = is_test })
+	msg.post("world#world", "run_started")
+	show_screen("game")
+end
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	math.randomseed(os.time())
+
+	if sys.get_engine_info().is_debug then
+		local ok = tests.run()
+		if not ok then print("PORT TESTS: FAILURES PRESENT") end
+	end
+
+	session.load()
+	show_screen("menu")
+
+	-- The GUI scripts drive transitions through these closures.
+	session.actions = {
+		start_new_run = function()
+			audio.menu_press()
+			begin_run(meta_mod.build_fresh_state(session.meta), "run-" .. os.time() .. "-" .. math.random(9999), false)
+		end,
+		start_test_run = function()
+			audio.menu_press()
+			-- Testing means trying skills out: top the account up to 1000 gold.
+			if session.meta.gold < 1000 then
+				session.meta.gold = 1000
+				session.commit_meta(session.meta)
+			end
+			begin_run(meta_mod.build_test_state(session.meta), nil, true)
+		end,
+		continue_run = function(save)
+			session.sim = nil
+			begin_run(meta_mod.build_state_from_save(save), save.id, false)
+			session.sim.highest_wave_cleared = save.wave
+		end,
+		open_continue = function()
+			audio.menu_press()
+			show_screen("continue")
+		end,
+		open_skilltree = function()
+			audio.menu_press()
+			show_screen("skilltree")
+		end,
+		back_to_menu = function()
+			show_screen("menu")
+		end,
+		-- Leave the run early and cash out.
+		exit_run = function()
+			local s = session.sim
+			if s then
+				session.bank_gold(s.highest_wave_cleared)
+				if not session.is_test_run and session.current_run_id then
+					session.delete_run(session.current_run_id)
+				end
+				s.game_over = true
+			end
+			session.current_run_id = nil
+			msg.post("world#world", "run_ended")
+			show_screen("menu")
+		end,
+		leave_game_over = function()
+			msg.post("world#world", "run_ended")
+			session.sim = nil
+			show_screen("menu")
+		end,
+		refresh_music = function() audio.refresh_music() end,
+		menu_press = function() audio.menu_press() end,
+	}
+end
+
+function update(self, dt)
+	local s = session.sim
+	if not s or session.screen ~= "game" or s.game_over or session.paused() then
+		return
+	end
+
+	-- The 60-cap lives in the display settings here; dt is clamped the same
+	-- way the React loop clamps it, so a hitch cannot teleport the field.
+	sim.update(s, math.min(dt, 0.05))
+
+	for _, ev in ipairs(sim.take_events(s)) do
+		if ev.type == "sfx" then
+			audio.play_sfx_event(ev.name)
+		elseif ev.type == "footstep" then
+			audio.footstep(effects.feet_in_water(ev.pos))
+		elseif ev.type == "autosave" then
+			session.store_run(ev.save)
+		elseif ev.type == "game_over" then
+			session.bank_gold(s.highest_wave_cleared)
+			if not session.is_test_run and session.current_run_id then
+				session.delete_run(session.current_run_id)
+			end
+			session.game_over_shown = true
+		elseif ev.type == "coins" then
+			-- The coin sack is benched in the source (COINSACK_ENABLED = false);
+			-- the kill's coin event is kept so a future sack can hook in.
+		end
+	end
+end

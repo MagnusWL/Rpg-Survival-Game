@@ -1,0 +1,21 @@
+name: "main"
+instances {
+  id: "controller"
+  prototype: "/main/controller.go"
+}
+instances {
+  id: "world"
+  prototype: "/main/world.go"
+}
+instances {
+  id: "knight"
+  prototype: "/main/knight.go"
+}
+instances {
+  id: "glow"
+  prototype: "/main/glow.go"
+}
+instances {
+  id: "sounds"
+  prototype: "/main/sounds.go"
+}

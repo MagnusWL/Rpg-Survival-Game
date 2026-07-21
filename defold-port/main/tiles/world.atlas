@@ -1,0 +1,15 @@
+images {
+  image: "/assets/sprites/background.jpg"
+}
+images {
+  image: "/assets/sprites/effects/glow.png"
+}
+images {
+  image: "/assets/sprites/prim/white.png"
+}
+images {
+  image: "/assets/sprites/prim/circle.png"
+}
+images {
+  image: "/assets/sprites/prim/ring.png"
+}

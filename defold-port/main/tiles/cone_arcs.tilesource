@@ -1,0 +1,59 @@
+image: "/assets/sprites/fx/cone-arcs.png"
+tile_width: 56
+tile_height: 555
+animations {
+  id: "arc0"
+  start_tile: 1
+  end_tile: 1
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc1"
+  start_tile: 2
+  end_tile: 2
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc2"
+  start_tile: 3
+  end_tile: 3
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc3"
+  start_tile: 4
+  end_tile: 4
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc4"
+  start_tile: 5
+  end_tile: 5
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc5"
+  start_tile: 6
+  end_tile: 6
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc6"
+  start_tile: 7
+  end_tile: 7
+  playback: PLAYBACK_NONE
+  fps: 1
+}
+animations {
+  id: "arc7"
+  start_tile: 8
+  end_tile: 8
+  playback: PLAYBACK_NONE
+  fps: 1
+}

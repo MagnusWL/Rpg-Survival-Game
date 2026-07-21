@@ -1,0 +1,146 @@
+-- The title screen: menu art with the plaque that starts a run, the minor
+-- links row, the settings gear, and the intro slideshow over the top on the
+-- first sight of the menu.
+local layout = require("game.layout")
+local session = require("game.session")
+local ui = require("game.ui")
+
+local W, H = layout.SCREEN_W, layout.SCREEN_H
+
+-- The plaque's place, from the kit's own layout (fractions of the screen).
+local BUTTON_TOP = 474 / 675
+local BUTTON_WIDTH = 322 / 380
+local BUTTON_ASPECT = 322 / 115
+
+-- Intro schedule (IntroSequence.tsx): logo, then three story cards.
+local LOGO_MS = 2.0
+local CARD_MS = 5.0
+
+local function build_intro(self)
+	self.intro_nodes = {}
+	local black = ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 1)
+	self.intro_nodes.black = black
+	self.intro_nodes.cards = {}
+	for i = 1, 3 do
+		local card = ui.tex_box(W / 2, H / 2, W, H, tostring(i))
+		-- Cover-fit portrait art (941x1672) over the screen.
+		local scale = math.max(W / 941, H / 1672)
+		gui.set_size(card, vmath.vector3(941 * scale, 1672 * scale, 0))
+		ui.set_alpha(card, 0)
+		self.intro_nodes.cards[i] = card
+	end
+	self.intro_nodes.logo = ui.text(W / 2, H / 2, "EMOJI AUTOBATTLER", 26, { 0.494, 0.086, 0.063 })
+	ui.set_alpha(self.intro_nodes.logo, 0)
+	self.intro_t = 0
+end
+
+local function intro_alpha_at(self, t)
+	-- Returns per-element alphas for a simple crossfade schedule.
+	local logo_end = LOGO_MS + 0.7
+	if t < LOGO_MS then
+		return 1, 0, 0, 0
+	elseif t < logo_end then
+		local k = (t - LOGO_MS) / 0.7
+		return 1 - k, k, 0, 0
+	end
+	local ct = t - logo_end
+	if ct < CARD_MS then
+		return 0, 1, 0, 0
+	elseif ct < CARD_MS * 2 then
+		return 0, 0, 1, 0
+	elseif ct < CARD_MS * 3 then
+		return 0, 0, 0, 1
+	end
+	return nil -- done
+end
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	self.buttons = {}
+
+	-- Cover-fit menu art (941x1672).
+	local scale = math.max(W / 941, H / 1672)
+	self.bg = ui.tex_box(W / 2, H / 2, 941 * scale, 1672 * scale, "bg")
+
+	local bw = W * BUTTON_WIDTH
+	local bh = bw / BUTTON_ASPECT
+	local by = H - (H * BUTTON_TOP) - bh / 2
+	self.plaque = ui.tex_box(W / 2, by, bw, bh, "button")
+	ui.button(self.buttons, self.plaque, function()
+		if session.actions then session.actions.start_new_run() end
+	end)
+
+	-- Minor links row under the plaque.
+	local link_y = by - bh / 2 - 24
+	self.continue_text = ui.text(W / 2 - 110, link_y, "Continue", 13, { 1, 1, 1 }, gui.PIVOT_W)
+	ui.button(self.buttons, self.continue_text, function()
+		if session.runs_loaded and #session.saved_runs > 0 then
+			session.actions.open_continue()
+		end
+	end)
+	self.skills_text = ui.text(W / 2 - 20, link_y, "Skills", 13, { 1, 1, 1 }, gui.PIVOT_W)
+	ui.button(self.buttons, self.skills_text, function() session.actions.open_skilltree() end)
+	self.test_text = ui.text(W / 2 + 55, link_y, "Test run", 13, { 1, 1, 1 }, gui.PIVOT_W)
+	ui.button(self.buttons, self.test_text, function() session.actions.start_test_run() end)
+
+	-- Settings gear, its own corner.
+	self.gear = ui.box(W - 29, H - 29, 34, 34, { 0.067, 0.067, 0.133 }, 0.7)
+	ui.button(self.buttons, self.gear, function() session.overlay = "settings" end)
+	self.gear_label = ui.text(W - 29, H - 29, "*", 18, { 1, 1, 1 })
+
+	-- Settings overlay (shared shape with the in-game one).
+	self.settings = require("main.gui.settings_overlay").build(self.buttons)
+
+	if not session.intro_done then build_intro(self) end
+end
+
+function update(self, dt)
+	local has_saves = session.runs_loaded and #session.saved_runs > 0
+	gui.set_text(self.continue_text, has_saves and ("Continue (" .. #session.saved_runs .. ")") or "Continue")
+	ui.set_alpha(self.continue_text, has_saves and 1 or 0.4)
+	gui.set_text(self.skills_text, ("Skills (%dg)"):format(session.meta and session.meta.gold or 0))
+
+	require("main.gui.settings_overlay").sync(self.settings)
+
+	-- The story, over the top of a menu already built and waiting.
+	if self.intro_nodes then
+		self.intro_t = self.intro_t + dt
+		local logo_a, c1, c2, c3 = intro_alpha_at(self, self.intro_t)
+		if logo_a == nil then
+			for _, n in pairs(self.intro_nodes.cards) do gui.delete_node(n) end
+			gui.delete_node(self.intro_nodes.black)
+			gui.delete_node(self.intro_nodes.logo)
+			self.intro_nodes = nil
+			session.intro_done = true
+		else
+			ui.set_alpha(self.intro_nodes.logo, logo_a)
+			ui.set_alpha(self.intro_nodes.black, math.max(logo_a, c1, c2, c3))
+			ui.set_alpha(self.intro_nodes.cards[1], c1)
+			ui.set_alpha(self.intro_nodes.cards[2], c2)
+			ui.set_alpha(self.intro_nodes.cards[3], c3)
+		end
+	end
+end
+
+function on_input(self, action_id, action)
+	if session.screen ~= "menu" then return false end
+	if action_id == hash("touch") and action.pressed then
+		-- A tap during the story advances it a step, as the React intro does:
+		-- logo to first card, card to card, last card to the menu.
+		if self.intro_nodes then
+			local logo_end = LOGO_MS + 0.7
+			if self.intro_t < logo_end then
+				self.intro_t = logo_end
+			else
+				local card = math.floor((self.intro_t - logo_end) / CARD_MS)
+				self.intro_t = logo_end + (card + 1) * CARD_MS
+			end
+			return true
+		end
+		if session.overlay == "settings" then
+			return require("main.gui.settings_overlay").input(self.settings, action)
+		end
+		return ui.hit(self.buttons, action.x, action.y)
+	end
+	return false
+end

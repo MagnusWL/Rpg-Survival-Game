@@ -1,0 +1,152 @@
+-- The skill shop: three trees of three, buy levels with gold, equip up to
+-- three actives and one passive. Ported from the skilltree screen in App.tsx.
+local layout = require("game.layout")
+local session = require("game.session")
+local skills = require("game.skills")
+local ui = require("game.ui")
+
+local W, H = layout.SCREEN_W, layout.SCREEN_H
+
+local ROW_H = 64
+
+local function skill_rows()
+	local rows = {}
+	for _, root in ipairs(skills.ROOT_SKILLS) do
+		rows[#rows + 1] = { skill = root, child = false }
+		for _, s in ipairs(skills.ALL_SKILLS) do
+			if skills.SKILL_PARENT[s] == root then
+				rows[#rows + 1] = { skill = s, child = true }
+			end
+		end
+	end
+	return rows
+end
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	self.title = ui.text(W / 2, H - 40, "Skills", 18, { 1, 1, 1 })
+	self.loadout_text = ui.text(W / 2, H - 66, "", 11, { 0.8, 0.8, 0.85 })
+	self.rows = {}
+	local top = H - 92
+	for i, row in ipairs(skill_rows()) do
+		local meta = skills.SKILL_META[row.skill]
+		local y = top - (i - 1) * ROW_H
+		local x0 = row.child and 34 or 14
+		local swatch = ui.box(x0 + 16, y, 32, 32, meta.color, 1)
+		local name = ui.text(x0 + 40, y + 14, "", 12, { 1, 1, 1 }, gui.PIVOT_W)
+		local desc = ui.text(x0 + 40, y - 6, "", 8, { 0.75, 0.75, 0.8 }, gui.PIVOT_W)
+		gui.set_size(desc, vmath.vector3((W - x0 - 150) * 4, 80, 0))
+		gui.set_line_break(desc, true)
+		local buy = ui.box(W - 44, y + 12, 72, 22, { 0.298, 0.686, 0.314 }, 1)
+		local buy_text = ui.text(W - 44, y + 12, "", 10, { 1, 1, 1 })
+		local equip = ui.box(W - 44, y - 14, 72, 22, { 0.216, 0.278, 0.31 }, 1)
+		local equip_text = ui.text(W - 44, y - 14, "", 10, { 1, 1, 1 })
+		self.rows[i] = {
+			skill = row.skill, child = row.child, swatch = swatch, name = name, desc = desc,
+			buy = buy, buy_text = buy_text, equip = equip, equip_text = equip_text,
+		}
+	end
+	self.back = ui.box(W / 2, 40, 120, 36, { 0.216, 0.278, 0.31 }, 1)
+	self.back_text = ui.text(W / 2, 40, "Back", 14, { 1, 1, 1 })
+end
+
+local function contains(list, v)
+	for _, x in ipairs(list) do
+		if x == v then return true end
+	end
+	return false
+end
+
+local function buy_skill_level(skill)
+	local m = session.meta
+	local level = m.skill_levels[skill] or 0
+	if level >= skills.ABILITY_MAX_LEVEL then return end
+	local parent = skills.SKILL_PARENT[skill]
+	if parent and (m.skill_levels[parent] or 0) < 1 then return end
+	local cost = skills.skill_level_cost(level + 1)
+	if m.gold < cost then return end
+	m.gold = m.gold - cost
+	m.skill_levels[skill] = level + 1
+	session.commit_meta(m)
+end
+
+local function toggle_equip(skill)
+	local m = session.meta
+	if (m.skill_levels[skill] or 0) < 1 then return end
+	if skills.is_passive_skill(skill) then
+		m.passive = m.passive ~= skill and skill or nil
+	else
+		if contains(m.loadout, skill) then
+			local next_loadout = {}
+			for _, s in ipairs(m.loadout) do
+				if s ~= skill then next_loadout[#next_loadout + 1] = s end
+			end
+			m.loadout = next_loadout
+		else
+			if #m.loadout >= skills.MAX_EQUIPPED then return end
+			m.loadout[#m.loadout + 1] = skill
+		end
+	end
+	session.commit_meta(m)
+end
+
+function update(self, dt)
+	local m = session.meta
+	if not m then return end
+	gui.set_text(self.title, ("Skills · %d gold"):format(m.gold))
+	local passive_label = m.passive and skills.SKILL_META[m.passive].label or "-"
+	gui.set_text(self.loadout_text, ("Active %d/%d · Passive %s/%d"):format(#m.loadout, skills.MAX_EQUIPPED, passive_label, skills.MAX_PASSIVE))
+
+	for _, r in ipairs(self.rows) do
+		local skill = r.skill
+		local meta = skills.SKILL_META[skill]
+		local level = m.skill_levels[skill] or 0
+		local owned = level > 0
+		local parent = skills.SKILL_PARENT[skill]
+		local unlocked = not parent or (m.skill_levels[parent] or 0) >= 1
+		local at_max = level >= skills.ABILITY_MAX_LEVEL
+		local next_cost = skills.skill_level_cost(level + 1)
+		local can_buy = unlocked and not at_max and m.gold >= next_cost
+		local passive_kind = skills.is_passive_skill(skill)
+		local is_equipped = passive_kind and m.passive == skill or contains(m.loadout, skill)
+		local equip_full = not passive_kind and not is_equipped and #m.loadout >= skills.MAX_EQUIPPED
+
+		local status
+		if owned then
+			status = ("Lv %d/%d"):format(level, skills.ABILITY_MAX_LEVEL)
+		elseif unlocked then
+			status = "not owned"
+		else
+			status = "needs " .. skills.SKILL_META[parent].label
+		end
+		gui.set_text(r.name, (r.child and "> " or "") .. meta.label .. " · " .. status)
+		gui.set_text(r.desc, skills.skill_description(skill))
+		ui.set_alpha(r.swatch, unlocked and 1 or 0.35)
+		gui.set_text(r.buy_text, at_max and "MAX" or ((owned and "Level " or "Buy ") .. next_cost .. "g"))
+		ui.set_alpha(r.buy, can_buy and 1 or 0.35)
+		gui.set_text(r.equip_text, is_equipped and "Equipped" or (passive_kind and "Passive" or "Equip"))
+		gui.set_color(r.equip, is_equipped and vmath.vector4(0.298, 0.686, 0.314, 1) or vmath.vector4(0.216, 0.278, 0.31, 1))
+		ui.set_alpha(r.equip, (owned and not equip_full) and 1 or 0.35)
+	end
+end
+
+function on_input(self, action_id, action)
+	if session.screen ~= "skilltree" then return false end
+	if action_id == hash("touch") and action.pressed then
+		for _, r in ipairs(self.rows) do
+			if gui.pick_node(r.buy, action.x, action.y) then
+				buy_skill_level(r.skill)
+				return true
+			end
+			if gui.pick_node(r.equip, action.x, action.y) then
+				toggle_equip(r.skill)
+				return true
+			end
+		end
+		if gui.pick_node(self.back, action.x, action.y) then
+			session.actions.back_to_menu()
+			return true
+		end
+	end
+	return false
+end

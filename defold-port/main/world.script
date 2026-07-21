@@ -1,0 +1,295 @@
+-- The play field's view: syncs sprites (knight, mobs, corpses, blood, allies,
+-- glow, cone arcs) to the sim state each frame. All simulation happens in
+-- game.sim; this script only mirrors it into game objects.
+local layout = require("game.layout")
+local combat = require("game.combat")
+local skills = require("game.skills")
+local session = require("game.session")
+
+-- Sim anim name -> knight sprite component id.
+local KNIGHT_SPRITE = {
+	idle = "idle", walk = "walk", run = "run", attack = "melee",
+	hurt = "takedamage", spawn = "unsheathsword", kick = "kick",
+	die = "die", rupture = "special1", ancestor = "special2",
+}
+local KNIGHT_ANIM_NAMES = { "idle", "walk", "run", "attack", "hurt", "spawn", "kick", "die", "rupture", "ancestor" }
+local MOB_ANIM_NAMES = { "walk", "attack", "attack2", "attack3", "hurt" }
+
+local function actor_z(sim_y)
+	-- Painter's order: further down the screen (larger sim y) draws on top.
+	return -0.4 + math.max(0, math.min(1, sim_y / layout.PLAY_H)) * 0.8
+end
+
+local function place(id, sim_x, sim_y, z)
+	go.set_position(vmath.vector3(layout.to_world_x(sim_x), layout.to_world_y(sim_y), z), id)
+end
+
+-- Point a cursor-driven sprite at an absolute sheet column.
+local function set_frame(url, col)
+	go.set(url, "cursor", (col + 0.5) / combat.SPRITE_COLS)
+end
+
+local function show_only(go_id, all_ids, active)
+	for _, name in ipairs(all_ids) do
+		msg.post(msg.url(nil, go_id, name), name == active and "enable" or "disable")
+	end
+end
+
+function init(self)
+	self.mob_views = {}
+	self.ally_views = {}
+	self.corpse_views = {}
+	self.blood_views = {}
+	self.zone_views = {}
+	self.knight_view = { anim = nil, facing = nil, epoch = nil }
+
+	-- The ground: cover-fit the 1448x1086 art over the play area.
+	local bg_scale = math.max(layout.SCREEN_W / 1448, layout.PLAY_H / 1086)
+	local bg = factory.create("#background_factory",
+		vmath.vector3(layout.SCREEN_W / 2, layout.PLAY_BOTTOM + layout.PLAY_H / 2, -0.95),
+		nil, {}, bg_scale)
+	self.bg_id = bg
+
+	-- The knight and his light are permanent; hide them until a run is up.
+	msg.post("knight", "disable")
+	msg.post("glow", "disable")
+end
+
+local function sync_knight(self, s)
+	local p = s.player
+	local kv = self.knight_view
+	local def = combat.ANIMS[p.anim]
+	local sprite_id = KNIGHT_SPRITE[p.anim]
+	local center_y = p.pos.y + combat.PLAYER_SPRITE_FOOT_OFFSET - combat.PLAYER_SPRITE_SIZE / 2
+	place("knight", p.pos.x, center_y, actor_z(p.pos.y))
+
+	if kv.anim ~= p.anim or kv.facing ~= p.facing then
+		show_only("knight", { "idle", "walk", "run", "melee", "takedamage", "unsheathsword", "kick", "die", "special1", "special2" }, sprite_id)
+		sprite.play_flipbook(msg.url(nil, "knight", sprite_id), "f" .. p.facing)
+		go.set(msg.url(nil, "knight", sprite_id), "playback_rate", 0)
+		kv.anim = p.anim
+		kv.facing = p.facing
+	end
+	set_frame(msg.url(nil, "knight", sprite_id), combat.anim_column(def, p.anim_time * p.anim_speed))
+
+	-- His light: breathing on the wall clock, at his feet.
+	local glow = { size = 136, pulse = 0.19, period = 2.6, foot = 6, opacity = 0.47 }
+	local t = (socket.gettime() % glow.period) / glow.period
+	local size = glow.size * (1 + math.sin(t * math.pi * 2) * glow.pulse)
+	place("glow", p.pos.x, p.pos.y + glow.foot, actor_z(p.pos.y) - 0.015)
+	go.set_scale(size / 256, "glow")
+	go.set(msg.url(nil, "glow", "glow"), "tint", vmath.vector4(1, 0.824, 0.498, glow.opacity))
+end
+
+local function sync_mobs(self, s)
+	local seen = {}
+	for _, m in ipairs(s.mobs) do
+		seen[m.id] = true
+		local view = self.mob_views[m.id]
+		if not view then
+			-- A failed spawn (buffer full) skips this mob and retries next frame.
+			local id = factory.create("#mob_factory", vmath.vector3(0, 0, 0))
+			if not id then return end
+			view = { id = id, anim = nil, facing = nil, is_sprite = m.type == "melee" }
+			self.mob_views[m.id] = view
+			if view.is_sprite then
+				msg.post(msg.url(nil, id, "circle"), "disable")
+			else
+				for _, name in ipairs(MOB_ANIM_NAMES) do
+					msg.post(msg.url(nil, id, name), "disable")
+				end
+				local meta = combat.MOB_TYPE_META[m.type]
+				local c = meta.color
+				go.set(msg.url(nil, id, "circle"), "tint", vmath.vector4(c[1], c[2], c[3], 1))
+				go.set_scale(m.radius * 2 / 64, id)
+			end
+		end
+		if view.is_sprite then
+			local center_y = m.pos.y + combat.MOB_SPRITE_FOOT_OFFSET - combat.MOB_SPRITE_SIZE / 2
+			place(view.id, m.pos.x, center_y, actor_z(m.pos.y))
+			local sprite_id = m.anim
+			if view.anim ~= m.anim or view.facing ~= m.facing then
+				show_only(view.id, MOB_ANIM_NAMES, sprite_id)
+				sprite.play_flipbook(msg.url(nil, view.id, sprite_id), "f" .. m.facing)
+				go.set(msg.url(nil, view.id, sprite_id), "playback_rate", 0)
+				view.anim = m.anim
+				view.facing = m.facing
+			end
+			set_frame(msg.url(nil, view.id, sprite_id), combat.anim_column(combat.MOB_ANIMS[m.anim], m.anim_time))
+			-- The red instant when struck: tint toward red, fading over the flash.
+			local k = (m.flash_time / combat.MOB_FLASH_TIME) * combat.MOB_FLASH_STRENGTH
+			go.set(msg.url(nil, view.id, sprite_id), "tint",
+				vmath.vector4(1, 1 - k * 0.71, 1 - k * 0.76, 1))
+		else
+			place(view.id, m.pos.x, m.pos.y, actor_z(m.pos.y))
+		end
+	end
+	for id, view in pairs(self.mob_views) do
+		if not seen[id] then
+			go.delete(view.id)
+			self.mob_views[id] = nil
+		end
+	end
+end
+
+local function sync_allies(self, s)
+	local seen = {}
+	for _, a in ipairs(s.allies) do
+		seen[a.id] = true
+		local view = self.ally_views[a.id]
+		if not view then
+			local id = factory.create("#ally_factory", vmath.vector3(0, 0, 0), nil, {}, combat.ALLY_RADIUS * 2 / 64)
+			if not id then return end
+			view = { id = id }
+			self.ally_views[a.id] = view
+			local c = a.ranged and { 0.702, 0.616, 0.859 } or { 0.584, 0.459, 0.804 }
+			go.set(msg.url(nil, id, "circle"), "tint", vmath.vector4(c[1], c[2], c[3], 1))
+		end
+		place(view.id, a.pos.x, a.pos.y, actor_z(a.pos.y))
+	end
+	for id, view in pairs(self.ally_views) do
+		if not seen[id] then
+			go.delete(view.id)
+			self.ally_views[id] = nil
+		end
+	end
+end
+
+local function sync_corpses(self, s)
+	local seen = {}
+	for _, c in ipairs(s.corpses) do
+		seen[c.id] = true
+		local view = self.corpse_views[c.id]
+		if not view then
+			local id = factory.create("#corpse_factory", vmath.vector3(0, 0, 0))
+			if not id then return end
+			view = { id = id, anim = c.anim }
+			self.corpse_views[c.id] = view
+			show_only(id, { "die", "die2" }, c.anim)
+			sprite.play_flipbook(msg.url(nil, id, c.anim), "f" .. c.facing)
+			go.set(msg.url(nil, id, c.anim), "playback_rate", 0)
+		end
+		local center_y = c.pos.y + combat.MOB_SPRITE_FOOT_OFFSET - combat.MOB_SPRITE_SIZE / 2
+		-- The dead sit just under the living at the same y.
+		place(view.id, c.pos.x, center_y, actor_z(c.pos.y) - 0.01)
+		local def = combat.MOB_DIE_ANIMS[c.anim]
+		set_frame(msg.url(nil, view.id, c.anim), combat.anim_column(def, c.age))
+		local fade_start = combat.anim_duration(def) + combat.CORPSE_LINGER
+		local alpha = c.age <= fade_start and 1 or math.max(0, 1 - (c.age - fade_start) / combat.CORPSE_FADE)
+		go.set(msg.url(nil, view.id, c.anim), "tint", vmath.vector4(1, 1, 1, alpha))
+	end
+	for id, view in pairs(self.corpse_views) do
+		if not seen[id] then
+			go.delete(view.id)
+			self.corpse_views[id] = nil
+		end
+	end
+end
+
+local function sync_blood(self, s)
+	local seen = {}
+	for _, b in ipairs(s.blood) do
+		seen[b.id] = true
+		local view = self.blood_views[b.id]
+		if not view then
+			local id = factory.create("#blood_factory", vmath.vector3(0, 0, 0))
+			if not id then return end
+			view = { id = id }
+			self.blood_views[b.id] = view
+			sprite.play_flipbook(msg.url(nil, id, "blood"), "f" .. b.variant)
+			go.set(msg.url(nil, id, "blood"), "playback_rate", 0)
+			place(id, b.pos.x, b.pos.y, -0.6)
+		end
+		set_frame(msg.url(nil, view.id, "blood"), combat.anim_column(combat.BLOOD_ANIM, s.now - b.created_at))
+	end
+	for id, view in pairs(self.blood_views) do
+		if not seen[id] then
+			go.delete(view.id)
+			self.blood_views[id] = nil
+		end
+	end
+end
+
+-- The cone's wave: eight baked strike lines placed along the cast, each
+-- fading in when the front reaches its radius and out on its own clock.
+local function sync_zones(self, s)
+	local seen = {}
+	for _, z in ipairs(s.cone_zones) do
+		seen[z.id] = true
+		local view = self.zone_views[z.id]
+		if not view and s.now >= z.start_at then
+			view = { arcs = {} }
+			self.zone_views[z.id] = view
+			local rad = math.rad(z.angle_deg)
+			for i = 0, 7 do
+				local radius = 96 * (i + 1)
+				-- Cell centre sits half a cell inside its radius, along the cast.
+				local along = radius - 28
+				local sx = z.x + math.cos(rad) * along
+				local sy = z.y + math.sin(rad) * along
+				local id = factory.create("#cone_arc_factory", vmath.vector3(0, 0, 0), nil, {})
+				if not id then break end
+				sprite.play_flipbook(msg.url(nil, id, "arc"), "arc" .. i)
+				-- Sim y points down, world y up: screen rotation flips sign.
+				go.set_rotation(vmath.quat_rotation_z(-rad), id)
+				place(id, sx, sy, -0.45)
+				go.set(msg.url(nil, id, "arc"), "tint", vmath.vector4(1, 1, 1, 0))
+				view.arcs[#view.arcs + 1] = { id = id, delay = radius / skills.CONE_ZONE.sweep_speed }
+			end
+		end
+		if view then
+			local t = s.now - z.start_at
+			for _, arc in ipairs(view.arcs) do
+				local life = (t - arc.delay) / skills.CONE_ZONE.cell_life
+				local alpha = 0
+				if life >= 0 and life <= 1 then
+					alpha = life < 0.12 and 1 or (life < 0.34 and 0.5 or 0.45 * (1 - (life - 0.34) / 0.66))
+				end
+				go.set(msg.url(nil, arc.id, "arc"), "tint", vmath.vector4(1, 1, 1, alpha))
+			end
+		end
+	end
+	for id, view in pairs(self.zone_views) do
+		if not seen[id] then
+			for _, arc in ipairs(view.arcs) do go.delete(arc.id) end
+			self.zone_views[id] = nil
+		end
+	end
+end
+
+local function clear_pools(self)
+	for _, pool in ipairs({ self.mob_views, self.ally_views, self.corpse_views, self.blood_views }) do
+		for id, view in pairs(pool) do
+			go.delete(view.id)
+			pool[id] = nil
+		end
+	end
+	for id, view in pairs(self.zone_views) do
+		for _, arc in ipairs(view.arcs) do go.delete(arc.id) end
+		self.zone_views[id] = nil
+	end
+	self.knight_view = { anim = nil, facing = nil }
+end
+
+function on_message(self, message_id, message)
+	if message_id == hash("run_started") then
+		clear_pools(self)
+		msg.post("knight", "enable")
+		msg.post("glow", "enable")
+	elseif message_id == hash("run_ended") then
+		clear_pools(self)
+		msg.post("knight", "disable")
+		msg.post("glow", "disable")
+	end
+end
+
+function update(self, dt)
+	local s = session.sim
+	if not s or session.screen ~= "game" then return end
+	sync_knight(self, s)
+	sync_mobs(self, s)
+	sync_allies(self, s)
+	sync_corpses(self, s)
+	sync_blood(self, s)
+	sync_zones(self, s)
+end

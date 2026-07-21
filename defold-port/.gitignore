@@ -1,0 +1,11 @@
+# Defold editor and build output
+.internal/
+build/
+
+# Local Defold editor downloaded for this workspace
+Defold-x86_64-win32.zip
+tools/Defold/
+
+# OS files
+.DS_Store
+Thumbs.db

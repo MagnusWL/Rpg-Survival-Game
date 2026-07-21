@@ -1,0 +1,649 @@
+-- The game screen's GUI: top bar, quick-cast bar, HUD bars, everything that
+-- floats over the field (hp bars, projectiles, flashes, marks, ground items,
+-- floating texts, aim preview, rain and ripples), and the overlays.
+local layout = require("game.layout")
+local combat = require("game.combat")
+local items = require("game.items")
+local skills = require("game.skills")
+local session = require("game.session")
+local effects = require("game.effects")
+local settings_overlay = require("main.gui.settings_overlay")
+local ui = require("game.ui")
+
+local W, H = layout.SCREEN_W, layout.SCREEN_H
+local PLAY_H = layout.PLAY_H
+local BAR_WIDTH = 80
+
+local function gy(sim_y) return layout.to_world_y(sim_y) end
+
+-- ---- pools ----------------------------------------------------------------
+
+local function make_pool(create)
+	return { nodes = {}, create = create }
+end
+
+local function pool_sync(pool, list, update_fn)
+	local seen = {}
+	for _, e in ipairs(list) do
+		seen[e.id] = true
+		local n = pool.nodes[e.id]
+		if not n then
+			n = pool.create(e)
+			pool.nodes[e.id] = n
+		end
+		update_fn(n, e)
+	end
+	for id, n in pairs(pool.nodes) do
+		if not seen[id] then
+			if type(n) == "table" then
+				for _, node in pairs(n) do gui.delete_node(node) end
+			else
+				gui.delete_node(n)
+			end
+			pool.nodes[id] = nil
+		end
+	end
+end
+
+-- ---- init ------------------------------------------------------------------
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	self.buttons = {}
+
+	-- Top bar.
+	self.top_bar = ui.box(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	self.exit_btn = ui.box(44, H - 25, 72, 26, { 0.718, 0.11, 0.11 }, 1)
+	self.exit_text = ui.text(44, H - 25, "Exit run", 10, { 1, 1, 1 })
+	self.wave_text = ui.text(W - 210, H - 25, "Wave 1", 12, { 1, 1, 1 })
+	self.gear_btn = ui.box(W - 160, H - 25, 30, 26, { 0.216, 0.278, 0.31 }, 1)
+	self.gear_text = ui.text(W - 160, H - 25, "S", 11, { 1, 1, 1 })
+	self.mobstats_btn = ui.box(W - 108, H - 25, 66, 26, { 0.216, 0.278, 0.31 }, 1)
+	self.mobstats_text = ui.text(W - 108, H - 25, "Mob Stats", 9, { 1, 1, 1 })
+	self.wave_btn = ui.box(W - 38, H - 25, 62, 26, { 0.298, 0.686, 0.314 }, 1)
+	self.wave_btn_text = ui.text(W - 38, H - 25, "Start 1", 9, { 1, 1, 1 })
+
+	-- Quick-cast bar strip + bag button.
+	local qc_y = layout.HUD_HEIGHT + layout.QUICK_CAST_BAR_HEIGHT / 2
+	self.qc_bar = ui.box(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	self.bag_btn = ui.box(28, qc_y + 14, 40, 40, { 0.216, 0.278, 0.31 }, 1)
+	self.bag_text = ui.text(28, qc_y + 14, "Bag", 10, { 1, 1, 1 })
+	self.bag_badge = ui.text(44, qc_y + 28, "", 9, { 1, 0.835, 0.31 })
+	self.qc_slots = {}
+	for i = 1, 3 do
+		local x = W / 2 + (i - 2) * 80
+		local btn = ui.box(x, qc_y + 22, 56, 56, { 0.3, 0.3, 0.3 }, 1)
+		local icon = ui.text(x, qc_y + 22, "", 16, { 1, 1, 1 })
+		local mana_badge = ui.text(x + 20, qc_y + 40, "", 9, { 0.7, 0.9, 1 })
+		local cd_text = ui.text(x, qc_y + 22, "", 16, { 1, 1, 1 })
+		local label = ui.text(x, qc_y - 12, "", 9, { 0.85, 0.85, 0.9 })
+		self.qc_slots[i] = { btn = btn, icon = icon, mana = mana_badge, cd = cd_text, label = label }
+	end
+	self.passive_chip = ui.box(W / 2 + 160, qc_y + 18, 34, 34, { 0.3, 0.3, 0.3 }, 1)
+	self.passive_icon = ui.text(W / 2 + 160, qc_y + 18, "", 11, { 1, 1, 1 })
+
+	-- HUD bars.
+	local hud_y = layout.HUD_HEIGHT / 2
+	self.hud_bg = ui.box(W / 2, hud_y, W, layout.HUD_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	self.hud = {}
+	local labels = { "Lv", "HP", "MP" }
+	local fills = { { 1, 0.835, 0.31 }, { 0.937, 0.325, 0.314 }, { 0.259, 0.647, 0.961 } }
+	for i = 1, 3 do
+		local x = 20 + (i - 1) * (BAR_WIDTH + 45)
+		local label = ui.text(x, hud_y + 14, labels[i], 10, { 1, 1, 1 }, gui.PIVOT_W)
+		local value = ui.text(x + BAR_WIDTH + 20, hud_y + 14, "", 9, { 0.85, 0.85, 0.9 }, gui.PIVOT_E)
+		local bg = ui.box(x + BAR_WIDTH / 2, hud_y, BAR_WIDTH, 8, { 0, 0, 0 }, 1)
+		local fill = ui.box(x, hud_y, BAR_WIDTH, 8, fills[i], 1)
+		gui.set_pivot(fill, gui.PIVOT_W)
+		gui.set_position(fill, vmath.vector3(x - BAR_WIDTH / 2 + BAR_WIDTH / 2, hud_y, 0))
+		gui.set_position(fill, vmath.vector3(x, hud_y, 0))
+		gui.set_position(bg, vmath.vector3(x + BAR_WIDTH / 2, hud_y, 0))
+		gui.set_position(fill, vmath.vector3(x, hud_y, 0))
+		self.hud[i] = { label = label, value = value, bg = bg, fill = fill, x = x }
+	end
+	self.stats_text = ui.text(20, hud_y - 18, "", 10, { 0.85, 0.85, 0.9 }, gui.PIVOT_W)
+	self.tech_text = ui.text(W - 10, layout.PLAY_TOP - 12, "", 9, { 0.6, 1, 0.6 }, gui.PIVOT_E)
+
+	-- Field overlays.
+	self.range_ring = ui.tex_box(0, 0, 10, 10, "ring")
+	ui.set_alpha(self.range_ring, 0.25)
+
+	self.aim_cone = ui.box(0, 0, 10, 10, { 1, 0.541, 0.314 }, 0.28)
+	gui.set_enabled(self.aim_cone, false)
+
+	self.pool_hp = make_pool(function()
+		local bg = ui.box(0, 0, 10, 4, { 0, 0, 0 }, 1)
+		local fill = ui.box(0, 0, 10, 4, { 0.298, 0.686, 0.314 }, 1)
+		gui.set_pivot(fill, gui.PIVOT_W)
+		return { bg = bg, fill = fill }
+	end)
+	self.pool_proj = make_pool(function(e)
+		local n = ui.tex_box(0, 0, 8, 8, "circle")
+		gui.set_color(n, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
+		return n
+	end)
+	self.pool_flash = make_pool(function()
+		return ui.tex_box(0, 0, 20, 20, "circle")
+	end)
+	self.pool_mark = make_pool(function(e)
+		local n = ui.tex_box(0, 0, 10, 10, "ring")
+		gui.set_color(n, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
+		return n
+	end)
+	self.pool_item = make_pool(function(e)
+		local box = ui.box(0, 0, items.ITEM_SIZE, items.ITEM_SIZE, items.ITEM_DEFS[e.item.kind].color, 1)
+		local text = ui.text(0, 0, tostring(e.item.level), 10, { 0.106, 0.106, 0.169 })
+		return { box = box, text = text }
+	end)
+	self.pool_text = make_pool(function(e)
+		return ui.text(0, 0, e.text, 11, e.color)
+	end)
+
+	-- Rain and ripples, box nodes driven off the clock each frame.
+	self.rain_nodes = {}
+	for _, d in ipairs(effects.RAIN_STREAKS) do
+		local n = ui.box(0, -100, d.width, d.length, effects.RAIN.color, d.opacity)
+		self.rain_nodes[#self.rain_nodes + 1] = { node = n, d = d }
+	end
+	self.ripple_nodes = {}
+	for _, r in ipairs(effects.RIPPLES) do
+		local n = ui.tex_box(0, 0, 10, 5, "ring")
+		gui.set_color(n, vmath.vector4(effects.RIPPLE.color[1], effects.RIPPLE.color[2], effects.RIPPLE.color[3], 0))
+		self.ripple_nodes[#self.ripple_nodes + 1] = { node = n, r = r }
+	end
+	self.clock = 0
+
+	-- Overlays.
+	self.settings = settings_overlay.build()
+	self.overlay_nodes = {} -- rebuilt per overlay open
+	self.dragging = nil
+	self.tooltip_box = ui.box(0, 0, 240, 46, { 0, 0, 0 }, 0.9)
+	self.tooltip_text = ui.text(0, 0, "", 10, { 1, 1, 1 })
+	gui.set_line_break(self.tooltip_text, true)
+	gui.set_size(self.tooltip_text, vmath.vector3(900, 200, 0))
+	gui.set_enabled(self.tooltip_box, false)
+	gui.set_enabled(self.tooltip_text, false)
+
+	-- Game over.
+	self.go_shade = ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75)
+	self.go_text = ui.text(W / 2, H / 2 + 40, "Game Over", 26, { 1, 1, 1 })
+	self.go_gold = ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 })
+	self.go_btn = ui.box(W / 2, H / 2 - 60, 140, 44, { 0.298, 0.686, 0.314 }, 1)
+	self.go_btn_text = ui.text(W / 2, H / 2 - 60, "Main Menu", 13, { 1, 1, 1 })
+end
+
+-- ---- overlays --------------------------------------------------------------
+
+local function clear_overlay(self)
+	for _, n in ipairs(self.overlay_nodes) do gui.delete_node(n) end
+	self.overlay_nodes = {}
+	self.inv_slots = nil
+	self.mobstats_built = nil
+end
+
+local function add(self, n)
+	self.overlay_nodes[#self.overlay_nodes + 1] = n
+	return n
+end
+
+local function build_inventory(self)
+	clear_overlay(self)
+	local s = session.sim
+	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
+	add(self, ui.box(W / 2, H / 2, W - 40, 380, { 0.1, 0.1, 0.18 }, 1))
+	add(self, ui.text(W / 2, H / 2 + 165, "Inventory", 16, { 1, 1, 1 }))
+	add(self, ui.text(W / 2 - (W - 80) / 2, H / 2 + 130, "Equipped", 11, { 0.8, 0.8, 0.85 }, gui.PIVOT_W))
+	self.inv_slots = {}
+	for i = 1, items.EQUIP_SLOTS do
+		local x = W / 2 - 90 + (i - 1) * 90
+		local slot = add(self, ui.box(x, H / 2 + 85, 72, 60, { 0.18, 0.18, 0.28 }, 1))
+		local name = add(self, ui.text(x, H / 2 + 95, "", 10, { 1, 1, 1 }))
+		local lvl = add(self, ui.text(x, H / 2 + 75, "", 11, { 1, 1, 1 }))
+		self.inv_slots[#self.inv_slots + 1] = { key = "equip-" .. i, slot = slot, name = name, lvl = lvl }
+	end
+	add(self, ui.text(W / 2 - (W - 80) / 2, H / 2 + 35, "Bag", 11, { 0.8, 0.8, 0.85 }, gui.PIVOT_W))
+	for i = 1, items.BAG_SLOTS do
+		local col = (i - 1) % 3
+		local row = math.floor((i - 1) / 3)
+		local x = W / 2 - 90 + col * 90
+		local y = H / 2 - 5 - row * 70
+		local slot = add(self, ui.box(x, y, 72, 60, { 0.18, 0.18, 0.28 }, 1))
+		local name = add(self, ui.text(x, y + 10, "", 10, { 1, 1, 1 }))
+		local lvl = add(self, ui.text(x, y - 10, "", 11, { 1, 1, 1 }))
+		self.inv_slots[#self.inv_slots + 1] = { key = "bag-" .. i, slot = slot, name = name, lvl = lvl }
+	end
+end
+
+local function sync_inventory(self)
+	local s = session.sim
+	if not self.inv_slots then return end
+	for _, sl in ipairs(self.inv_slots) do
+		local item
+		if sl.key:sub(1, 6) == "equip-" then
+			item = s.equipped[tonumber(sl.key:sub(7))]
+		else
+			item = s.bag[tonumber(sl.key:sub(5))]
+		end
+		if item then
+			local def = items.ITEM_DEFS[item.kind]
+			gui.set_color(sl.slot, vmath.vector4(def.color[1], def.color[2], def.color[3], 1))
+			gui.set_text(sl.name, def.name)
+			gui.set_text(sl.lvl, tostring(item.level))
+		else
+			gui.set_color(sl.slot, vmath.vector4(0.18, 0.18, 0.28, 1))
+			gui.set_text(sl.name, "")
+			gui.set_text(sl.lvl, "")
+		end
+	end
+end
+
+local function build_mobstats(self)
+	clear_overlay(self)
+	local s = session.sim
+	local shown_wave = s.wave_active and s.wave or s.wave + 1
+	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
+	add(self, ui.box(W / 2, H / 2, W - 40, 260, { 0.1, 0.1, 0.18 }, 1))
+	add(self, ui.text(W / 2, H / 2 + 105, ("Mob Stats · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
+	local y = H / 2 + 55
+	for _, row in ipairs(combat.wave_composition(shown_wave)) do
+		local meta = combat.MOB_TYPE_META[row.type]
+		local stats = combat.mob_type_stats(row.type, shown_wave)
+		add(self, ui.box(W / 2 - 130, y, 26, 26, meta.color, 1))
+		add(self, ui.text(W / 2 - 105, y + 7, ("%s · x%d"):format(meta.name, row.count), 12, { 1, 1, 1 }, gui.PIVOT_W))
+		add(self, ui.text(W / 2 - 105, y - 10, ("HP %d · DMG %d"):format(stats.hp, stats.damage), 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
+		y = y - 60
+	end
+	self.mobstats_built = true
+end
+
+local function build_skills_overlay(self)
+	clear_overlay(self)
+	local s = session.sim
+	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
+	add(self, ui.box(W / 2, H / 2, W - 40, 300, { 0.1, 0.1, 0.18 }, 1))
+	add(self, ui.text(W / 2, H / 2 + 125, "Equipped skills", 15, { 1, 1, 1 }))
+	local y = H / 2 + 75
+	for k = 1, 3 do
+		local ab = s.abilities[k]
+		if ab.skill then
+			local meta = skills.SKILL_META[ab.skill]
+			add(self, ui.box(W / 2 - 130, y, 30, 30, meta.color, 1))
+			add(self, ui.text(W / 2 - 105, y + 8, ("%s · Lv %d/%d"):format(meta.label, ab.level, skills.ABILITY_MAX_LEVEL), 12, { 1, 1, 1 }, gui.PIVOT_W))
+			local sub = meta.cast == "passive" and "Passive" or ("%d MP · %ds CD"):format(meta.mana, meta.cooldown)
+			add(self, ui.text(W / 2 - 105, y - 9, sub, 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
+			y = y - 56
+		end
+	end
+	if s.passive then
+		local meta = skills.SKILL_META[s.passive.skill]
+		add(self, ui.box(W / 2 - 130, y, 30, 30, meta.color, 1))
+		add(self, ui.text(W / 2 - 105, y + 8, ("%s · Lv %d/%d"):format(meta.label, s.passive.level, skills.ABILITY_MAX_LEVEL), 12, { 1, 1, 1 }, gui.PIVOT_W))
+		add(self, ui.text(W / 2 - 105, y - 9, "Passive", 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
+		y = y - 56
+	end
+	add(self, ui.text(W / 2, y, "Buy, level and equip skills from the main menu.", 10, { 0.75, 0.75, 0.8 }))
+end
+
+-- ---- update ----------------------------------------------------------------
+
+local function sync_hud(self, s)
+	local p = s.player
+	local shown_wave = s.wave_active and s.wave or s.wave + 1
+	gui.set_text(self.wave_text, "Wave " .. shown_wave)
+	gui.set_text(self.wave_btn_text, "Start " .. (s.wave + 1))
+	gui.set_enabled(self.wave_btn, not s.game_over)
+	gui.set_enabled(self.wave_btn_text, not s.game_over)
+	gui.set_enabled(self.exit_btn, not s.game_over)
+	gui.set_enabled(self.exit_text, not s.game_over)
+
+	local hp_bonus = items.equipped_bonus(s.equipped, "health")
+	local mana_bonus = items.equipped_bonus(s.equipped, "mana")
+	local dmg_bonus = items.equipped_bonus(s.equipped, "dmg")
+	local atkspd_bonus = items.equipped_bonus(s.equipped, "atkspd")
+	local max_hp = p.max_hp + hp_bonus
+	local max_mana = combat.MANA_MAX + mana_bonus
+
+	local rows = {
+		{ label = ("Lv %d"):format(p.level), value = ("%d/%d"):format(p.xp, p.xp_to_next), frac = p.xp / p.xp_to_next },
+		{ label = "HP", value = ("%d/%d"):format(math.floor(p.hp + 0.5), math.floor(max_hp + 0.5)), frac = p.hp / max_hp },
+		{ label = "MP", value = ("%d/%d"):format(math.floor(p.mana + 0.5), math.floor(max_mana + 0.5)), frac = p.mana / max_mana },
+	}
+	for i, row in ipairs(rows) do
+		gui.set_text(self.hud[i].label, row.label)
+		gui.set_text(self.hud[i].value, row.value)
+		gui.set_size(self.hud[i].fill, vmath.vector3(BAR_WIDTH * math.max(0, math.min(1, row.frac)), 8, 0))
+	end
+
+	local ranged_lvl = 0
+	for k = 1, 3 do
+		if s.abilities[k].skill == "ranged" then ranged_lvl = s.abilities[k].level end
+	end
+	local display_damage = combat.PLAYER_BASE_DAMAGE + skills.ability3_damage_bonus(ranged_lvl) + dmg_bonus
+	local cd = (combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)) / (1 + atkspd_bonus)
+	gui.set_text(self.stats_text, ("DMG %d   SPD %.1f/s"):format(display_damage, 1 / cd))
+
+	-- Quick-cast slots.
+	for i = 1, 3 do
+		local slot = self.qc_slots[i]
+		local ab = s.abilities[i]
+		local show = ab.skill ~= nil and ab.level > 0
+		for _, n in pairs({ slot.btn, slot.icon, slot.mana, slot.cd, slot.label }) do
+			gui.set_enabled(n, show)
+		end
+		if show then
+			local meta = skills.SKILL_META[ab.skill]
+			local can_cast = ab.cooldown <= 0 and p.mana >= meta.mana
+			gui.set_color(slot.btn, vmath.vector4(meta.color[1], meta.color[2], meta.color[3], can_cast and 1 or 0.45))
+			gui.set_text(slot.icon, meta.label:sub(1, 4))
+			gui.set_text(slot.mana, tostring(meta.mana))
+			gui.set_text(slot.cd, ab.cooldown > 0 and tostring(math.ceil(ab.cooldown)) or "")
+			gui.set_text(slot.label, meta.label)
+		end
+	end
+	local pv = s.passive
+	gui.set_enabled(self.passive_chip, pv ~= nil)
+	gui.set_enabled(self.passive_icon, pv ~= nil)
+	if pv then
+		local meta = skills.SKILL_META[pv.skill]
+		gui.set_color(self.passive_chip, vmath.vector4(meta.color[1], meta.color[2], meta.color[3], 1))
+		gui.set_text(self.passive_icon, meta.label:sub(1, 2))
+	end
+
+	local bag_count = 0
+	for _, it in ipairs(s.bag) do
+		if it then bag_count = bag_count + 1 end
+	end
+	gui.set_text(self.bag_badge, bag_count > 0 and tostring(bag_count) or "")
+end
+
+local function sync_field(self, s)
+	local p = s.player
+
+	-- Range ring around the knight.
+	local pierce_lvl = (s.passive and s.passive.skill == "pierce") and s.passive.level or 0
+	local ranged_lvl = 0
+	for k = 1, 3 do
+		if s.abilities[k].skill == "ranged" then ranged_lvl = s.abilities[k].level end
+	end
+	local range = (ranged_lvl > 0 or pierce_lvl > 0) and combat.RANGED_ATTACK_RANGE or combat.PLAYER_ATTACK_RANGE
+	gui.set_position(self.range_ring, vmath.vector3(p.pos.x, gy(p.pos.y), 0))
+	gui.set_size(self.range_ring, vmath.vector3(range * 2, range * 2, 0))
+
+	-- Aim preview cone for the aimed cast.
+	if s.aiming_slot and s.aim_point then
+		gui.set_enabled(self.aim_cone, true)
+		local angle = math.atan2(s.aim_point.y - p.pos.y, s.aim_point.x - p.pos.x)
+		local half = math.rad(skills.ABILITY2_HALF_ANGLE_DEG)
+		local len = 240
+		gui.set_size(self.aim_cone, vmath.vector3(len, 2 * len * math.tan(half), 0))
+		gui.set_pivot(self.aim_cone, gui.PIVOT_W)
+		gui.set_position(self.aim_cone, vmath.vector3(p.pos.x, gy(p.pos.y), 0))
+		gui.set_rotation(self.aim_cone, vmath.quat_rotation_z(-angle))
+	else
+		gui.set_enabled(self.aim_cone, false)
+	end
+
+	-- HP bars over mobs and allies.
+	local bars = {}
+	for _, m in ipairs(s.mobs) do
+		bars[#bars + 1] = { id = "m" .. m.id, x = m.pos.x, y = m.pos.y - m.radius - 8, w = m.radius * 2, frac = m.hp / m.max_hp, color = { 0.298, 0.686, 0.314 } }
+	end
+	for _, a in ipairs(s.allies) do
+		bars[#bars + 1] = { id = "a" .. a.id, x = a.pos.x, y = a.pos.y - combat.ALLY_RADIUS - 8, w = combat.ALLY_RADIUS * 2, frac = a.hp / a.max_hp, color = { 0.494, 0.341, 0.761 } }
+	end
+	pool_sync(self.pool_hp, bars, function(n, e)
+		gui.set_position(n.bg, vmath.vector3(e.x, gy(e.y), 0))
+		gui.set_size(n.bg, vmath.vector3(e.w, 4, 0))
+		gui.set_position(n.fill, vmath.vector3(e.x - e.w / 2, gy(e.y), 0))
+		gui.set_size(n.fill, vmath.vector3(e.w * math.max(0, e.frac), 4, 0))
+		gui.set_color(n.fill, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
+	end)
+
+	-- Projectiles interpolate from creation to arrival.
+	pool_sync(self.pool_proj, s.projectiles, function(n, e)
+		local t = math.min(1, (s.now - e.created_at) / e.duration)
+		local x = e.from.x + (e.to.x - e.from.x) * t
+		local y = e.from.y + (e.to.y - e.from.y) * t
+		gui.set_position(n, vmath.vector3(x, gy(y), 0))
+	end)
+
+	pool_sync(self.pool_flash, s.hit_flashes, function(n, e)
+		gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+		ui.set_alpha(n, math.max(0, 1 - (s.now - e.created_at) / combat.HIT_FLASH_DURATION))
+	end)
+
+	pool_sync(self.pool_mark, s.skill_marks, function(n, e)
+		local age = s.now - e.created_at
+		if age < 0 then
+			ui.set_alpha(n, 0)
+			return
+		end
+		local t = math.min(1, age / combat.SKILL_MARK_DURATION)
+		local size = e.radius * 2 * (1 + t * 0.15)
+		gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+		gui.set_size(n, vmath.vector3(size, size, 0))
+		ui.set_alpha(n, 0.55 * (1 - t))
+	end)
+
+	local ground = {}
+	for _, it in ipairs(s.ground_items) do
+		ground[#ground + 1] = { id = it.item.id, item = it.item, pos = it.pos }
+	end
+	pool_sync(self.pool_item, ground, function(n, e)
+		gui.set_position(n.box, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+		gui.set_position(n.text, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+	end)
+
+	pool_sync(self.pool_text, s.floating_texts, function(n, e)
+		local t = math.min(1, (s.now - e.created_at) / combat.FLOATING_TEXT_DURATION)
+		gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y) + t * combat.FLOATING_TEXT_RISE, 0))
+		ui.set_alpha(n, math.max(0, 1 - t))
+	end)
+end
+
+local function sync_weather(self, dt)
+	self.clock = self.clock + dt
+	local show = not session.weather_off
+	for _, entry in ipairs(self.rain_nodes) do
+		gui.set_enabled(entry.node, show)
+		if show then
+			local d = entry.d
+			local dur = effects.RAIN_SPAN / d.speed
+			-- Stop-motion on purpose: time quantised to the rain's own frame rate.
+			local t = ((self.clock / dur) + d.offset) % 1
+			t = math.floor(t * dur * effects.RAIN.step_fps) / (dur * effects.RAIN.step_fps)
+			local fall = t * effects.RAIN_SPAN
+			local x = d.x * (W + effects.RAIN_DRIFT) - effects.RAIN_DRIFT + fall * effects.RAIN_TILT_X
+			gui.set_position(entry.node, vmath.vector3(x, layout.PLAY_TOP - fall + d.length, 0))
+		end
+	end
+	for i, entry in ipairs(self.ripple_nodes) do
+		gui.set_enabled(entry.node, show)
+		if show then
+			local r = entry.r
+			local t = ((self.clock / r.period) + r.phase) % 1
+			t = math.floor(t * effects.RIPPLE.steps) / effects.RIPPLE.steps
+			local spot = r.spot
+			local room = spot[3]
+			local size = math.min(effects.RIPPLE.size, room * 2 * effects.ground_scale) * t
+			gui.set_position(entry.node, vmath.vector3(effects.on_ground_x(spot[1]), layout.PLAY_TOP - effects.on_ground_y(spot[2]), 0))
+			gui.set_size(entry.node, vmath.vector3(math.max(1, size), math.max(1, size / 2), 0))
+			ui.set_alpha(entry.node, effects.RIPPLE.opacity * (1 - t))
+		end
+	end
+end
+
+function update(self, dt)
+	local s = session.sim
+	if not s or session.screen ~= "game" then return end
+
+	sync_hud(self, s)
+	sync_field(self, s)
+	sync_weather(self, dt)
+	settings_overlay.sync(self.settings)
+
+	if session.overlay == "inventory" then
+		if not self.inv_slots then build_inventory(self) end
+		sync_inventory(self)
+	elseif session.overlay == "mobstats" then
+		if not self.mobstats_built then build_mobstats(self) end
+	elseif session.overlay == "skills" then
+		if #self.overlay_nodes == 0 then build_skills_overlay(self) end
+	elseif #self.overlay_nodes > 0 then
+		clear_overlay(self)
+	end
+
+	-- Tooltip.
+	local tip = session.tooltip
+	gui.set_enabled(self.tooltip_box, tip ~= nil)
+	gui.set_enabled(self.tooltip_text, tip ~= nil)
+	if tip then
+		gui.set_position(self.tooltip_box, vmath.vector3(W / 2, tip.y or H / 2, 0))
+		gui.set_position(self.tooltip_text, vmath.vector3(W / 2, tip.y or H / 2, 0))
+		gui.set_text(self.tooltip_text, tip.text)
+	end
+
+	-- Game over overlay.
+	local over = s.game_over and session.game_over_shown
+	for _, n in ipairs({ self.go_shade, self.go_text, self.go_gold, self.go_btn, self.go_btn_text }) do
+		gui.set_enabled(n, over)
+	end
+	if over then
+		gui.set_text(self.go_gold, session.is_test_run and "" or ("+%d gold earned"):format(session.last_run_gold))
+	end
+
+	-- Technical readout: sim entity counts, a cousin of the perf overlay.
+	gui.set_enabled(self.tech_text, session.tech_on)
+	if session.tech_on then
+		gui.set_text(self.tech_text, ("fps~%d mobs %d proj %d fx %d"):format(
+			math.floor(1 / math.max(dt, 1e-6) + 0.5), #s.mobs, #s.projectiles,
+			#s.hit_flashes + #s.skill_marks + #s.floating_texts))
+	end
+end
+
+-- ---- input -----------------------------------------------------------------
+
+local function in_play_area(y)
+	return y >= layout.PLAY_BOTTOM and y <= layout.PLAY_TOP
+end
+
+function on_input(self, action_id, action)
+	if session.screen ~= "game" then return false end
+	local s = session.sim
+	if not s then return false end
+	if action_id ~= hash("touch") then return false end
+
+	-- Game over screen swallows everything but its button.
+	if s.game_over and session.game_over_shown then
+		if action.pressed and gui.pick_node(self.go_btn, action.x, action.y) then
+			session.actions.leave_game_over()
+		end
+		return true
+	end
+
+	if session.overlay == "settings" then
+		if action.pressed then settings_overlay.input(self.settings, action) end
+		return true
+	end
+	if session.overlay ~= nil then
+		if action.pressed then
+			-- Inventory: tap a slot -> tooltip; drag between slots.
+			if session.overlay == "inventory" and self.inv_slots then
+				for _, sl in ipairs(self.inv_slots) do
+					if gui.pick_node(sl.slot, action.x, action.y) then
+						self.drag_from = sl.key
+						self.drag_moved = false
+						self.drag_x, self.drag_y = action.x, action.y
+						return true
+					end
+				end
+			end
+			session.overlay = nil
+			session.tooltip = nil
+			clear_overlay(self)
+		elseif self.drag_from then
+			if not action.released then
+				if math.abs(action.x - self.drag_x) + math.abs(action.y - self.drag_y) > items.INV_DRAG_THRESHOLD then
+					self.drag_moved = true
+				end
+			else
+				local from = self.drag_from
+				self.drag_from = nil
+				local function slot_get(key)
+					local idx = tonumber(key:match("%d+"))
+					if key:sub(1, 6) == "equip-" then return s.equipped, idx end
+					return s.bag, idx
+				end
+				if self.drag_moved and self.inv_slots then
+					for _, sl in ipairs(self.inv_slots) do
+						if gui.pick_node(sl.slot, action.x, action.y) and sl.key ~= from then
+							local fa, fi = slot_get(from)
+							local ta, ti = slot_get(sl.key)
+							fa[fi], ta[ti] = ta[ti] or false, fa[fi] or false
+							break
+						end
+					end
+				elseif not self.drag_moved then
+					local fa, fi = slot_get(from)
+					local item = fa[fi]
+					if item then
+						session.tooltip = { text = items.item_tooltip(item), y = H / 2 + 220 }
+					end
+				end
+			end
+		end
+		return true
+	end
+	if session.tooltip then
+		if action.pressed then session.tooltip = nil end
+		return true
+	end
+
+	if action.pressed then
+		-- Top bar.
+		if gui.pick_node(self.exit_btn, action.x, action.y) then
+			session.actions.exit_run()
+			return true
+		end
+		if gui.pick_node(self.gear_btn, action.x, action.y) then
+			session.overlay = "settings"
+			return true
+		end
+		if gui.pick_node(self.mobstats_btn, action.x, action.y) then
+			session.overlay = "mobstats"
+			return true
+		end
+		if gui.pick_node(self.wave_btn, action.x, action.y) then
+			local sim = require("game.sim")
+			sim.start_next_wave(s)
+			return true
+		end
+		-- Quick-cast bar.
+		if gui.pick_node(self.bag_btn, action.x, action.y) then
+			session.overlay = "inventory"
+			return true
+		end
+		for i = 1, 3 do
+			if gui.is_enabled(self.qc_slots[i].btn, true) and gui.pick_node(self.qc_slots[i].btn, action.x, action.y) then
+				local sim = require("game.sim")
+				sim.press_ability(s, i)
+				return true
+			end
+		end
+		-- The field: order a move (or aim, when aiming).
+		if in_play_area(action.y) then
+			local sim = require("game.sim")
+			sim.tap_field(s, action.x, layout.PLAY_TOP - action.y)
+			return true
+		end
+	elseif s.aiming_slot and in_play_area(action.y) then
+		if action.released then
+			local sim = require("game.sim")
+			sim.cast_cone_aimed(s, s.aiming_slot, { x = action.x, y = layout.PLAY_TOP - action.y })
+		else
+			s.aim_point = { x = action.x, y = layout.PLAY_TOP - action.y }
+		end
+		return true
+	end
+	return false
+end

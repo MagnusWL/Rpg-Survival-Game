@@ -1,0 +1,59 @@
+-- The Continue Run screen: saved runs newest first, tap to resume.
+local layout = require("game.layout")
+local session = require("game.session")
+local ui = require("game.ui")
+
+local W, H = layout.SCREEN_W, layout.SCREEN_H
+
+function init(self)
+	msg.post(".", "acquire_input_focus")
+	self.title = ui.text(W / 2, H - 60, "Continue Run", 20, { 1, 1, 1 })
+	self.empty = ui.text(W / 2, H - 120, "No saved runs.", 13, { 0.7, 0.7, 0.75 })
+	self.back = ui.box(W / 2, 70, 120, 40, { 0.216, 0.278, 0.31 }, 1)
+	self.back_text = ui.text(W / 2, 70, "Back", 14, { 1, 1, 1 })
+	self.rows = {}
+end
+
+local function clear_rows(self)
+	for _, r in ipairs(self.rows) do
+		gui.delete_node(r.box)
+		gui.delete_node(r.title)
+		gui.delete_node(r.sub)
+	end
+	self.rows = {}
+end
+
+function update(self, dt)
+	-- Rebuild when the list changes size (cheap: a handful of rows at most).
+	local sorted = {}
+	for _, r in ipairs(session.saved_runs) do sorted[#sorted + 1] = r end
+	table.sort(sorted, function(a, b) return (a.saved_at or 0) > (b.saved_at or 0) end)
+	gui.set_enabled(self.empty, #sorted == 0)
+	if #self.rows ~= #sorted then
+		clear_rows(self)
+		for i, run in ipairs(sorted) do
+			local y = H - 130 - (i - 1) * 64
+			local box = ui.box(W / 2, y, W - 40, 56, { 0.14, 0.14, 0.24 }, 1)
+			local title = ui.text(W / 2 - (W - 60) / 2, y + 10, ("Wave %d · Lv %d"):format(run.wave, run.level), 14, { 1, 1, 1 }, gui.PIVOT_W)
+			local sub = ui.text(W / 2 - (W - 60) / 2, y - 12, os.date("%Y-%m-%d %H:%M", run.saved_at or 0), 11, { 0.7, 0.7, 0.75 }, gui.PIVOT_W)
+			self.rows[i] = { box = box, title = title, sub = sub, run = run }
+		end
+	end
+end
+
+function on_input(self, action_id, action)
+	if session.screen ~= "continue" then return false end
+	if action_id == hash("touch") and action.pressed then
+		for _, r in ipairs(self.rows) do
+			if gui.pick_node(r.box, action.x, action.y) then
+				session.actions.continue_run(r.run)
+				return true
+			end
+		end
+		if gui.pick_node(self.back, action.x, action.y) then
+			session.actions.back_to_menu()
+			return true
+		end
+	end
+	return false
+end

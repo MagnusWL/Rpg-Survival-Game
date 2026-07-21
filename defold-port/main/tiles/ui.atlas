@@ -1,0 +1,27 @@
+images {
+  image: "/assets/sprites/menu/bg.jpg"
+}
+images {
+  image: "/assets/sprites/menu/button.png"
+}
+images {
+  image: "/assets/sprites/intro/1.jpg"
+}
+images {
+  image: "/assets/sprites/intro/2.jpg"
+}
+images {
+  image: "/assets/sprites/intro/3.jpg"
+}
+images {
+  image: "/assets/sprites/background.jpg"
+}
+images {
+  image: "/assets/sprites/prim/white.png"
+}
+images {
+  image: "/assets/sprites/prim/circle.png"
+}
+images {
+  image: "/assets/sprites/prim/ring.png"
+}
