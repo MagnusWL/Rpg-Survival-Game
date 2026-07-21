@@ -1,7 +1,4 @@
 images {
-  image: "/assets/sprites/background.jpg"
-}
-images {
   image: "/assets/sprites/effects/glow.png"
 }
 images {

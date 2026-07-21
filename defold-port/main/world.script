@@ -45,6 +45,69 @@ local function sync_background(self)
 	show_only(self.bg_id, { "bg", "bg_bane1" }, want)
 end
 
+-- ===== The cone's ground shockwave =======================================
+-- From the design handoff (Raw_Assets/Grafik/Animation Effekter/Shockwave
+-- landskabseffekt): the ground texture itself is displaced by a pressure
+-- wave, computed in materials/ground_shockwave.fp. This side is only
+-- bookkeeping - eight wave slots as shader constants on both ground
+-- sprites, oldest dropped first, and the sim clock as the shader's time
+-- so a paused game freezes the ground with everything else.
+local BG_SPRITES = { "bg", "bg_bane1" }
+local WAVE_COS_HALF = math.cos(math.rad(skills.ABILITY2_HALF_ANGLE_DEG))
+-- The handoff's look numbers are tuned in px at a 1080 screen-height
+-- reference; scaled by our height they keep the tuned proportions. Range
+-- is the ability's own reach - the shockwave dies where the damage dies -
+-- and the cone angle is the ability's too, as the handoff instructs.
+local WAVE_PX = layout.SCREEN_H / 1080
+local WAVE_PARAMS_A = vmath.vector4(59 * WAVE_PX, 1400 * WAVE_PX, 120 * WAVE_PX, 0.7)
+local WAVE_DECAY = 1.15
+local WAVE_SHADING = 0.13
+
+local function bg_set(self, name, v)
+	for _, comp in ipairs(BG_SPRITES) do
+		go.set(msg.url(nil, self.bg_id, comp), name, v)
+	end
+end
+
+local function wave_sync_slots(self)
+	for i = 1, 8 do
+		local w = self.waves[i]
+		bg_set(self, "wave" .. (i - 1) .. "_a",
+			w and vmath.vector4(w.x, w.y, w.start, 1) or vmath.vector4(0, 0, 0, 0))
+		bg_set(self, "wave" .. (i - 1) .. "_b",
+			w and vmath.vector4(w.dx, w.dy, WAVE_COS_HALF, 0) or vmath.vector4(0, 0, 0, 0))
+	end
+end
+
+local function wave_push(self, z)
+	-- Sim y points down, world y up: the aim flips with the space, the
+	-- same sign flip the telegraph arcs make with their rotation.
+	local rad = math.rad(z.angle_deg)
+	self.waves[#self.waves + 1] = {
+		x = layout.to_world_x(z.x), y = layout.to_world_y(z.y),
+		dx = math.cos(rad), dy = -math.sin(rad),
+		start = z.start_at,
+	}
+	if #self.waves > 8 then table.remove(self.waves, 1) end
+	wave_sync_slots(self)
+end
+
+local function wave_init(self)
+	self.waves = {}
+	bg_set(self, "wparams_a", WAVE_PARAMS_A)
+	bg_set(self, "wparams_b", vmath.vector4(WAVE_DECAY, WAVE_SHADING, skills.CONE_RANGE, 0))
+	-- World px -> each ground texture's uv (y flipped: world up, v down).
+	-- The texture is asked for its real size; 2048 is only the fallback.
+	for _, comp in ipairs(BG_SPRITES) do
+		local url = msg.url(nil, self.bg_id, comp)
+		local w, h = 2048, 2048
+		local ok, info = pcall(function() return resource.get_texture_info(go.get(url, "texture0")) end)
+		if ok and info and info.width then w, h = info.width, info.height end
+		go.set(url, "uv_k", vmath.vector4(1 / (self.bg_scale * w), -1 / (self.bg_scale * h), 0, 0))
+	end
+	wave_sync_slots(self)
+end
+
 function init(self)
 	self.mob_views = {}
 	self.ally_views = {}
@@ -61,7 +124,9 @@ function init(self)
 		vmath.vector3(layout.SCREEN_W / 2, layout.PLAY_BOTTOM + layout.PLAY_H / 2, -0.95),
 		nil, {}, bg_scale)
 	self.bg_id = bg
+	self.bg_scale = bg_scale
 	sync_background(self)
+	wave_init(self)
 
 	-- The knight and his light are permanent; hide them until a run is up.
 	msg.post("knight", "disable")
@@ -233,6 +298,9 @@ local function sync_zones(self, s)
 		if not view and s.now >= z.start_at then
 			view = { arcs = {} }
 			self.zone_views[z.id] = view
+			-- The ground answers the same strike the telegraph does: one
+			-- shockwave, sharing the zone's origin, aim and moment.
+			wave_push(self, z)
 			local rad = math.rad(z.angle_deg)
 			for i = 0, 7 do
 				local radius = 96 * (i + 1)
@@ -287,10 +355,14 @@ end
 function on_message(self, message_id, message)
 	if message_id == hash("run_started") then
 		clear_pools(self)
+		self.waves = {}
+		wave_sync_slots(self)
 		msg.post("knight", "enable")
 		msg.post("glow", "enable")
 	elseif message_id == hash("run_ended") then
 		clear_pools(self)
+		self.waves = {}
+		wave_sync_slots(self)
 		msg.post("knight", "disable")
 		msg.post("glow", "disable")
 	end
@@ -308,4 +380,6 @@ function update(self, dt)
 	sync_corpses(self, s)
 	sync_blood(self, s)
 	sync_zones(self, s)
+	-- The shockwave shader's clock is the sim's, delivered once per frame.
+	bg_set(self, "wparams_b", vmath.vector4(WAVE_DECAY, WAVE_SHADING, skills.CONE_RANGE, s.now))
 end

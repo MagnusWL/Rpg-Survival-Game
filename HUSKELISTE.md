@@ -86,6 +86,45 @@ Web-udgaven af blomsten er IKKE bygget (Defold-æraen først).
 
 ---
 
+## Shockwave på Rupture: jorden selv slår bølge (22. juli, afventer F5)
+
+Ny handoff-TYPE: ikke en motor der køres, men **shader-matematik der
+genskabes præcist** (README'en: "the GLSL translates 1:1... should be
+reproduced exactly"). Første custom material i porten.
+
+- `materials/ground_shockwave.{material,vp,fp}` — fragment-shaderen
+  forskyder jordteksturens UV'er radialt når bølgefronten passerer +
+  lysglans på kammen. Matematikken er handoffens GLSL ordret; kun rummet
+  er anderledes (verdens-pixels i stedet for skærmhøjde-enheder, uv_k
+  konverterer til sidst). Gammel GLSL-dialekt (attribute/varying) — mest
+  versionssikre på tværs af Defold-udgaver.
+- **Arbejdsdeling som README'en kræver:** udseende-tallene ordret fra
+  handoffen (amplitude 59, fart 1400, bredde 120, ripples 0,7, henfald
+  1,15, glans 0,13 — alle ÷1080 ref-højde, skaleret med vores 844);
+  GEOMETRI fra spillet: origin/sigte/øjeblik = cone-zonens (affyres i
+  sync_zones når telegrafen fødes, billede 12), keglevinkel =
+  ABILITY2_HALF_ANGLE_DEG (21°, ikke designets 27,5°), range = CONE_RANGE.
+  Sjovt sammenfald: designerens 1400/1080-fart ≈ 1094 px/s hos os ≈
+  spillets skadebølge på 1100 — de har tunet mod det rigtige spil.
+- 8 bølge-slots som navngivne constants (wave0_a..wave7_b — arrays i
+  materials er nyere API, fravalgt for versionssikkerhed). Klokken er
+  SIM-tiden (pause fryser jorden). Slots nulstilles ved run-start/-slut.
+- Baggrunden FLYTTET fra world.atlas til eget world_bg.atlas (forskudte
+  UV'er må ikke kunne trække glow/prims ind i jorden; world.atlas
+  beholder glow+prims til mob/ally/glow). Begge baner bærer materialet —
+  bane1-atlasset var allerede sit eget. Teksturstørrelser spørges ved
+  runtime (resource.get_texture_info, 2048-fallback).
+- **Kendte kanter:** (1) øverste/nederste spillefelt-rækker kan suge sort
+  ind ved kraftig kam — HUD-bjælkerne dækker formentlig sømmen; kig efter.
+  (2) Tuning-knapper til Nicolai: WAVE_PARAMS_A/DECAY/SHADING øverst i
+  world.scripts shockwave-blok.
+
+**F5:** kast Rupture — jorden skal SKUBBES udad i keglen samtidig med
+strejf-linjerne, én ren puls (ripples 0,7), død ved damage-rækkevidden.
+Prøv også på den nye bane (settings-knappen) — materialet sidder på begge.
+
+---
+
 ## Ny bane-baggrund bag test-knap (22. juli — Nicolai: "ser godt ud")
 
 `Raw_Assets/Grafik/Baner/Bane 1.png` (2400×1792, i virkeligheden en JPEG med

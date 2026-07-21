@@ -1,0 +1,18 @@
+// Sprite vertex pass-through that also hands the fragment shader the
+// vertex's WORLD position: Defold sprites arrive pre-transformed to world
+// space, so position.xy is already the ground's own coordinate system --
+// the same pixels the sim and the shockwave math live in.
+uniform highp mat4 view_proj;
+
+attribute highp vec4 position;
+attribute mediump vec2 texcoord0;
+
+varying mediump vec2 var_texcoord0;
+varying highp vec2 var_world_pos;
+
+void main()
+{
+    var_texcoord0 = texcoord0;
+    var_world_pos = position.xy;
+    gl_Position = view_proj * vec4(position.xyz, 1.0);
+}
