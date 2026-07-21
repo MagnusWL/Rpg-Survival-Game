@@ -21,6 +21,268 @@ import {
   View,
 } from 'react-native';
 import type { BlendMode } from 'react-native';
+import {
+  ALLY_ATTACK_COOLDOWN,
+  ALLY_ATTACK_RANGE,
+  ALLY_ENGAGE_RANGE,
+  ALLY_RADIUS,
+  ALLY_RANGED_ATTACK_RANGE,
+  ALLY_RANGED_ENGAGE_RANGE,
+  ALLY_SPEED,
+  Ally,
+  AnimName,
+  ANIMS,
+  ATTACK_FROM,
+  ATTACK_LEADS,
+  ATTACK_STRIKE_FRAME,
+  BLOOD_ANIM,
+  BLOOD_ANIMS,
+  BLOOD_DURATION,
+  BLOOD_SIZE,
+  BLOOD_VARIANTS,
+  BloodSplat,
+  BOSS_COINS,
+  BOSS_RADIUS,
+  BOSS_XP_REWARD,
+  buildWaveQueue,
+  Corpse,
+  CORPSE_FADE,
+  CORPSE_LINGER,
+  DAMAGE_TEXT_COLOR,
+  dist,
+  DIE_HOLD,
+  directionFromFacing,
+  facingForTargets,
+  facingFromDelta,
+  facingVector,
+  FLOATING_TEXT_DURATION,
+  FLOATING_TEXT_RISE,
+  FloatingText,
+  FOOTSTEP_PHASE,
+  frameStartTime,
+  GORE_EXTRA_SPLATS,
+  GORE_LEADS,
+  GORE_SPLATTER_SPREAD,
+  hasTimeline,
+  HIT_FLASH_DURATION,
+  HitFlash,
+  holdFor,
+  HURT_ANIM_MIN_GAP,
+  hurtMob,
+  INTRO_HOLD_FRAME,
+  INTRO_SETTLE,
+  INTRO_START_BELOW,
+  INTRO_STOP_ABOVE_BOTTOM,
+  INTRO_WALK_ANIM,
+  INTRO_WALK_SPEED,
+  KICK_ARC_COS,
+  KICK_CHANCE,
+  KICK_CONTACT_FRAME,
+  KICK_LEADS,
+  KICK_RANGE,
+  KILL_LEADS,
+  KILL_SFX_CHANCE,
+  KNOCKBACK_SPEED,
+  KNOCKBACK_STOP,
+  KNOCKBACK_TAU,
+  KNOCKBACK_VARIATION,
+  makeAlliesForLevel,
+  makeFloatingText,
+  makePlayer,
+  MANA_MAX,
+  MANA_REGEN_PER_SEC,
+  Mob,
+  MOB_ANIMS,
+  MOB_ATTACK_ANIMS,
+  MOB_ATTACK_COOLDOWN,
+  MOB_ATTACK_RANGE,
+  MOB_COIN_CHANCE,
+  MOB_DAMAGE,
+  MOB_DIE_ANIMS,
+  MOB_FLASH_COLOR,
+  MOB_FLASH_STRENGTH,
+  MOB_FLASH_TIME,
+  MOB_HURT_ANIM_MIN_GAP,
+  MOB_MAX_HP,
+  MOB_RADIUS,
+  MOB_RANGED_FIRE_RANGE,
+  MOB_SPEED,
+  MOB_SPRITE_FOOT_OFFSET,
+  MOB_SPRITE_SIZE,
+  MOB_TYPE_META,
+  MOB_XP_REWARD,
+  MobAnimName,
+  MobDieAnimName,
+  MobType,
+  normalizeAngle,
+  PLAYER_ATTACK_COOLDOWN,
+  PLAYER_ATTACK_RANGE,
+  PLAYER_BASE_DAMAGE,
+  PLAYER_RADIUS,
+  PLAYER_SPEED,
+  PLAYER_SPRITE_FOOT_OFFSET,
+  PLAYER_SPRITE_SIZE,
+  PlayerState,
+  playSfx,
+  playSteps,
+  playStepsCache,
+  animColumn,
+  animDuration,
+  animSpan,
+  bossTierForWave,
+  mobCountForWave,
+  mobDamageForWave,
+  mobHpForWave,
+  mobTypeStats,
+  rangedCountForWave,
+  waveComposition,
+  Projectile,
+  PROJECTILE_SPEED,
+  RANGED_ATTACK_RANGE,
+  SFX_STATE,
+  shoveMob,
+  SPRITE_CELL,
+  SPRITE_COLS,
+  SPRITE_ROW_FOR_EAST,
+  SPRITE_ROWS,
+  SpriteSheet,
+  spawnMob,
+  SKILL_MARK_DURATION,
+  STEPS_PER_CYCLE,
+  SWING_STRIKE_AT,
+  TAKEN_TEXT_COLOR,
+  Vec,
+  WALK_STRIDE,
+  WAVE_SPAWN_INTERVAL,
+  XP_TEXT_COLOR,
+  xpForLevel,
+} from './combat';
+import type { AnimDef } from './combat';
+import {
+  BAG_SLOTS,
+  equippedBonus,
+  EQUIP_SLOTS,
+  GroundItem,
+  INV_DRAG_THRESHOLD,
+  Item,
+  ITEM_DEFS,
+  ITEM_DESPAWN_MS,
+  ITEM_KINDS,
+  ITEM_PICKUP_RADIUS,
+  ITEM_SIZE,
+  itemBonus,
+  ItemKind,
+  itemTooltip,
+  makeItem,
+  Slot,
+  spawnLoot,
+} from './items';
+import {
+  ABILITY2_HALF_ANGLE_DEG,
+  ABILITY3_HASTE_DURATION,
+  ABILITY_MAX_LEVEL,
+  ability1Stats,
+  ability2BaseDamage,
+  ability2DamagePercent,
+  ability3DamageBonus,
+  Abilities,
+  Ability,
+  AbilityId,
+  ALL_SKILLS,
+  BURN_EXPLODE_RADIUS,
+  burnDamagePerSec,
+  burnExplodePercent,
+  cooldownReducePercent,
+  CONE_ARC_SHEET,
+  CONE_ARCS,
+  CONE_DAMAGE_RIDES_WAVE,
+  CONE_RANGE,
+  CONE_ZONE,
+  CONE_ZONE_MS,
+  ConeZone,
+  ConeZoneFx,
+  fireballDamagePercent,
+  FIREBALL_RADIUS,
+  fireCone,
+  isPassiveSkill,
+  MAX_EQUIPPED,
+  MAX_PASSIVE,
+  nearestTarget,
+  PassiveState,
+  pierceTargetCount,
+  pushDamagePercent,
+  PUSH_SPEED,
+  PendingConeHit,
+  PIERCE_WIDTH,
+  ROOT_SKILLS,
+  RUPTURE_ZONE_DELAY_MS,
+  RUPTURE_ZONE_FRAME,
+  SKILL_LEVEL_COST,
+  SKILL_META,
+  SKILL_PARENT,
+  skillDescription,
+  skillLevelCost,
+  skillStatsSuffix,
+  SkillCast,
+  SkillId,
+  summonRegenPerSec,
+  Target,
+} from './skills';
+import {
+  BACKGROUND,
+  bgDrawnH,
+  bgDrawnW,
+  bgOffsetX,
+  bgOffsetY,
+  BG_ASPECT,
+  BG_SOURCE_H,
+  dropStyles,
+  feetInWater,
+  GLOW,
+  GlowStyle,
+  groundScale,
+  noise,
+  onGroundX,
+  onGroundY,
+  PLAYER_GLOW,
+  PUDDLE_SPOTS,
+  RAIN,
+  RAIN_DRIFT,
+  RAIN_ENABLED,
+  RAIN_FALL_FRAMES,
+  RAIN_SPAN,
+  RAIN_STREAKS,
+  RAIN_TILT_X,
+  RainLayer,
+  rgb,
+  RIM_STYLE,
+  RimStyle,
+  ringStyles,
+  RIPPLE,
+  RIPPLE_CELL,
+  RIPPLE_POOL,
+  RIPPLE_SPREAD_FRAMES,
+  RippleLayer,
+  RIPPLES,
+} from './effects';
+import {
+  buildFreshState,
+  buildStateFromSave,
+  buildTestState,
+  defaultMeta,
+  GameState,
+  goldForWavesCleared,
+  loadMeta,
+  loadRuns,
+  makeAbilities,
+  MetaState,
+  META_STORAGE_KEY,
+  persistMeta,
+  persistRuns,
+  RunSave,
+  RUNS_STORAGE_KEY,
+  sanitizeMeta,
+} from './menu';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -36,457 +298,6 @@ const HUD_HEIGHT = 60;
 const PLAY_H = SCREEN_H - TOP_BAR_HEIGHT - QUICK_CAST_BAR_HEIGHT - HUD_HEIGHT;
 const BAR_WIDTH = 80;
 
-const PLAYER_RADIUS = 18;
-/**
- * How fast he runs.
- *
- * 170 rather than 220. The run's animation is not tied to this -- it always
- * cycles at 2.13 steps a second -- so the speed is what decides how much ground
- * a step covers, and at 220 that was 103 px against his own height of 76. He
- * was taking strides longer than he is tall. At 170 a step is 80 px, which is
- * about his height, and that is what a run looks like.
- *
- * It only reads well downwards. Faster lengthens the stride until he skates;
- * much below 140 he keeps the same cadence over less ground and starts to
- * scurry. Below that the run would need tying to the speed the way the
- * entrance walk is, which the machinery is already there for.
- */
-const PLAYER_SPEED = 170; // px/sec
-
-// --- Knight sprite sheets -------------------------------------------------
-// Built by tools/build-sprites.mjs from the raw art in Grafik/Knight.
-// Each sheet is a 15x8 grid: columns are animation frames, rows are facings.
-const SPRITE_CELL = 128; // must match OUT_CELL in tools/build-sprites.mjs
-const SPRITE_COLS = 15;
-const SPRITE_ROWS = 8;
-
-// How big the knight is drawn, independent of the art's resolution. Tune freely:
-// at 128 the sheets render pixel-for-pixel, above that they upscale.
-const PLAYER_SPRITE_SIZE = 128;
-
-// How far below pos the sprite's bottom edge sits, i.e. where his feet land.
-// Larger moves him down the screen. The art is not centred in its cell, so this
-// cannot be derived -- it was eyeballed against the collision circle with a
-// temporary slider. Well below the sprite's midpoint, because the knight only
-// occupies the lower part of his 128px cell.
-const PLAYER_SPRITE_FOOT_OFFSET = 49;
-
-/**
- * The entrance. He starts this far below the play area -- clear of the bottom
- * edge, since his sprite reaches 122 px above his feet.
- */
-const INTRO_START_BELOW = 140;
-/** Where he stops, measured up from the bottom of the play area. */
-const INTRO_STOP_ABOVE_BOTTOM = 160;
-/** He walks in rather than running, so the entrance moves at a walk's pace. */
-const INTRO_WALK_SPEED = 80; // px/sec, against PLAYER_SPEED's 170
-
-/**
- * Steps drawn into one turn of a walk or run sheet.
- *
- * Two, in both. Established for the run by comparing every frame against the
- * mirror of the one half a cycle later: the match is best at exactly half,
- * because the far side of the cycle is the same pose on the other leg. The walk
- * moves too little to answer that way -- its frames differ by 2% where the run's
- * differ by 7%, and his shield swamps the rest -- but a cycle containing one
- * step would never swap his legs over, which is a hop rather than a walk.
- */
-const STEPS_PER_CYCLE = 2;
-
-/**
- * The ground one step covers, and so how often his feet have to come round.
- *
- * A distance rather than a playback rate, because that is the thing that has to
- * hold: however fast he is going, his legs have to keep up with the floor. Left
- * as a rate it went wrong immediately -- slowing the entrance while holding the
- * rate steady had him covering 72 px per step, more than his own height of 66,
- * and he moonwalked. His feet reach 36 px apart at full stride, so 40 is a step
- * he could actually be taking.
- */
-const WALK_STRIDE = 40; // px
-
-/**
- * Where in the cycle a foot lands, as a fraction of it.
- *
- * Measured off the run: his body sits lowest at frames 6 and 14 of 15, which is
- * the weight going onto a foot. The walk is assumed to match, being too subtle
- * to measure and by the same hand. One number moves both if it sounds early.
- */
-const FOOTSTEP_PHASE = 0.4;
-/**
- * How long he stands before reaching for the sword.
- *
- * A tenth of a second: long enough that arriving and drawing read as two
- * movements rather than one, short enough that nothing is being waited out. It
- * was two seconds, which was a pause with nothing in it.
- */
-const INTRO_SETTLE = 0.1; // seconds
-/**
- * The frame he holds while waiting.
- *
- * Not idle, which is the pose that already has the sword out -- dropping into it
- * here would hand him the blade a moment before he draws it. He holds the last
- * frame of the walk instead, which is also as close as that cycle gets to both
- * feet being under him: 41 px between his legs against 48 mid-stride.
- */
-const INTRO_HOLD_FRAME = SPRITE_COLS - 1;
-
-type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn' | 'kick' | 'die' | 'rupture' | 'ancestor';
-
-type AnimDef = {
-  sheet: ImageSourcePropType;
-  /**
-   * The rim light for this animation, frame for frame: white, with alpha
-   * carrying how strongly each pixel is lit. Built by tools/build-sprites.mjs
-   * from the sheet's own outline, so it can never reach past it. Only the
-   * knight has one; the mobs leave it out and are drawn without.
-   */
-  rim?: ImageSourcePropType;
-  fps: number;
-  /** Looping animations repeat forever; one-shots hold their last frame. */
-  loop: boolean;
-  /**
-   * How many rows the sheet has. Characters use one per facing; effects have no
-   * facings and spend their rows on variants instead.
-   */
-  rows?: number;
-  /** First column to play. Anything before it is skipped -- see ANIMS.attack. */
-  from?: number;
-  /**
-   * Whether moving is allowed to cut this one-shot short. A swing has to finish;
-   * a flourish should get out of the way the moment the player wants to go.
-   */
-  interruptedByMoving?: boolean;
-  /**
-   * Frames the animation dwells on: the picture holds for `seconds` on top of
-   * its ordinary 1/fps, then playback resumes at full rate. Frames count from
-   * 0 within the animation as played (after any skipped opening), and a frame
-   * shown by several passes holds every time. Nicolai's tool for giving a
-   * cast its beats.
-   */
-  holds?: { frame: number; seconds: number }[];
-  /**
-   * The passes the animation plays, in order; default is a single forward
-   * run. 'rev' walks the frames backwards. A junction does not repeat the
-   * shared frame, so a forward/backward pair turns around rather than
-   * stuttering on the endpoint. Nicolai's tool for a cast that swells,
-   * recedes and swells again.
-   */
-  passes?: ('fwd' | 'rev')[];
-  /**
-   * The exact frames to show, written out one by one, when the broad strokes
-   * above cannot say it -- a bounce between two pictures, a repeat, anything.
-   * Each entry is a frame index within the animation as played, optionally
-   * carrying its own hold. Overrides `passes`, and `holds` does not apply:
-   * with the choreography written out, every dwell belongs inline where the
-   * eye can see it.
-   */
-  order?: (number | { frame: number; hold: number })[];
-};
-
-/** Frames an animation actually plays, once any skipped opening is taken off. */
-const animSpan = (a: AnimDef) => SPRITE_COLS - (a.from ?? 0);
-
-/**
- * The swing skips its opening. Frames 0-4 of the melee sheet are pure wind-up --
- * the sword drawn back with nothing moving -- and the blade only starts round at
- * frame 5. Playing them made every blow feel like it arrived late. Starting at 5
- * cuts the animation from 0.63 s to 0.42 s and puts the strike a tenth of a
- * second after the button rather than a third.
- */
-const ATTACK_FROM = 5;
-/** Absolute frame where the blade is fully round; frames 7-9 read as the strike. */
-const ATTACK_STRIKE_FRAME = 8;
-
-const ANIMS: Record<AnimName, AnimDef> = {
-  idle: {
-    sheet: require('./assets/sprites/knight/idle.png'),
-    rim: require('./assets/sprites/knight/idle-rim.png'),
-    fps: 10,
-    loop: true,
-  },
-  // Only the entrance walks. Ordinary movement is a run, and always has been.
-  walk: {
-    sheet: require('./assets/sprites/knight/walk.png'),
-    rim: require('./assets/sprites/knight/walk-rim.png'),
-    fps: 12,
-    loop: true,
-  },
-  run: {
-    sheet: require('./assets/sprites/knight/run.png'),
-    rim: require('./assets/sprites/knight/run-rim.png'),
-    fps: 16,
-    loop: true,
-  },
-  attack: {
-    sheet: require('./assets/sprites/knight/melee.png'),
-    rim: require('./assets/sprites/knight/melee-rim.png'),
-    fps: 24,
-    loop: false,
-    from: ATTACK_FROM,
-  },
-  hurt: {
-    sheet: require('./assets/sprites/knight/takedamage.png'),
-    rim: require('./assets/sprites/knight/takedamage-rim.png'),
-    fps: 22,
-    loop: false,
-  },
-  // How a run opens: he arrives empty-handed, reaches back for the hilt around
-  // frame 5, sweeps the blade out by 12 and settles into a guard that is nearly
-  // the idle pose already, so it hands over without a jump.
-  //
-  // Movement cuts it short. It is a flourish, not a cutscene, and a player who
-  // wants to move should not be made to watch it.
-  spawn: {
-    sheet: require('./assets/sprites/knight/unsheathsword.png'),
-    rim: require('./assets/sprites/knight/unsheathsword-rim.png'),
-    fps: 16,
-    loop: false,
-    interruptedByMoving: true,
-  },
-  // The answer to being hit mid-rhythm: after the flinch, if the crowd is
-  // still on him, he kicks it off. Movement cuts it short on purpose --
-  // Nicolai's call: a player who wants out should not be held for a flourish.
-  kick: {
-    sheet: require('./assets/sprites/knight/kick.png'),
-    rim: require('./assets/sprites/knight/kick-rim.png'),
-    fps: 22,
-    loop: false,
-    interruptedByMoving: true,
-  },
-  // The fall. Nothing interrupts it -- the dying branch sits at the very top
-  // of the animation chain -- and being a one-shot it holds its last frame
-  // while the field plays on, until the game-over screen takes over.
-  die: {
-    sheet: require('./assets/sprites/knight/die.png'),
-    rim: require('./assets/sprites/knight/die-rim.png'),
-    fps: 14,
-    loop: false,
-  },
-  // The two skill casts, named by Nicolai: Special1 answers Cone as
-  // "Rupture", Special2 answers Summon as "Ancestor". The skill's effect
-  // fires the instant the button is pressed -- these are the pose, not the
-  // effect, so cutting them short (or skipping them on the run) costs
-  // nothing but the look.
-  rupture: {
-    sheet: require('./assets/sprites/knight/special1.png'),
-    rim: require('./assets/sprites/knight/special1-rim.png'),
-    fps: 18,
-    loop: false,
-    interruptedByMoving: true,
-    // Nicolai's choreography, 20 July -- this exact list is his, written in
-    // the step notation and handed over verbatim: longer breath, a third
-    // swing, longer freeze.
-    order: [
-      0, 1, 2, 3, 4, 5,
-      { frame: 6, hold: 0.3 },
-      7, 8, 9, 10,
-      11, 12, 11, 12, 11,
-      { frame: 12, hold: 0.5 },
-      13, 14,
-    ],
-  },
-  ancestor: {
-    sheet: require('./assets/sprites/knight/special2.png'),
-    rim: require('./assets/sprites/knight/special2-rim.png'),
-    fps: 18,
-    loop: false,
-    interruptedByMoving: true,
-    // Nicolai's shape, 20 July: the cast rises, withdraws, and rises again
-    // to stay -- forward, backward, forward, ending on the last frame.
-    passes: ['fwd', 'rev', 'fwd'],
-  },
-};
-
-/**
- * The kick's reach and where it lands, all Nicolai's choices of 20 July.
- *
- * It follows a flinch only when someone is actually inside this range -- a
- * kick into empty air looks daft -- and only half the time: one coin flip in
- * the frame the flinch ends keeps it a flourish rather than a reflex. It
- * shoves everyone in the arc, not just whoever the invisible swing touched:
- * clearing space is what a kick is for. The shove itself is the same
- * knockback a visible swing deals, moved here from the swing nobody saw --
- * which means on the flips where no kick comes, that blow shoves nobody at
- * all. Nicolai knows and wants it so: the kick deals no damage either way.
- *
- * Contact lands on frame 6 of 15: the leg is out and the shove fires with it
- * rather than on the wind-up.
- */
-const KICK_RANGE = 70;
-/** Half-angle of the arc, as a dot-product threshold: cos(60) = a 120 degree fan. */
-const KICK_ARC_COS = 0.5;
-const KICK_CONTACT_FRAME = 6;
-/** Chance a flinch is answered with the kick at all. */
-const KICK_CHANCE = 0.5;
-
-/**
- * How long the death animation's last frame holds before the game-over screen
- * takes over. The fall itself takes its length from the sheet; this is the
- * beat of stillness after it, so the screen does not slam in on the final
- * frame of the fall.
- */
-const DIE_HOLD = 0.45;
-
-/** The screen-space direction a facing row looks in; row 0 is east, clockwise. */
-const facingVector = (facing: number): Vec => {
-  const a = (facing * Math.PI) / 4;
-  return { x: Math.cos(a), y: Math.sin(a) };
-};
-
-/**
- * How fast to run the walk sheet so his feet hold the ground at INTRO_WALK_SPEED.
- *
- * Derived rather than typed in, so it stays right if the entrance is ever asked
- * to speed up or slow down again. At 80 px/sec and a 40 px stride this comes out
- * at 1.25 -- a step every half second, against the 0.9 he was taking.
- */
-const INTRO_WALK_ANIM =
-  SPRITE_COLS / ANIMS.walk.fps / ((STEPS_PER_CYCLE * WALK_STRIDE) / INTRO_WALK_SPEED);
-
-// The zombie art arrives as loose frames per direction and is packed into the
-// same 15x8 grid by tools/build-sprites.mjs, so it shares everything above.
-type MobAnimName = 'walk' | 'attack' | 'attack2' | 'attack3' | 'hurt';
-
-const MOB_ANIMS: Record<MobAnimName, AnimDef> = {
-  walk: { sheet: require('./assets/sprites/zombie/walk.png'), fps: 12, loop: true },
-  attack: { sheet: require('./assets/sprites/zombie/attack.png'), fps: 16, loop: false },
-  attack2: { sheet: require('./assets/sprites/zombie/attack2.png'), fps: 16, loop: false },
-  attack3: { sheet: require('./assets/sprites/zombie/attack3.png'), fps: 16, loop: false },
-  hurt: { sheet: require('./assets/sprites/zombie/hurt.png'), fps: 20, loop: false },
-};
-
-// The two falls a melee zombie can take, kept out of MOB_ANIMS on purpose:
-// every living mob mounts every sheet in its map, and the living have no use
-// for these. Only the corpse layer mounts them, briefly.
-type MobDieAnimName = 'die' | 'die2';
-const MOB_DIE_ANIMS: Record<MobDieAnimName, AnimDef> = {
-  die: { sheet: require('./assets/sprites/zombie/die.png'), fps: 14, loop: false },
-  die2: { sheet: require('./assets/sprites/zombie/die2.png'), fps: 14, loop: false },
-};
-
-/**
- * A fallen zombie, purely visual. It left the mobs array -- and every rule
- * that reads it: loot, gold, wave count, targeting, the kick's fan -- the
- * frame it died, exactly as before. This plays the fall where it happened,
- * lies a moment, fades and is gone.
- */
-type Corpse = { id: number; pos: Vec; facing: number; anim: MobDieAnimName; age: number };
-/** Seconds a corpse lies after its fall finishes, and the fade that follows. */
-const CORPSE_LINGER = 1.4;
-const CORPSE_FADE = 0.6;
-
-/**
- * The red instant when a mob is struck.
- *
- * Kept very short. It is a punctuation mark, not a state -- long enough to
- * register that the blow landed, gone before the next one.
- */
-const MOB_FLASH_COLOR = '#ff4a3d';
-const MOB_FLASH_TIME = 0.12; // seconds
-const MOB_FLASH_STRENGTH = 0.75;
-
-/**
- * Shortest gap between two flinches on the same mob.
- *
- * The same discipline the knight needed. The player swings roughly every 0.8 s
- * and a flinch runs 0.75 s, so without this a mob under attack would twitch
- * continuously and never be seen to swing back.
- */
-const MOB_HURT_ANIM_MIN_GAP = 1.4; // seconds
-
-/** Picked at random per swing, so a crowd of zombies does not attack in lockstep. */
-const MOB_ATTACK_ANIMS: MobAnimName[] = ['attack', 'attack2', 'attack3'];
-
-// --- Effects -------------------------------------------------------------
-// Blood has no facings; tools/build-sprites.mjs packs its five variants as the
-// sheet's rows, so choosing one is the same lookup as choosing a facing.
-const BLOOD_VARIANTS = 5;
-const BLOOD_ANIM: AnimDef = {
-  sheet: require('./assets/sprites/effects/blood.png'),
-  fps: 20,
-  loop: false,
-  rows: BLOOD_VARIANTS,
-};
-const BLOOD_ANIMS = { blood: BLOOD_ANIM };
-const BLOOD_DURATION = SPRITE_COLS / BLOOD_ANIM.fps; // seconds
-const BLOOD_SIZE = 128;
-
-/**
- * A soft light under the knight, to lift him off a dark floor and keep track of
- * him in a crowd.
- *
- * The image is white and gets its colour from tintColor, which recolours a
- * sprite while leaving its transparency alone. One file, any colour.
- *
- * It breathes slowly rather than sitting still -- a fixed disc reads as a
- * texture stuck to the ground, a moving one as light.
- */
-const GLOW = require('./assets/sprites/effects/glow.png');
-
-type GlowStyle = {
-  color: string;
-  size: number;
-  opacity: number;
-  /** How far the size swings either side of `size`. */
-  pulse: number;
-  /** Milliseconds for one breath. */
-  period: number;
-  /** Down from pos, so it sits at the feet rather than the middle. */
-  foot: number;
-  /**
-   * How it mixes with what is behind -- the same layer modes a paint program
-   * offers, supported by React Native since 0.76. 'normal' lays it flat on top;
-   * 'plus-lighter' and 'screen' only ever lighten, which is how light behaves
-   * and lets the stone show through.
-   */
-  blend: BlendMode;
-};
-
-/**
- * The knight's ordinary light. Grouped rather than left as loose constants
- * because a buff wants to change several of these at once -- a second object of
- * this shape, swapped in while it lasts, is all that would take.
- */
-const PLAYER_GLOW: GlowStyle = {
-  color: '#ffd27f', // warm, against the cold blue-grey stone
-  size: 136,
-  opacity: 0.47,
-  pulse: 0.19,
-  period: 2600,
-  foot: 6,
-  blend: 'plus-lighter',
-};
-
-/**
- * His other light: the moon, caught along the edge that faces it.
- *
- * The shape of it -- which edge, and how far in it reaches -- is baked into the
- * -rim sheets by tools/build-sprites.mjs and needs a rebuild to change. What is
- * here is what the game can decide as it draws, which is why it is these two
- * that the tuning panel offers.
- *
- * Held as three numbers rather than a hex string only so a slider can take hold
- * of each one.
- */
-type RimStyle = {
-  /** Red, green, blue. The sheet is white, so this is the colour it becomes. */
-  color: [number, number, number];
-  /** 0 to 1, over and above the falloff already in the sheet's alpha. */
-  strength: number;
-  blend: BlendMode;
-};
-
-const RIM_STYLE: RimStyle = {
-  color: [198, 214, 255], // cold, against the warm glow at his feet
-  strength: 0.55,
-  // Screen only lightens, and reproduces exactly what baking the light into the
-  // sheet did: both come out at backdrop + strength x colour x (1 - backdrop).
-  blend: 'screen',
-};
-
-const rgb = ([r, g, b]: [number, number, number]) => `rgb(${r}, ${g}, ${b})`;
-
 // A frame-time readout in the corner while we work out what is costing what.
 // Reports once a second, so watching is nearly free.
 const DEBUG_PERF = true;
@@ -496,372 +307,6 @@ const DEBUG_PERF = true;
 // costs nothing, so it is one word to bring back when the colour is next in
 // question. RIM_STYLE above is what the game uses.
 const DEBUG_RIM_TUNING = false;
-
-// --- Rain -----------------------------------------------------------------
-// Every drop is worked out from the clock rather than stored and stepped: given
-// its speed and where it started, the time says where it is. So the game loop
-// carries none of this, nothing accumulates, and there is no state to reset
-// between runs.
-const RAIN_ENABLED = true;
-
-/**
- * Dialled in by eye with `npm run build:rain`, which writes a page of sliders
- * over this same background. Move them, then paste the block it prints back in
- * here -- the page and the game work the drops out identically.
- *
- * Every drop is dealt a depth at startup, and each pair below is what it is
- * worth at the far end and the near end of that. The near ones fall faster,
- * streak longer and show more strongly, which is what gives the rain depth
- * instead of a flat sheet.
- */
-const RAIN = {
-  // 270 until the fps hunt: 15% fewer bought frame budget nobody can see
-  // missing in the sky. Ours, like stepFps -- a fresh paste from build:rain
-  // brings 270 back.
-  drops: 230,
-  tiltDeg: 2, // off vertical; the wind
-  speedFar: 60, // px/sec
-  speedNear: 200,
-  lengthFar: 1, // px
-  lengthNear: 9,
-  opacityFar: 0.14,
-  opacityNear: 0.26,
-  thickFrom: 1, // depth past which a drop is drawn 2 px wide instead of 1
-  colour: 'rgba(190, 214, 235, 0.5)',
-  /**
-   * The rain's own frame rate: each drop falls in little jumps at this many
-   * per second instead of gliding at the display's rate. Stop-motion on
-   * purpose -- it reads as pixel art -- and cheaper with it: between jumps a
-   * drop does not change, so 270 of them recomposite 15 times a second
-   * rather than at every refresh of a fast monitor.
-   *
-   * Time is what is quantised, not the path: every drop keeps its own speed
-   * and simply moves in speed/stepFps-sized increments, 4 to 13 px at the
-   * current speeds. Cutting the whole fall into a fixed handful of jumps
-   * instead would teleport the fast drops 77 px at a time.
-   *
-   * Ours, not the rain tuner's: paste a fresh block from build:rain over this
-   * and stepFps needs putting back.
-   */
-  stepFps: 15,
-};
-
-/** Fixed for the life of the app: the depth each drop was dealt, spelled out. */
-const RAIN_STREAKS = Array.from({ length: RAIN.drops }, () => {
-  const near = Math.random(); // 0 far away, 1 close to the camera
-  return {
-    x: Math.random(),
-    speed: RAIN.speedFar + near * (RAIN.speedNear - RAIN.speedFar),
-    length: RAIN.lengthFar + near * (RAIN.lengthNear - RAIN.lengthFar),
-    width: near > RAIN.thickFrom ? 2 : 1,
-    opacity: RAIN.opacityFar + near * (RAIN.opacityNear - RAIN.opacityFar),
-    offset: Math.random(), // where in its fall it starts
-  };
-});
-
-const RAIN_TILT_X = Math.tan((RAIN.tiltDeg * Math.PI) / 180);
-
-/**
- * How far the wind carries a drop over a full fall.
- *
- * Drops start spread across the width plus this much to the left of it, so they
- * blow in from off the edge. Without it the bottom-left corner stays dry while
- * drops on the right blow off the screen -- measured at 60 px of empty ground on
- * one side and 155 px of wasted drops on the other.
- */
-const RAIN_DRIFT = PLAY_H * RAIN_TILT_X;
-
-// --- Puddles ---------------------------------------------------------------
-// Places a ripple may appear, read off a painted mask by the build. Fractions of
-// the background image rather than pixels, because the ground is drawn to cover
-// and its scale depends on the screen.
-//
-// Spots, not shapes. Each puddle used to be stored as the ellipse around it,
-// which put 27% of the rings on dry grass -- the puddles are irregular and an
-// ellipse drawn round one takes in a lot of bank. Sampling inside the water
-// instead cannot miss, and there are more spots in the big puddles than the
-// small ones, so the rain falls hardest on open water without being told to.
-//
-// The third number is how far a ring may spread there before it reaches the
-// bank, in the source image's own pixels. Carried per spot because the ground
-// is drawn to cover: on a phone it is scaled well down, and one size for every
-// ring would have them washing over the small puddles entirely.
-const PUDDLE_SPOTS: [number, number, number][] = require('./assets/sprites/effects/puddles.json');
-
-/** The height the spots were measured against, to turn that room into screen px. */
-const BG_SOURCE_H = 1086;
-
-/** The background's own proportions, needed to place anything on top of it. */
-const BG_ASPECT = 1448 / BG_SOURCE_H;
-
-/**
- * The same 'cover' the background is drawn with: scale until it fills, centre
- * the overflow. Anything meant to sit on the ground has to repeat this, or it
- * drifts away from the picture as the screen changes shape.
- */
-const bgDrawnW = Math.max(SCREEN_W, PLAY_H * BG_ASPECT);
-const bgDrawnH = Math.max(PLAY_H, SCREEN_W / BG_ASPECT);
-const bgOffsetX = (SCREEN_W - bgDrawnW) / 2;
-const bgOffsetY = (PLAY_H - bgDrawnH) / 2;
-const onGroundX = (fx: number) => bgOffsetX + fx * bgDrawnW;
-const onGroundY = (fy: number) => bgOffsetY + fy * bgDrawnH;
-/** What one pixel of the source image is worth on screen, once it is laid down. */
-const groundScale = bgDrawnH / BG_SOURCE_H;
-
-/**
- * Whether someone standing here has their feet in water.
- *
- * The same spots the ripples use, read the other way round: each one carries
- * how far the water reaches around it, so the puddles are the union of those
- * circles. Squashed by half vertically, because the ground is seen at an angle
- * and that is the shape a puddle is drawn as.
- *
- * Only asked when a foot lands -- twice a second at a walk -- so walking the
- * whole list costs nothing worth measuring.
- */
-function feetInWater(pos: Vec) {
-  for (const [fx, fy, room] of PUDDLE_SPOTS) {
-    const dx = pos.x - onGroundX(fx);
-    const dy = (pos.y - onGroundY(fy)) * 2;
-    const r = room * groundScale;
-    if (dx * dx + dy * dy < r * r) return true;
-  }
-  return false;
-}
-
-// Rings spreading where rain meets standing water. Each slot is one ring with
-// its own spot and its own rhythm. Tuned on the same page as the rain.
-const RIPPLE = {
-  // Ten, dealt only over water the screen can actually see. It was sixty over
-  // the whole background image -- cover crops 429 px of that away on a phone,
-  // so forty of them rippled in puddles nobody could look at while the three
-  // visible ones shared twenty. Ten visible rings is busier than that was.
-  slots: 10,
-  size: 19, // px across at its widest
-  periodFast: 1.5, // sec between one ring and the next
-  periodSlow: 3.7,
-  opacity: 0.73,
-  colour: 'rgba(200, 224, 245, 0.6)',
-  /**
-   * How many jumps a ring takes from born to gone, instead of gliding. Chunky
-   * on purpose -- smooth curves sit oddly on pixel art -- and cheaper with it:
-   * between jumps nothing about the ring changes, so the browser recomposites
-   * it eight times a cycle rather than at every refresh.
-   */
-  steps: 8,
-};
-
-/** Repeatable stand-in for randomness, so a ripple needs no state to remember. */
-const noise = (n: number) => {
-  const x = Math.sin(n * 12.9898) * 43758.5453;
-  return x - Math.floor(x);
-};
-
-const RIPPLES = Array.from({ length: RIPPLE.slots }, (_, i) => ({
-  seed: i * 37 + 11,
-  period: RIPPLE.periodFast + noise(i * 3.1) * (RIPPLE.periodSlow - RIPPLE.periodFast),
-  phase: noise(i * 7.7),
-}));
-
-/**
- * The weather, looped by the browser instead of driven by React.
- *
- * It used to be worked out in the render: 330 elements, each given a freshly
- * computed style, sixty times a second. The frame readout put the game's
- * stutter on exactly that -- weather off took Nicolai's machine from 90 ms
- * spikes to a flat 244 fps -- and his own diagnosis was the fix: "et
- * gentagende loop". A drop's path never changes, so it is described once as a
- * CSS animation and the browser repeats it forever on its own thread. React
- * builds these elements a single time and, thanks to memo taking no props,
- * provably never reconciles them again.
- *
- * Everything goes through StyleSheet.create, not inline styles, and that is
- * load-bearing: react-native-web only turns animationKeyframes into real CSS
- * on the created path -- its inline compiler documents 'no support' for it,
- * and the first draft of this found that out as 330 elements that stood
- * perfectly still. The animation props are a react-native-web extension
- * (its own spinner uses them), hence the `as never` past React Native's types.
- *
- * Every drop shares one keyframe pair, so the page carries a single
- * @keyframes rule rather than 270: they all travel the same fixed distance --
- * the field plus the longest streak -- and each gets its own speed through
- * animationDuration alone. A short drop overshoots the field by up to 8 px
- * before wrapping, every pixel of it outside the layer's clip, so the loop
- * point cannot be seen. The negative delay is the old random start offset.
- */
-const RAIN_SPAN = PLAY_H + RAIN.lengthNear;
-
-// The rotate is minus tilt, turned the other way to the wind: a rotation goes
-// clockwise while the drift carries the drop the other way, so at plain +tilt
-// the streak leant against its own path by twice the angle -- measured at
-// 9.7 px of drift against 9.7 px of lean.
-const RAIN_FALL_FRAMES = [
-  {
-    '0%': { transform: `translate(0px, 0px) rotate(${-RAIN.tiltDeg}deg)` },
-    '100%': { transform: `translate(${RAIN_SPAN * RAIN_TILT_X}px, ${RAIN_SPAN}px) rotate(${-RAIN.tiltDeg}deg)` },
-  },
-];
-
-const dropStyles = StyleSheet.create(
-  Object.fromEntries(
-    RAIN_STREAKS.map((d, i) => {
-      const dur = RAIN_SPAN / d.speed;
-      return [
-        `d${i}`,
-        {
-          position: 'absolute',
-          left: d.x * (SCREEN_W + RAIN_DRIFT) - RAIN_DRIFT,
-          top: -d.length,
-          width: d.width,
-          height: d.length,
-          backgroundColor: RAIN.colour,
-          opacity: d.opacity,
-          animationKeyframes: RAIN_FALL_FRAMES,
-          animationDuration: `${dur.toFixed(3)}s`,
-          animationDelay: `${(-d.offset * dur).toFixed(3)}s`,
-          // The step count is dealt per drop so they all tick at the same
-          // rate: a slow drop falls for longer, so it gets more jumps, never
-          // bigger ones. See RAIN.stepFps.
-          animationTimingFunction: `steps(${Math.max(1, Math.round(dur * RAIN.stepFps))})`,
-          animationIterationCount: 'infinite',
-        } as never,
-      ];
-    })
-  )
-);
-
-const RainLayer = memo(function RainLayer() {
-  return (
-    <View style={styles.rain}>
-      {RAIN_STREAKS.map((_, i) => (
-        <View key={i} style={dropStyles[`d${i}`]} />
-      ))}
-    </View>
-  );
-});
-
-/**
- * Rings on the water, on the same terms as the rain above.
- *
- * Two things moved in the translation, both worth knowing. A slot now owns one
- * spot for good, so a given puddle re-ripples on a rhythm instead of the ring
- * hopping elsewhere each time. And the ring's line is scaled along with the
- * ring rather than redrawn at 1 px, so it starts hairline and thickens as it
- * spreads.
- */
-const RIPPLE_SPREAD_FRAMES = [
-  {
-    '0%': { transform: 'scale(0)', opacity: RIPPLE.opacity },
-    '100%': { transform: 'scale(1)', opacity: 0 },
-  },
-];
-
-/**
- * The water the rings are dealt over: what this screen can see, thinned to one
- * spot per patch, in order across the screen.
- *
- * Three steps, each there because leaving it out was tried and counted:
- *
- * - Centre on screen. The spots cover the whole background image and cover
- *   crops it -- 429 px gone sideways on a phone -- and a looser test kept
- *   spots whose ring would stand at the edge showing a 6 px sliver, which
- *   reads as a bug rather than as rain.
- * - One spot per 24 px cell. A big puddle that is almost entirely cropped
- *   away leaves many spots crowded in its thin visible edge, and four rings
- *   ended up inside 35 px of each other. Thinned, the count in each puddle
- *   follows its visible size: on the phone, 43 spots come down to 10 patches.
- * - Sorted across the screen, so the banded deal below spreads the few rings
- *   over all the water rather than over the accidents of the list's order --
- *   drawn plainly from it, seven of ten rings shared one corner.
- *
- * feetInWater stays on the full list on purpose: his feet still splash in a
- * puddle half off the edge. Falls back to everything rather than crash on a
- * screen so odd that no water is visible at all.
- */
-const RIPPLE_CELL = 24;
-const RIPPLE_POOL = (() => {
-  const cells = new Map<string, [number, number, number]>();
-  for (const spot of PUDDLE_SPOTS) {
-    const x = onGroundX(spot[0]);
-    const y = onGroundY(spot[1]);
-    if (x < 0 || x > SCREEN_W || y < 0 || y > PLAY_H) continue;
-    const key = `${Math.round(x / RIPPLE_CELL)},${Math.round(y / RIPPLE_CELL)}`;
-    if (!cells.has(key)) cells.set(key, spot);
-  }
-  const pool = cells.size > 0 ? [...cells.values()] : [...PUDDLE_SPOTS];
-  return pool.sort((a, b) => onGroundX(a[0]) - onGroundX(b[0]));
-})();
-
-const ringStyles = StyleSheet.create(
-  Object.fromEntries(
-    RIPPLES.map((r, i) => {
-      // Each ring draws from its own band of the pool rather than the whole:
-      // ten independent draws over a list that is in mask-scan order put seven
-      // of ten rings on the screen's left edge, counted before it shipped.
-      // Banded, they spread over all the visible water and cannot collide.
-      const idx = Math.floor(((i + noise(r.seed)) / RIPPLE.slots) * RIPPLE_POOL.length);
-      const [fx, fy, room] = RIPPLE_POOL[Math.min(idx, RIPPLE_POOL.length - 1)];
-      // Never wider than the water it sits in, however big rings are set.
-      const size = Math.min(RIPPLE.size, room * 2 * groundScale);
-      return [
-        `r${i}`,
-        {
-          position: 'absolute',
-          left: onGroundX(fx) - size / 2,
-          top: onGroundY(fy) - size / 4,
-          width: size,
-          // Squashed, because the ground is seen at an angle.
-          height: size / 2,
-          borderRadius: size / 2,
-          borderWidth: 1,
-          borderColor: RIPPLE.colour,
-          animationKeyframes: RIPPLE_SPREAD_FRAMES,
-          animationDuration: `${r.period.toFixed(3)}s`,
-          animationDelay: `${(-r.phase * r.period).toFixed(3)}s`,
-          // In jumps, not a glide -- see RIPPLE.steps. The rain quantises
-          // time instead of the path, at RAIN.stepFps.
-          animationTimingFunction: `steps(${RIPPLE.steps})`,
-          animationIterationCount: 'infinite',
-        } as never,
-      ];
-    })
-  )
-);
-
-const RippleLayer = memo(function RippleLayer() {
-  return (
-    <View style={styles.rain}>
-      {RIPPLES.map((_, i) => (
-        <View key={i} style={ringStyles[`r${i}`]} />
-      ))}
-    </View>
-  );
-});
-
-/**
- * The ground the whole play area stands on. Drawn to cover rather than stretch,
- * so it crops instead of distorting when the screen is not its 4:3 shape.
- */
-const BACKGROUND = require('./assets/sprites/background.jpg');
-
-/**
- * The cone's strike lines, baked. Eight arcs drawn once by
- * tools/build-cone-fx.mjs and shipped as a sheet -- 7 KB on disk, under a
- * megabyte in memory.
- *
- * This replaced four hundred and twenty separate squares, and the reason is
- * Nicolai's: tailoring every effect by hand until it is cheap enough is not a
- * way of working. The knight and the zombies are sheets so that nobody has to
- * think about what they cost, and an effect should be no different. Eight
- * pictures appearing in turn is the whole wave now.
- *
- * What is baked is the line rather than the whole wedge on purpose: unfolded,
- * the cone is 789 x 650 px, so a film of it is either forty megabytes or so
- * few frames that the wave crawls. A line is thin, there are eight of them,
- * and the travel then costs nothing at all.
- */
-const CONE_ARC_SHEET = require('./assets/sprites/fx/cone-arcs.png');
-const CONE_ARCS: { cellW: number; cellH: number; radii: number[] } = require('./assets/sprites/fx/cone-arcs.json');
 
 // --- Menu ------------------------------------------------------------------
 // The title screen. The art carries the game's name, so nothing is drawn over
@@ -921,280 +366,6 @@ const LEAVE_HOLD_MS = 140;
 const RETURN_MS = 560;
 
 /**
- * Every sheet the game can draw, for loading up front.
- *
- * Nothing that draws them exists until a run starts, so without this the first
- * fetch of the knight begins at the same moment he is first needed and he is
- * invisible until it lands. The sounds already load at start-up because their
- * players are created there; the art had no such thing.
- */
-const ALL_SHEETS: number[] = [
-  ...Object.values(ANIMS).map((a) => a.sheet),
-  // His light travels with him: pulled down with the sheet it belongs to, so a
-  // frame and its rim never arrive apart.
-  ...Object.values(ANIMS).flatMap((a) => (a.rim ? [a.rim] : [])),
-  ...Object.values(MOB_ANIMS).map((a) => a.sheet),
-  ...Object.values(MOB_DIE_ANIMS).map((a) => a.sheet),
-  BLOOD_ANIM.sheet,
-  CONE_ARC_SHEET,
-  BACKGROUND,
-  GLOW,
-] as number[];
-
-// Drawn the same size as the knight, both being human-sized. The foot offset is
-// smaller because a mob's collision circle is smaller (14 against 18), and it
-// comes from measurement rather than taste: the zombie leaves 19 px of empty
-// cell below its feet where the knight leaves 17.
-const MOB_SPRITE_SIZE = 128;
-const MOB_SPRITE_FOOT_OFFSET = 44;
-
-/** True when the animation cannot use the plain time-to-frame arithmetic. */
-const hasTimeline = (a: AnimDef) => !!(a.holds?.length || a.passes || a.order);
-
-/** Extra seconds a given frame holds for, on top of its 1/fps. */
-const holdFor = (a: AnimDef, frame: number) =>
-  a.holds?.find((h) => h.frame === frame)?.seconds ?? 0;
-
-/**
- * The frames in the order they are shown, one entry per shown frame with how
- * long it stays up, compiled from `order` or `passes`+`holds` and cached per
- * definition -- animColumn runs every render for every mounted sheet, and
- * this list never changes.
- */
-const playStepsCache = new WeakMap<AnimDef, { frame: number; dwell: number }[]>();
-function playSteps(a: AnimDef): { frame: number; dwell: number }[] {
-  let steps = playStepsCache.get(a);
-  if (!steps) {
-    const base = 1 / a.fps;
-    if (a.order) {
-      steps = a.order.map((s) =>
-        typeof s === 'number' ? { frame: s, dwell: base } : { frame: s.frame, dwell: base + s.hold }
-      );
-    } else {
-      const span = animSpan(a);
-      const frames: number[] = [];
-      for (const p of a.passes ?? ['fwd']) {
-        const pass = Array.from({ length: span }, (_, i) => (p === 'fwd' ? i : span - 1 - i));
-        // The junction frame is already on screen; showing it twice would
-        // freeze the turn for a beat nobody asked for.
-        if (frames.length && frames[frames.length - 1] === pass[0]) pass.shift();
-        frames.push(...pass);
-      }
-      steps = frames.map((f) => ({ frame: f, dwell: base + holdFor(a, f) }));
-    }
-    playStepsCache.set(a, steps);
-  }
-  return steps;
-}
-
-/** Seconds an animation takes to play once, passes and held frames included. */
-const animDuration = (a: AnimDef) => {
-  if (!hasTimeline(a)) return animSpan(a) / a.fps;
-  let d = 0;
-  for (const s of playSteps(a)) d += s.dwell;
-  return d;
-};
-
-/**
- * Seconds into an animation before a given frame first comes up.
- *
- * For hanging something on a picture rather than on a stopwatch: ask the
- * choreography when it gets there, and the answer follows the choreography
- * if it is ever rewritten.
- */
-function frameStartTime(a: AnimDef, frame: number) {
-  let t = 0;
-  for (const s of playSteps(a)) {
-    if (s.frame === frame) return t;
-    t += s.dwell;
-  }
-  return 0;
-}
-
-// --- Sound ---------------------------------------------------------------
-// Built by tools/build-sounds.mjs from the raw pack in Lyde/.
-//
-// Both tone and level are baked into the files rather than set here. Mobile has
-// no equaliser, and iOS browsers refuse programmatic volume outright -- Apple
-// reserves it for the hardware buttons -- so anything set at runtime either did
-// nothing or worked on some platforms only. Balancing one clip against another
-// happens in tools/sound-config.mjs, where each can carry its own level.
-
-/**
- * How often a killing blow gets the heavier stab combo instead of the ordinary
- * swing. Kept well below certainty on purpose: a flourish that fires on every
- * kill stops registering as one.
- */
-const KILL_SFX_CHANCE = 0.3;
-
-/**
- * Extra splats thrown when the gore version of a kill sound is the one that
- * plays. The two are bound together at the moment the sound fires, so the
- * bloodier sound never plays without the mess to go with it.
- */
-const GORE_EXTRA_SPLATS = 3;
-const GORE_SPLATTER_SPREAD = 32; // px around where the body fell
-
-/**
- * How long after a swing begins before its sound plays.
- *
- * Derived rather than picked, so it follows the animation instead of having to
- * be re-tuned by hand: the strike is a known frame, and the clips take about
- * 40 ms to reach full level, so they start that much ahead of it.
- */
-/** When the blade is round, measured from the moment the swing begins. */
-const SWING_STRIKE_AT = (ATTACK_STRIKE_FRAME - ATTACK_FROM) / ANIMS.attack.fps;
-
-/**
- * How long each clip takes to reach full level, measured by the build.
- *
- * A sound meant to land on a frame has to be started early by exactly this
- * much, and it is not one number: across the swing pool it runs from 29 ms to
- * 129 ms. One value for all of them was 40, which put the gore clips 90 ms
- * behind the blade -- and since the clip is drawn at random, whether a blow
- * sounded like it connected came down to which one came up.
- */
-const CLIP_LEAD: Record<string, number> = require('./assets/sounds/leads.json');
-const leadsFor = (prefix: string, count: number) =>
-  Array.from({ length: count }, (_, i) => CLIP_LEAD[`${prefix}-${i + 1}`] ?? 0);
-const ATTACK_LEADS = leadsFor('attack', 3);
-const KILL_LEADS = leadsFor('kill', 3);
-const GORE_LEADS = leadsFor('gore', 3);
-const KICK_LEADS = leadsFor('kick', 2);
-
-/**
- * Shortest gap between two flinch animations.
- *
- * A flinch used to outrank everything and lasts 0.68 s, so under any real
- * pressure the knight never got to finish a swing: simulated against two mobs in
- * contact he landed 25 blows and visibly swung once, spending the rest of the
- * time twitching. With this and the mid-swing guard below, that goes back to
- * about two thirds of blows showing a swing.
- *
- * The hurt sound rides on the flinch, so this also sets how often he can be
- * heard taking a hit. Raise it to hear him less.
- */
-const HURT_ANIM_MIN_GAP = 1.2; // seconds
-
-/**
- * Kill switch for every effect clip, flipped by the debug row in the corner.
- *
- * For hunting the hitches by ear: the readout shows 90 ms spikes tied to
- * movement, and every step plays two clips -- so this lets a minute be played
- * with that suspect removed entirely, on the machine where the lag is real.
- * Module-level rather than state because playSfx is called from the game
- * loop, where state would be a render behind.
- */
-let SFX_KILLED = false;
-
-/** Fire and forget. Audio is a garnish -- it must never break the game loop. */
-function playSfx(player: AudioPlayer | undefined) {
-  if (!player || SFX_KILLED) return;
-  try {
-    // Rewind first: a finished clip will not restart from its own end.
-    player.seekTo(0);
-    player.play();
-  } catch {
-    // ignored on purpose
-  }
-}
-
-/**
- * Column of the sheet to draw. One-shots stop on the last frame rather than
- * wrapping. With `holds` or `passes`, time is walked along the play order --
- * each shown frame spends its 1/fps plus whatever hold it carries -- so a
- * held picture simply lasts longer, and a reverse pass runs the pictures
- * backwards, while everything else plays at the ordinary rate.
- */
-function animColumn(a: AnimDef, animTime: number) {
-  const from = a.from ?? 0;
-  if (hasTimeline(a)) {
-    const steps = playSteps(a);
-    let t = a.loop ? animTime % animDuration(a) : animTime;
-    let i = 0;
-    while (i < steps.length - 1 && t >= steps[i].dwell) {
-      t -= steps[i].dwell;
-      i++;
-    }
-    return from + steps[i].frame;
-  }
-  const span = animSpan(a);
-  const frame = Math.floor(animTime * a.fps);
-  return from + (a.loop ? frame % span : Math.min(frame, span - 1));
-}
-
-// Row order going down each sheet is E, SE, S, SW, W, NW, N, NE -- one 45 degree
-// step clockwise per row, starting at east. Established by driving the game and
-// watching which way the knight actually ran, which is worth trusting over
-// reading the art: the sword and shield extend along the facing direction, so a
-// knight in profile has a WIDER silhouette than one seen head-on, and reasoning
-// from the shapes gets east and north exactly backwards.
-const SPRITE_ROW_FOR_EAST = 0;
-
-/**
- * Which way to face when swinging, given everything within reach.
- *
- * Picks the nearest target, except that any target already lying in the
- * direction the knight faces wins outright. Without that, two enemies at
- * similar range trade places as "nearest" and he flips between them.
- *
- * Facing is cosmetic here -- the melee swing damages everything in its radius
- * regardless of where he looks -- so this only has to read naturally.
- */
-function facingForTargets(from: Vec, targets: Vec[], current: number) {
-  let best: Vec | null = null;
-  let bestDist = Infinity;
-  for (const t of targets) {
-    if (facingFromDelta(t.x - from.x, t.y - from.y) === current) return current;
-    const d = dist(from, t);
-    if (d < bestDist) {
-      bestDist = d;
-      best = t;
-    }
-  }
-  return best ? facingFromDelta(best.x - from.x, best.y - from.y) : current;
-}
-
-function facingFromDelta(dx: number, dy: number) {
-  // atan2 is 0 at east and grows clockwise on screen, since y points down --
-  // the same direction the rows advance, so this adds rather than subtracts.
-  const eighths = Math.round(Math.atan2(dy, dx) / (Math.PI / 4));
-  return (((SPRITE_ROW_FOR_EAST + eighths) % SPRITE_ROWS) + SPRITE_ROWS) % SPRITE_ROWS;
-}
-
-// The inverse: a unit vector pointing the way a given facing row looks. East is
-// row 0 and rows advance clockwise, so the angle is simply facing * 45 degrees.
-function directionFromFacing(facing: number): Vec {
-  const angle = ((facing - SPRITE_ROW_FOR_EAST) * Math.PI) / 4;
-  return { x: Math.cos(angle), y: Math.sin(angle) };
-}
-const PLAYER_ATTACK_RANGE = 60;
-const RANGED_ATTACK_RANGE = 240;
-const PLAYER_ATTACK_COOLDOWN = 0.8; // sec
-const PLAYER_BASE_DAMAGE = 8;
-
-const MOB_RADIUS = 14;
-const BOSS_RADIUS = 26;
-const MOB_SPEED = 60; // px/sec
-const MOB_ATTACK_RANGE = 40;
-const MOB_RANGED_FIRE_RANGE = 170;
-const MOB_ATTACK_COOLDOWN = 1.2;
-const MOB_MAX_HP = 20; // wave 1 base
-const MOB_DAMAGE = 5; // wave 1 base
-const MOB_XP_REWARD = 15;
-const BOSS_XP_REWARD = 120;
-
-/**
- * Coins into the sack for a kill.
- *
- * Not an economy: this game has no money, and whether it should have reaches
- * into Magnus's gameplay rather than our animation. The sack needed something
- * to react to, and a kill is the obvious something. It keeps its own count.
- */
-const MOB_COIN_CHANCE = 0.5; // a zombie is worth a coin half the time, nothing the rest
-const BOSS_COINS = 5;
-
-/**
  * Where the sack sits, measured from the bottom left of the screen. Nicolai's
  * numbers, found with the sliders at a phone's width.
  *
@@ -1230,917 +401,38 @@ const COINSACK_ENABLED = false;
 const DEBUG_COINSACK_TUNING = false;
 
 /**
- * The shove a mob takes when it is struck.
+ * Every sheet the game can draw, for loading up front.
  *
- * Speed at the instant of the blow, not a distance: it is fed into the same
- * position that everything else moves, and fades away rather than stopping, so
- * the mob is pushed rather than teleported. Roughly, it travels SPEED x TAU
- * before it settles -- about 22 px as these stand, which reads as a stagger
- * without undoing the ground it has covered.
- *
- * The variation is what stops a row of blows looking mechanical. Weight comes
- * from the body: a boss is nearly twice the radius, so it barely rocks.
+ * Nothing that draws them exists until a run starts, so without this the first
+ * fetch of the knight begins at the same moment he is first needed and he is
+ * invisible until it lands. The sounds already load at start-up because their
+ * players are created there; the art had no such thing.
  */
-const KNOCKBACK_SPEED = 260; // px/sec
-const KNOCKBACK_VARIATION = 0.45; // +/- this much of it, per blow
-const KNOCKBACK_TAU = 0.085; // sec; how quickly the shove bleeds off
-const KNOCKBACK_STOP = 8; // px/sec below which it is over
+const ALL_SHEETS: number[] = [
+  ...Object.values(ANIMS).map((a) => a.sheet),
+  // His light travels with him: pulled down with the sheet it belongs to, so a
+  // frame and its rim never arrive apart.
+  ...Object.values(ANIMS).flatMap((a) => (a.rim ? [a.rim] : [])),
+  ...Object.values(MOB_ANIMS).map((a) => a.sheet),
+  ...Object.values(MOB_DIE_ANIMS).map((a) => a.sheet),
+  BLOOD_ANIM.sheet,
+  CONE_ARC_SHEET,
+  BACKGROUND,
+  GLOW,
+] as number[];
 
-const WAVE_SPAWN_INTERVAL = 0.5; // sec between mob spawns within a wave
-const MANA_REGEN_PER_SEC = 4;
-const MANA_MAX = 100;
+type TooltipState = { key: string; text: string; x: number; y: number } | null;
 
-const ALLY_RADIUS = 12;
-const ALLY_SPEED = 90;
-const ALLY_ATTACK_RANGE = 50;
-const ALLY_ENGAGE_RANGE = 200;
-const ALLY_RANGED_ATTACK_RANGE = 160;
-const ALLY_RANGED_ENGAGE_RANGE = 260;
-const ALLY_ATTACK_COOLDOWN = 1.0;
+// A simple fading ring left on the ground where a skill hit -- Cone, Fireball,
+// Burn and Push each drop one so their impact lingers a beat after the numbers land.
+type SkillMark = { id: number; pos: Vec; radius: number; color: string; createdAt: number };
 
-const ABILITY_MAX_LEVEL = 4;
-const CONE_RANGE = Math.hypot(SCREEN_W, PLAY_H);
-const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
-
-// --- The cone's zone, drawn (ours, Nicolai's ask of 20 July) ----------------
-// The skill always fired invisibly. This shows the ground it actually covers:
-// the true wedge, laid out as a carpet of small pixels that light up from the
-// knight outward, hold, and dissolve. Decoration only -- the damage was
-// instant before and stays instant, and these squares are the same cone the
-// damage test uses, not an impression of it.
-//
-// The grid is the FIELD's, not the cast's: cells are picked off a screen-
-// aligned lattice and only their membership depends on the angle. A grid
-// built in the cone's own frame and rotated into place would draw diamonds
-// at every facing but the four square ones.
-//
-// Built to the weather's lesson: the movement is CSS compiled through
-// StyleSheet.create (inline keyframes silently do nothing), the carpet is a
-// memo component whose props never change, and nothing ticks in JS -- the
-// game loop only drops the entry when its time is up.
-const CONE_ZONE = {
-  /**
-   * How long one strike line's whole life lasts, from the front reaching it
-   * to it having drifted away. Every line runs this same span, started at its
-   * own distance-delay -- which is what makes the zone fade from the tip
-   * outward rather than all at once: the near lines began first, so they
-   * finish first. Nicolai's ask of 21 July.
-   */
-  cellLifeMs: 1500,
-  /** How far a line drifts up as it dies. Four steps, so four whole pixels. */
-  drift: 16,
-  /**
-   * px/s the wave runs outward at. Slower than the old bare ignition (1500),
-   * because it now carries the hop and a wave has to be seen travelling to
-   * read as one -- the far end is reached in about seven tenths of a second.
-   */
-  sweepSpeed: 1100,
-  /**
-   * The wave front is quantised to this. 15 ms at the speed above puts each
-   * step about 16 px apart, so the front advances in something finer than
-   * the pixels it moves -- coarser and the wave arrives in visible bands.
-   */
-  delayStepMs: 15,
-  /**
-   * The stadium wave, Nicolai's ask of 21 July: as the front reaches each
-   * pixel it flares, leaps, and drops back with a second small bounce. One
-   * wave, outward, once -- nothing repeats, and it costs nothing extra
-   * because every pixel already knew when its turn was.
-   *
-   * The first attempt read as dead, and the arithmetic says why: a 5 px hop
-   * cut into 8 steps moves the pixel 0.6 px at a time, which is less than
-   * one pixel and so is no movement at all. The leaps below are whole
-   * multiples of the pixel, cut into few enough steps that every step is at
-   * least one pixel wide -- see CONE_HOPS.
-   */
-  hopSteps: 4,
-};
-
-/** How wide the whole baked sheet is, for sliding the wanted cell into view. */
-const CONE_ARC_SHEET_W = CONE_ARCS.cellW * CONE_ARCS.radii.length;
-
-/**
- * How long a whole cast stays on the field: the wave's journey to the far
- * corner plus one pixel's life at the end of it, and a little slack. Derived
- * rather than written down, so changing the speed or the life cannot leave
- * the sweep cutting pixels off mid-drift.
- */
-const CONE_ZONE_MS =
-  Math.round((CONE_RANGE / CONE_ZONE.sweepSpeed) * 1000) + CONE_ZONE.cellLifeMs + 80;
-
-/**
- * The leaps, dealt out per GROUP of pixels rather than per pixel.
- *
- * This is the whole performance story of the effect. What a browser charges
- * for is not the pixel but the *animated layer*: every element with a
- * running animation is composited separately, every frame. Four hundred of
- * them cost Nicolai about 150 fps. Four hundred pixels arranged into forty
- * animated groups cost forty layers, and the pixels inside ride along for
- * free -- they are painted once and never touched again.
- *
- * A whole strike line therefore leaps as one thing. At 2 px that reads the
- * same, because a group is one arc: the eye was following the line, not the
- * individual squares.
- *
- * Every height is a whole number of pixels, and with 4 steps each one moves
- * at least a pixel per step, which is what makes the leap read at all. The
- * swell is gentle now for the same reason -- a whole arc growing 2.4x would
- * balloon out of the cone, where a single square just looked bright.
- */
-const CONE_HOPS = [
-  { lift: 8, pop: 1.1 },
-  { lift: 12, pop: 1.15 },
-  { lift: 16, pop: 1.2 },
-  { lift: 20, pop: 1.25 },
-  { lift: 24, pop: 1.2 },
-  { lift: 28, pop: 1.3 },
-];
-const CONE_EDGE_HOPS = 2; // the first two belong to the scatter, not the lines
-
-/**
- * One style per leap. Each carries its own keyframes because the height is
- * baked into them; the pixel picks a class and inherits its whole life.
- *
- * That life, in one animation: the front arrives and the pixel flares and
- * swells, rises, drops back, bounces once more -- and then, for the two
- * thirds of the time that remain, drifts slowly upward and fades out. The
- * drift and the fade live here rather than on the layer above precisely so
- * they inherit the pixel's own distance-delay: the tip of the cone began
- * first, so the tip dies first, and the fade travels outward exactly as the
- * strike did.
- */
-const coneHopStyles = StyleSheet.create(
-  Object.fromEntries(
-    CONE_HOPS.map((h, i) => [
-      `h${i}`,
-      {
-        // Transforms inside keyframes must be written as CSS text. React
-        // Native's array form -- transform: [{ translateY: -5 }] -- is
-        // dropped on the floor here without a word, leaving empty keyframes
-        // and a pixel that never moves. The rain writes strings too.
-        animationKeyframes: [
-          {
-            '0%': { opacity: 0, transform: 'translateY(0px) scale(1)' },
-            // The blow: brightest and biggest in the instant it lands.
-            '3%': { opacity: 1, transform: `translateY(-${Math.round(h.lift * 0.3)}px) scale(${h.pop})` },
-            '12%': { opacity: 1, transform: `translateY(-${h.lift}px) scale(${h.pop * 0.85})` },
-            '22%': { opacity: 0.5, transform: 'translateY(0px) scale(1)' },
-            '28%': { opacity: 0.5, transform: `translateY(-${Math.round(h.lift * 0.3)}px) scale(1.25)` },
-            // Landed and dimmed to a trail, so the bright line is the front
-            // alone and everything behind it is embers. The timing function
-            // set HERE governs the interval that starts here -- the leap
-            // above keeps its steps, while the long climb below runs smooth.
-            // Stepping the climb read as stutter rather than as pixel art:
-            // over a whole second, 4 steps is one jerk every quarter second,
-            // which Nicolai saw immediately and took for lag.
-            '34%': { opacity: 0.45, transform: 'translateY(0px) scale(1)', animationTimingFunction: 'linear' },
-            '100%': { opacity: 0, transform: `translateY(-${CONE_ZONE.drift}px) scale(1)` },
-          },
-        ],
-        animationDuration: `${CONE_ZONE.cellLifeMs}ms`,
-        animationTimingFunction: `steps(${CONE_ZONE.hopSteps})`,
-        animationFillMode: 'both',
-      },
-    ])
-  ) as never
-) as Record<string, object>;
-
-/**
- * Ignition delays as a small bank of pre-compiled classes rather than inline
- * values: keyframes only compile through StyleSheet.create here, and keeping
- * the whole animation in one place means a cell carries nothing but its
- * position and colour.
- */
-const CONE_DELAY_BUCKETS = Math.ceil(((CONE_RANGE / CONE_ZONE.sweepSpeed) * 1000) / CONE_ZONE.delayStepMs) + 1;
-
-const coneZoneSheet = StyleSheet.create({
-  // A plain frame now. The layer used to fade the whole zone out at once,
-  // which made it vanish as a sheet; each pixel dies on its own clock
-  // instead, so the dying sweeps outward from the tip the way the blow did.
-  layer: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: SCREEN_W,
-    height: PLAY_H,
-    pointerEvents: 'none',
-  },
-  // One strike line: a window onto its cell of the baked sheet. This is the
-  // only thing that animates, and there are eight of them.
-  arc: {
-    position: 'absolute',
-    width: CONE_ARCS.cellW,
-    height: CONE_ARCS.cellH,
-    overflow: 'hidden',
-  },
-  // The sheet inside that window, slid so the wanted cell shows.
-  arcSheet: {
-    position: 'absolute',
-    top: 0,
-    width: CONE_ARC_SHEET_W,
-    height: CONE_ARCS.cellH,
-    // Square pixels stay square. The lines are pixel art and the layer is
-    // rotated to the cast, which is exactly where a browser would otherwise
-    // smooth them into mush.
-    imageRendering: 'pixelated',
-  },
-  ...(Object.fromEntries(
-    Array.from({ length: CONE_DELAY_BUCKETS }, (_, i) => [
-      `d${i}`,
-      { animationDelay: `${i * CONE_ZONE.delayStepMs}ms` },
-    ])
-  ) as Record<string, object>),
-} as never) as Record<string, object>;
-
-/**
- * The picture of the cast the ground answers on -- Nicolai's call: the 13th,
- * where the pose starts rocking before its long freeze. Read off the
- * choreography rather than written as a stopwatch value, so rewriting the
- * order moves the ground with it.
- */
-const RUPTURE_ZONE_FRAME = 12; // his 13th, counted from 0
-const RUPTURE_ZONE_DELAY_MS = Math.round(frameStartTime(ANIMS.rupture, RUPTURE_ZONE_FRAME) * 1000);
-
-/**
- * Whether the cone's damage waits for the wave to reach each enemy, rather
- * than landing everywhere the instant the button is pressed.
- *
- * Nicolai's call of 21 July, and the one gameplay change in this effect: the
- * numbers are Magnus's untouched -- who is hit and for how much is still
- * decided by fireCone at the moment of the cast -- but a far enemy now takes
- * its blow up to 1.7 s later, and keeps swinging until it does. Set this to
- * false and every blow lands at once again, exactly as before.
- */
-const CONE_DAMAGE_RIDES_WAVE = true;
-
-/** A blow the wave is carrying but has not delivered yet. */
-type PendingConeHit = { mobId: number; amount: number; at: number };
-
-/**
- * One cast's zone: where he stood, which way he faced, and when the ground
- * should answer.
- *
- * That is the whole record now. It used to carry four hundred and twenty
- * hand-placed squares; the strike lines are a baked sheet, so all that is
- * left is the geometry. `startAt` holds the lines back until the pose reaches
- * its 13th picture -- a timer rather than a watch on the animation itself, so
- * a cast made on the run, where the pose is skipped entirely, still lights
- * the ground it hit.
- */
-type ConeZone = { id: number; x: number; y: number; angleDeg: number; startAt: number };
-
-/**
- * The wave: eight baked lines laid out along the cast and lit in turn.
- *
- * The container is placed at the knight and turned to face the cast, so each
- * line only has to know how far out it belongs -- and since a line's distance
- * is also what decides when the front reaches it, the delay class and the
- * position come from the same number.
- *
- * Its props never change after mount, so React never reconciles it again, and
- * only eight elements are ever animated.
- */
-const ConeZoneFx = memo(function ConeZoneFx({ zone }: { zone: ConeZone }) {
-  return (
-    <View
-      pointerEvents="none"
-      style={{ position: 'absolute', left: zone.x, top: zone.y, transform: [{ rotate: `${zone.angleDeg}deg` }] }}
-    >
-      {CONE_ARCS.radii.map((radius, i) => {
-        const bucket = Math.min(
-          CONE_DELAY_BUCKETS - 1,
-          Math.round(((radius / CONE_ZONE.sweepSpeed) * 1000) / CONE_ZONE.delayStepMs)
-        );
-        // Dealt by distance rather than at random, so the leaps rise as the
-        // wave travels instead of jumping about.
-        const hop = CONE_EDGE_HOPS + (i % (CONE_HOPS.length - CONE_EDGE_HOPS));
-        return (
-          <View
-            key={i}
-            style={[
-              coneZoneSheet.arc,
-              coneHopStyles[`h${hop}`],
-              coneZoneSheet[`d${bucket}`],
-              // Right edge on the arc's own radius, centred across the cone.
-              { left: radius - CONE_ARCS.cellW, top: -CONE_ARCS.cellH / 2 },
-            ]}
-          >
-            <Image source={CONE_ARC_SHEET} style={[coneZoneSheet.arcSheet, { left: -i * CONE_ARCS.cellW }]} />
-          </View>
-        );
-      })}
-    </View>
-  );
-});
-const ABILITY3_HASTE_DURATION = 5;
-
-// ---- Skill catalog ---------------------------------------------------------
-// Six skills in a small tree: three roots the player starts owning, and one
-// child under each that must be unlocked (parent at level >= 1) before it can
-// be bought. Levels 1..4 are paid for from the main menu with gold; reaching
-// level L costs SKILL_LEVEL_COST[L].
-// Each root has two children: an active and a passive. Active skills go in the
-// three quick-cast slots; passive skills go in the single passive slot.
-type SkillId =
-  | 'summon' | 'cone' | 'ranged'
-  | 'fireball' | 'burn' | 'push'
-  | 'summonregen' | 'cdreduce' | 'pierce';
-const ALL_SKILLS: SkillId[] = [
-  'summon', 'cone', 'ranged',
-  'fireball', 'burn', 'push',
-  'summonregen', 'cdreduce', 'pierce',
-];
-const ROOT_SKILLS: SkillId[] = ['summon', 'cone', 'ranged'];
-const MAX_EQUIPPED = 3; // active skill slots
-const MAX_PASSIVE = 1; // passive skill slot
-
-// How a skill behaves when it sits in an equipped slot in a run.
-//   'instant' -- tap the button, it fires at once
-//   'aim'     -- tap to arm, then tap/drag the field to aim, release to fire
-//   'passive' -- no button; its effect is always on while equipped
-type SkillCast = 'instant' | 'aim' | 'passive';
-
-const SKILL_PARENT: Record<SkillId, SkillId | null> = {
-  summon: null,
-  cone: null,
-  ranged: null,
-  fireball: 'summon',
-  summonregen: 'summon',
-  burn: 'cone',
-  cdreduce: 'cone',
-  push: 'ranged',
-  pierce: 'ranged',
-};
-
-// Colour per root tree: Summon is purple/blue, Cone is orange/red, Ranged is
-// green/yellow. Each skill also carries an emoji icon for its button.
-const SKILL_META: Record<
-  SkillId,
-  { label: string; icon: string; color: string; cast: SkillCast; mana: number; cooldown: number }
-> = {
-  summon: { label: 'Summon', icon: '🧟', color: '#7e57c2', cast: 'instant', mana: 30, cooldown: 12 },
-  cone: { label: 'Cone', icon: '🔻', color: '#ff8a50', cast: 'instant', mana: 20, cooldown: 5 },
-  ranged: { label: 'Ranged', icon: '🏹', color: '#66bb6a', cast: 'instant', mana: 25, cooldown: 15 },
-  fireball: { label: 'Fireball', icon: '☄️', color: '#5c6bc0', cast: 'instant', mana: 25, cooldown: 8 },
-  burn: { label: 'Burn', icon: '🔥', color: '#ef5350', cast: 'instant', mana: 20, cooldown: 6 },
-  push: { label: 'Push', icon: '💨', color: '#43a047', cast: 'instant', mana: 20, cooldown: 8 },
-  summonregen: { label: 'Summon Regen', icon: '💜', color: '#42a5f5', cast: 'passive', mana: 0, cooldown: 0 },
-  cdreduce: { label: 'Haste', icon: '⏱️', color: '#e53935', cast: 'passive', mana: 0, cooldown: 0 },
-  pierce: { label: 'Pierce', icon: '🎯', color: '#fdd835', cast: 'passive', mana: 0, cooldown: 0 },
-};
-
-function isPassiveSkill(skill: SkillId): boolean {
-  return SKILL_META[skill].cast === 'passive';
-}
-
-// Gold to reach each level. Index by target level (1..4): 5, 10, 15, 20.
-const SKILL_LEVEL_COST = [0, 5, 10, 15, 20];
-function skillLevelCost(targetLevel: number): number {
-  return SKILL_LEVEL_COST[targetLevel] ?? 0;
-}
-
-// The fireball off each summon, as a fraction of that summon's attack damage.
-function fireballDamagePercent(level: number): number {
-  return [0, 1.0, 1.5, 2.0, 2.5][level] ?? 0;
-}
-const FIREBALL_RADIUS = 95;
-// The burning enemy's death blast, as a fraction of its max HP.
-function burnExplodePercent(level: number): number {
-  return [0, 0.5, 0.6, 0.7, 1.0][level] ?? 0;
-}
-const BURN_EXPLODE_RADIUS = 90;
-// Burn also scorches the target itself for this much per second while it burns.
-function burnDamagePerSec(level: number): number {
-  return [0, 5, 10, 15, 20][level] ?? 0;
-}
-// Push: fraction of the player's attack damage dealt as it shoves enemies off.
-function pushDamagePercent(level: number): number {
-  return [0, 0.5, 1.0, 1.5, 2.0][level] ?? 0;
-}
-const PUSH_SPEED = 620; // px/sec of outward shove, bled off by the knockback decay
-// Passive Summon Regen: HP per second granted to each summon.
-function summonRegenPerSec(level: number): number {
-  return level * 4;
-}
-// Passive Haste: fraction cut from every skill cooldown.
-function cooldownReducePercent(level: number): number {
-  return [0, 0.2, 0.3, 0.4, 0.5][level] ?? 0;
-}
-// Passive Pierce: how many extra enemies each of the player's shots passes through.
-function pierceTargetCount(level: number): number {
-  return level > 0 ? level : 0;
-}
-const PIERCE_WIDTH = 26; // how close to the shot's line an enemy must be to be pierced
-
-const PROJECTILE_SPEED = 700; // px/sec
-const HIT_FLASH_DURATION = 150; // ms
-const FLOATING_TEXT_DURATION = 700; // ms
-const FLOATING_TEXT_RISE = 32; // px
-
-const EQUIP_SLOTS = 3;
-const BAG_SLOTS = 9;
-const ITEM_SIZE = 24;
-const ITEM_DESPAWN_MS = 10000;
-const ITEM_PICKUP_RADIUS = PLAYER_RADIUS + 14;
-const INV_DRAG_THRESHOLD = 14;
-
-let mobIdCounter = 0;
-let allyIdCounter = 0;
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
+let skillMarkIdCounter = 0;
 let bloodIdCounter = 0;
 let corpseIdCounter = 0;
 let coneZoneIdCounter = 0;
-let itemIdCounter = 0;
-let floatingTextIdCounter = 0;
-
-type Vec = { x: number; y: number };
-
-type MobType = 'melee' | 'ranged' | 'boss';
-
-type Mob = {
-  id: number;
-  type: MobType;
-  /** Which wave spawned this mob, so a wave clears when its own mobs are gone. */
-  wave: number;
-  pos: Vec;
-  hp: number;
-  maxHp: number;
-  damage: number;
-  radius: number;
-  attackCooldown: number;
-  facing: number; // 0-7, same row order as the player
-  anim: MobAnimName;
-  animTime: number;
-  /** Seconds left of the red flash, and of the wait before another flinch. */
-  flashTime: number;
-  hurtGap: number;
-  /** Speed left in the shove from the last blow, px/sec. Zero when at rest. */
-  knock: Vec;
-  /** Set by the Burn skill: the mob explodes on death for this fraction of its
-   * max HP. Zero/undefined means it is not burning. */
-  burnPct?: number;
-  /** Burn's damage-over-time to the target itself, HP per second while afire. */
-  burnDps?: number;
-};
-
-type Ally = {
-  id: number;
-  pos: Vec;
-  hp: number;
-  maxHp: number;
-  damage: number;
-  attackCooldown: number;
-  ranged: boolean;
-};
-
-type Projectile = {
-  id: number;
-  from: Vec;
-  to: Vec;
-  createdAt: number;
-  duration: number;
-  color: string;
-  damage: number;
-  friendly: boolean; // true = player/ally shooting a mob; false = mob shooting player/ally
-  targetKind: 'mob' | 'player' | 'ally';
-  targetId: number;
-  /** Pierce: extra enemies this shot damages along its line, beyond the target. */
-  pierce?: number;
-};
-type HitFlash = { id: number; pos: Vec; createdAt: number };
-type BloodSplat = { id: number; pos: Vec; variant: number; createdAt: number };
-type FloatingText = { id: number; text: string; pos: Vec; color: string; createdAt: number };
-
-// The three in-run quick-cast slots. Each slot holds whichever skill the player
-// equipped for it in the main menu (or null if left empty), that skill's level,
-// and its live cooldown for the run.
-type AbilityId = 1 | 2 | 3;
-type Ability = { skill: SkillId | null; level: number; cooldown: number };
-type Abilities = Record<AbilityId, Ability>;
-
-type Target = { kind: 'player' | 'ally' | 'mob'; id?: number; pos: Vec };
-
-type ItemKind = 'dmg' | 'atkspd' | 'mana' | 'manaregen' | 'health' | 'healthregen';
-type Item = { id: number; kind: ItemKind; level: number };
-type GroundItem = { item: Item; pos: Vec; createdAt: number };
-type Slot = Item | null;
-type TooltipState = { key: string; text: string; x: number; y: number } | null;
-
-const ITEM_DEFS: Record<
-  ItemKind,
-  { name: string; color: string; perLevel: number; format: (total: number) => string }
-> = {
-  dmg: { name: 'Blade', color: '#ff7043', perLevel: 2, format: (t) => `+${t} damage` },
-  atkspd: { name: 'Gloves', color: '#ffca28', perLevel: 0.03, format: (t) => `+${Math.round(t * 100)}% attack speed` },
-  mana: { name: 'Crystal', color: '#42a5f5', perLevel: 6, format: (t) => `+${t} max mana` },
-  manaregen: { name: 'Sigil', color: '#26c6da', perLevel: 1, format: (t) => `+${t} mana regen/s` },
-  health: { name: 'Armor', color: '#66bb6a', perLevel: 8, format: (t) => `+${t} max health` },
-  healthregen: { name: 'Amulet', color: '#9ccc65', perLevel: 1, format: (t) => `+${t} health regen/s` },
-};
-const ITEM_KINDS: ItemKind[] = ['dmg', 'atkspd', 'mana', 'manaregen', 'health', 'healthregen'];
-
-const MOB_TYPE_META: Record<MobType, { name: string; color: string; radius: number }> = {
-  melee: { name: 'Melee', color: '#e05555', radius: MOB_RADIUS },
-  ranged: { name: 'Ranged', color: '#ff9800', radius: MOB_RADIUS },
-  boss: { name: 'Boss', color: '#ab47bc', radius: BOSS_RADIUS },
-};
-
-type PlayerState = {
-  pos: Vec;
-  target: Vec | null;
-  hp: number;
-  maxHp: number;
-  mana: number;
-  level: number;
-  xp: number;
-  xpToNext: number;
-  attackCooldown: number;
-  hasteTimer: number;
-  facing: number; // 0-7, which row of the sprite sheet to draw
-  anim: AnimName;
-  animTime: number; // seconds spent in the current animation
-  /** Playback multiplier for the current animation; 1 is the sheet's own rate. */
-  animSpeed: number;
-  /**
-   * The arrival. He runs in from below the screen, stands a moment, then draws.
-   * 'done' from the first tap onwards -- it is an entrance, not something to sit
-   * through, so wanting to move ends it.
-   */
-  introPhase: 'enter' | 'settle' | 'draw' | 'done';
-  introTimer: number;
-};
-
-function dist(a: Vec, b: Vec) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function normalizeAngle(deg: number) {
-  let d = deg;
-  while (d > 180) d -= 360;
-  while (d < -180) d += 360;
-  return d;
-}
-
-function nearestTarget(from: Vec, targets: Target[], maxRange: number): Target | null {
-  let best: Target | null = null;
-  let bestDist = Infinity;
-  for (const t of targets) {
-    const d = dist(from, t.pos);
-    if (d <= maxRange && d < bestDist) {
-      bestDist = d;
-      best = t;
-    }
-  }
-  return best;
-}
-
-function fireCone(
-  origin: Vec,
-  aimPoint: Vec,
-  currentMobs: Mob[],
-  baseDamage: number,
-  damagePercent: number,
-  range: number,
-  halfAngleDeg: number
-): { mobs: Mob[]; hits: { id: number; pos: Vec; amount: number }[] } {
-  const dirAngle = (Math.atan2(aimPoint.y - origin.y, aimPoint.x - origin.x) * 180) / Math.PI;
-  // `id` is ours, added so the wave can deliver each blow to the right mob
-  // later. Everything else here is Magnus's, untouched -- who is hit and for
-  // how much is still decided entirely by this function.
-  const hits: { id: number; pos: Vec; amount: number }[] = [];
-  const mobs = currentMobs.map((m) => {
-    const d = dist(origin, m.pos);
-    if (d <= range) {
-      const mobAngle = (Math.atan2(m.pos.y - origin.y, m.pos.x - origin.x) * 180) / Math.PI;
-      if (Math.abs(normalizeAngle(mobAngle - dirAngle)) <= halfAngleDeg) {
-        const amount = baseDamage + m.maxHp * damagePercent;
-        hits.push({ id: m.id, pos: { ...m.pos }, amount });
-        return { ...m, hp: m.hp - amount };
-      }
-    }
-    return m;
-  });
-  return { mobs, hits };
-}
-
-function xpForLevel(level: number) {
-  return 40 + (level - 1) * 25;
-}
-
-function ability1Stats(level: number) {
-  return { hp: 20 + (level - 1) * 15, damage: 4 + (level - 1) * 3 };
-}
-
-function ability2BaseDamage(level: number) {
-  return 10 * level;
-}
-
-function ability2DamagePercent(level: number) {
-  return 0.1 + (level - 1) * 0.05;
-}
-
-function ability3DamageBonus(level: number) {
-  return level * 4;
-}
-
-const ALL_LEVELS = [1, 2, 3, 4];
-
-function levelBracket(values: (string | number)[]): string {
-  return `(${values.join('/')})`;
-}
-
-function skillDescription(skill: SkillId): string {
-  if (skill === 'summon') {
-    const hps = levelBracket(ALL_LEVELS.map((l) => ability1Stats(l).hp));
-    const dmgs = levelBracket(ALL_LEVELS.map((l) => ability1Stats(l).damage));
-    return `Summon: calls 1/2/3/4 allied mobs (at level 4: 2 melee, 2 ranged) that fight for you. HP ${hps}, DMG ${dmgs}.`;
-  }
-  if (skill === 'cone') {
-    const bases = levelBracket(ALL_LEVELS.map((l) => ability2BaseDamage(l)));
-    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(ability2DamagePercent(l) * 100)}%`));
-    return `Cone: deals ${bases} damage plus ${pcts} of each enemy's max HP in a widening cone toward where you aim.`;
-  }
-  if (skill === 'ranged') {
-    const dmgs = levelBracket(ALL_LEVELS.map((l) => ability3DamageBonus(l)));
-    return `Ranged: passively turns your attacks ranged, adding ${dmgs} damage. Tap to gain +50% attack speed for 5s.`;
-  }
-  if (skill === 'fireball') {
-    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(fireballDamagePercent(l) * 100)}%`));
-    return `Fireball: a fireball explodes from every one of your summons, dealing ${pcts} of that summon's attack damage to nearby enemies. Needs Summon.`;
-  }
-  if (skill === 'burn') {
-    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(burnExplodePercent(l) * 100)}%`));
-    return `Burn: set the closest enemy afire. When it dies it explodes, dealing ${pcts} of its max health to nearby enemies. Needs Cone.`;
-  }
-  if (skill === 'push') {
-    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(pushDamagePercent(l) * 100)}%`));
-    return `Push: shove all enemies away from you, dealing ${pcts} of your attack damage. Needs Ranged.`;
-  }
-  if (skill === 'summonregen') {
-    const regens = levelBracket(ALL_LEVELS.map((l) => `${summonRegenPerSec(l)}/s`));
-    return `Summon Regen (passive): your summons regenerate ${regens} health. Needs Summon.`;
-  }
-  if (skill === 'cdreduce') {
-    const pcts = levelBracket(ALL_LEVELS.map((l) => `${Math.round(cooldownReducePercent(l) * 100)}%`));
-    return `Haste (passive): reduces the cooldown of all your skills by ${pcts}. Needs Cone.`;
-  }
-  const targets = levelBracket(ALL_LEVELS.map((l) => pierceTargetCount(l)));
-  return `Pierce (passive): your shots pierce through ${targets} enemies. Needs Ranged.`;
-}
-
-function skillStatsSuffix(skill: SkillId): string {
-  const meta = SKILL_META[skill];
-  if (meta.cast === 'passive') return `\nPassive · always on while equipped`;
-  return `\nCost: ${meta.mana} MP  ·  Cooldown: ${meta.cooldown}s`;
-}
-
-function itemBonus(item: Item) {
-  return ITEM_DEFS[item.kind].perLevel * item.level;
-}
-
-function itemTooltip(item: Item): string {
-  const def = ITEM_DEFS[item.kind];
-  return `${def.name} · iLvl ${item.level}\n${def.format(Math.round(itemBonus(item) * 100) / 100)}`;
-}
-
-function makeItem(kind: ItemKind, level: number): Item {
-  itemIdCounter += 1;
-  return { id: itemIdCounter, kind, level };
-}
-
-function mobHpForWave(wave: number) {
-  return MOB_MAX_HP + (wave - 1) * 8;
-}
-
-function mobDamageForWave(wave: number) {
-  return MOB_DAMAGE + Math.floor((wave - 1) * 1.5);
-}
-
-function mobCountForWave(wave: number) {
-  return 4 + wave;
-}
-
-function bossTierForWave(wave: number) {
-  return wave >= 10 && wave % 5 === 0 ? Math.floor((wave - 10) / 5) + 1 : 0;
-}
-
-function rangedCountForWave(wave: number) {
-  if (wave < 3) return 0;
-  return Math.min(Math.floor(mobCountForWave(wave) / 2), wave - 2);
-}
-
-function mobTypeStats(type: MobType, wave: number): { hp: number; damage: number } {
-  const meleeHp = mobHpForWave(wave);
-  const meleeDmg = mobDamageForWave(wave);
-  if (type === 'melee') return { hp: meleeHp, damage: meleeDmg };
-  if (type === 'ranged') return { hp: Math.round(meleeHp * 0.7), damage: meleeDmg };
-  const tier = Math.max(1, bossTierForWave(wave));
-  return { hp: 500 * tier + wave * 10, damage: 15 + tier * 6 };
-}
-
-// Composition of a wave, for the Mob Stats overlay
-function waveComposition(wave: number): { type: MobType; count: number }[] {
-  const total = mobCountForWave(wave);
-  const ranged = rangedCountForWave(wave);
-  const melee = total - ranged;
-  const rows: { type: MobType; count: number }[] = [];
-  if (melee > 0) rows.push({ type: 'melee', count: melee });
-  if (ranged > 0) rows.push({ type: 'ranged', count: ranged });
-  if (bossTierForWave(wave) > 0) rows.push({ type: 'boss', count: 1 });
-  return rows;
-}
-
-function buildWaveQueue(wave: number): MobType[] {
-  const total = mobCountForWave(wave);
-  const ranged = rangedCountForWave(wave);
-  const melee = total - ranged;
-  const queue: MobType[] = [];
-  for (let i = 0; i < melee; i++) queue.push('melee');
-  for (let i = 0; i < ranged; i++) queue.push('ranged');
-  // shuffle melee/ranged so ranged are mixed in
-  for (let i = queue.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [queue[i], queue[j]] = [queue[j], queue[i]];
-  }
-  if (bossTierForWave(wave) > 0) queue.push('boss'); // boss arrives last
-  return queue;
-}
-
-/**
- * Draws one frame of a sprite sheet: a clipping box with the sheet inside it,
- * shifted so the wanted cell lands in view.
- *
- * Every animation stays mounted and only the active one is made visible.
- * Swapping a single Image's source instead makes react-native-web reload it --
- * it renders the picture as a CSS background and clears that background while
- * the new one loads, even from cache -- and the frames in between draw nothing,
- * so the character blinks each time the animation changes.
- */
-function SpriteSheet({
-  anims,
-  anim,
-  animTime,
-  facing,
-  size,
-  left,
-  top,
-  flash,
-  rim,
-}: {
-  anims: Record<string, AnimDef>;
-  anim: string;
-  animTime: number;
-  facing: number;
-  size: number;
-  left: number;
-  top: number;
-  /**
-   * A tint laid over the character for an instant, following its outline
-   * exactly, since it is the same frame drawn again in a single colour.
-   */
-  flash?: { color: string; opacity: number };
-  /**
-   * The moon on his edge. Only drawn for animations that were built with a rim
-   * sheet, which is the knight's and no one else's.
-   */
-  rim?: RimStyle;
-}) {
-  const active = anims[anim];
-  const activeRows = active ? active.rows ?? SPRITE_ROWS : SPRITE_ROWS;
-  return (
-    <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
-      {Object.entries(anims).map(([name, def]) => {
-        const rows = def.rows ?? SPRITE_ROWS;
-        return (
-          <Image
-            key={name}
-            source={def.sheet}
-            style={{
-              position: 'absolute',
-              // Drawn at native size, so one cell lands exactly on the clip box
-              // and the art renders pixel-for-pixel.
-              width: size * SPRITE_COLS,
-              height: size * rows,
-              left: -size * animColumn(def, animTime),
-              top: -size * Math.min(facing, rows - 1),
-              opacity: name === anim ? 1 : 0,
-            }}
-          />
-        );
-      })}
-
-      {/* The light on his lit edge: the matching frame of the rim sheet, tinted
-          and faded as it is drawn.
-
-          Every rim sheet stays mounted and only the active one is visible --
-          the same rule the sheets above follow, and for the same two reasons.
-          Swapping one Image's source makes react-native-web reload it and draw
-          nothing in between, so the light blinked off at every animation
-          change. Worse, an unmounted sheet's decoded pixels are the first
-          thing the browser evicts, so each swap back was a fresh 7.5 MB decode
-          on the main thread -- measured in play as 90 ms hitches that landed
-          exactly on stopping, starting and striking.
-
-          The blend goes on a wrapper rather than on the image, the way the
-          ground glow does it -- it has to mix with him, and an element that
-          blends is the one that has to hold the mode. */}
-      {rim && (
-        <View
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: size,
-            height: size,
-            mixBlendMode: rim.blend,
-          }}
-        >
-          {Object.entries(anims).map(([name, def]) => {
-            if (!def.rim) return null;
-            const rows = def.rows ?? SPRITE_ROWS;
-            return (
-              <Image
-                key={name}
-                source={def.rim}
-                tintColor={rgb(rim.color)}
-                style={{
-                  position: 'absolute',
-                  width: size * SPRITE_COLS,
-                  height: size * rows,
-                  left: -size * animColumn(def, animTime),
-                  top: -size * Math.min(facing, rows - 1),
-                  opacity: name === anim ? rim.strength : 0,
-                }}
-              />
-            );
-          })}
-        </View>
-      )}
-
-      {/* The same frame again in one colour, laid on top. Only the active sheet
-          is drawn twice, and only while a flash is running. */}
-      {flash && flash.opacity > 0 && active && (
-        <Image
-          source={active.sheet}
-          tintColor={flash.color}
-          style={{
-            position: 'absolute',
-            width: size * SPRITE_COLS,
-            height: size * activeRows,
-            left: -size * animColumn(active, animTime),
-            top: -size * Math.min(facing, activeRows - 1),
-            opacity: flash.opacity,
-          }}
-        />
-      )}
-    </View>
-  );
-}
-
-/**
- * Marks a mob as struck: the red instant and the shove always, and a flinch
- * when it is free to take one.
- *
- * The flash and the flinch are deliberately separate. A flash on every blow
- * reads as a hit landing; a flinch on every blow would leave anything under
- * attack twitching without ever swinging back, which is exactly what the knight
- * did before his own flinch was reined in. The shove sides with the flash: it
- * costs the mob no animation, so there is nothing for it to compete with.
- *
- * `from` is wherever the blow came from -- the swinger, or the spot a shot was
- * loosed. The mob goes directly away from it.
- */
-/**
- * The shove alone, shared by the two things that deliver one: a swing the
- * player can see, and the kick that answers a flinch. One source of truth so
- * the kick pushes exactly as hard as a blow always has.
- */
-function shoveMob(m: Mob, from: Vec) {
-  const dx = m.pos.x - from.x;
-  const dy = m.pos.y - from.y;
-  const len = Math.hypot(dx, dy);
-  // Standing exactly on the attacker leaves no direction to be pushed in.
-  if (len > 0.001) {
-    const vary = 1 + (Math.random() * 2 - 1) * KNOCKBACK_VARIATION;
-    const speed = KNOCKBACK_SPEED * vary * (MOB_RADIUS / m.radius);
-    m.knock = { x: (dx / len) * speed, y: (dy / len) * speed };
-  }
-}
-
-function hurtMob(m: Mob, from?: Vec) {
-  m.flashTime = MOB_FLASH_TIME;
-
-  if (from) shoveMob(m, from);
-
-  const def = MOB_ANIMS[m.anim];
-  const busy = !def.loop && m.animTime < animDuration(def);
-  if (!busy && m.hurtGap <= 0) {
-    m.anim = 'hurt';
-    m.animTime = 0;
-    m.hurtGap = MOB_HURT_ANIM_MIN_GAP;
-  }
-}
 
 /**
  * Drag-anywhere slider for the temporary tuning panel. Built on the same
@@ -2188,298 +480,6 @@ function DebugSlider({
   );
 }
 
-function makePlayer(): PlayerState {
-  return {
-    // Below the bottom edge, out of sight, running for the spot he normally
-    // starts on. The ordinary movement code carries him there, which also turns
-    // him north on the way -- so he is already looking up the screen when he
-    // stops, and draws his sword facing that way.
-    pos: { x: SCREEN_W / 2, y: PLAY_H + INTRO_START_BELOW },
-    target: { x: SCREEN_W / 2, y: PLAY_H - INTRO_STOP_ABOVE_BOTTOM },
-    hp: 100,
-    maxHp: 100,
-    mana: MANA_MAX,
-    level: 1,
-    xp: 0,
-    xpToNext: xpForLevel(1),
-    attackCooldown: 0,
-    hasteTimer: 0,
-    facing: 6, // north, the way he is about to run
-    anim: 'walk',
-    animTime: 0,
-    // Set here rather than left to the animation code, which only revisits the
-    // rate when an animation changes -- and the entrance never changes it. He
-    // opens walking and keeps walking, so the walk is never restarted and the
-    // rate would stay at the sheet's own while his pace was not.
-    animSpeed: INTRO_WALK_ANIM,
-    // Every way into a run rebuilds the player from here, so each one opens
-    // with the entrance.
-    introPhase: 'enter',
-    introTimer: 0,
-  };
-}
-
-// Build the three run slots from the equipped loadout and the skill levels the
-// player has bought in the menu. Empty slots carry no skill.
-function makeAbilities(loadout: SkillId[], skillLevels: Record<SkillId, number>): Abilities {
-  const slotFor = (i: number): Ability => {
-    const skill = loadout[i] ?? null;
-    return { skill, level: skill ? skillLevels[skill] ?? 0 : 0, cooldown: 0 };
-  };
-  return { 1: slotFor(0), 2: slotFor(1), 3: slotFor(2) };
-}
-
-// The equipped passive skill with its bought level, or null if none is set.
-function makePassive(meta: MetaState): PassiveState {
-  if (!meta.passive) return null;
-  return { skill: meta.passive, level: meta.skillLevels[meta.passive] ?? 0 };
-}
-
-function spawnMob(type: MobType, wave: number): Mob {
-  mobIdCounter += 1;
-  const meta = MOB_TYPE_META[type];
-  const stats = mobTypeStats(type, wave);
-  const margin = meta.radius + 4;
-  return {
-    id: mobIdCounter,
-    type,
-    wave,
-    pos: { x: margin + Math.random() * (SCREEN_W - margin * 2), y: meta.radius },
-    hp: stats.hp,
-    maxHp: stats.hp,
-    damage: stats.damage,
-    radius: meta.radius,
-    attackCooldown: 0,
-    facing: 2, // south -- mobs spawn at the top edge walking down towards the player
-    anim: 'walk',
-    animTime: 0,
-    flashTime: 0,
-    hurtGap: 0,
-    knock: { x: 0, y: 0 },
-  };
-}
-
-function makeAlliesForLevel(level: number, origin: Vec): Ally[] {
-  const count = level;
-  const stats = ability1Stats(level);
-  const result: Ally[] = [];
-  for (let i = 0; i < count; i++) {
-    allyIdCounter += 1;
-    const offsetX = (i - (count - 1) / 2) * 36;
-    const ranged = level === 4 && i >= 2;
-    result.push({
-      id: allyIdCounter,
-      pos: { x: origin.x + offsetX, y: Math.max(ALLY_RADIUS, origin.y - 50) },
-      hp: stats.hp,
-      maxHp: stats.hp,
-      damage: stats.damage,
-      attackCooldown: 0,
-      ranged,
-    });
-  }
-  return result;
-}
-
-function spawnLoot(wave: number): GroundItem {
-  const level = Math.max(1, wave + (Math.floor(Math.random() * 5) - 2));
-  const kind = ITEM_KINDS[Math.floor(Math.random() * ITEM_KINDS.length)];
-  const margin = 30;
-  return {
-    item: makeItem(kind, level),
-    pos: {
-      x: margin + Math.random() * (SCREEN_W - margin * 2),
-      y: margin + Math.random() * (PLAY_H - margin * 2),
-    },
-    createdAt: Date.now(),
-  };
-}
-
-function makeFloatingText(text: string, pos: Vec, color: string, now: number): FloatingText {
-  floatingTextIdCounter += 1;
-  return { id: floatingTextIdCounter, text, pos: { ...pos }, color, createdAt: now };
-}
-
-const DAMAGE_TEXT_COLOR = '#ffffff';
-const TAKEN_TEXT_COLOR = '#ff5252';
-const XP_TEXT_COLOR = '#ffd54f';
-
-function equippedBonus(equipped: Slot[], kind: ItemKind) {
-  let total = 0;
-  for (const it of equipped) {
-    if (it && it.kind === kind) total += itemBonus(it);
-  }
-  return total;
-}
-
-// ---- Run persistence ----
-
-// A run carries its equipped passive skill (id + level) alongside the three
-// active ability slots; passives have no button or cooldown.
-type PassiveState = { skill: SkillId; level: number } | null;
-
-type RunSave = {
-  id: string;
-  savedAt: number;
-  wave: number;
-  level: number;
-  xp: number;
-  xpToNext: number;
-  hp: number;
-  maxHp: number;
-  mana: number;
-  abilities: Abilities;
-  passive: PassiveState;
-  equipped: Slot[];
-  bag: Slot[];
-  materials: number;
-};
-
-type GameState = {
-  player: PlayerState;
-  abilities: Abilities;
-  passive: PassiveState;
-  equipped: Slot[];
-  bag: Slot[];
-  materials: number;
-  wave: number;
-};
-
-// Persistent account-level progression, kept apart from the per-run saves. Gold
-// is the meta-currency earned by clearing waves; skillLevels is what has been
-// bought in the menu; loadout is the up-to-three active skills carried into a
-// run, and passive is the single equipped passive skill.
-type MetaState = {
-  gold: number;
-  skillLevels: Record<SkillId, number>;
-  loadout: SkillId[];
-  passive: SkillId | null;
-};
-
-// Bumped to v2 when the ability shape gained a per-slot skill id -- old v1 runs
-// are not readable under the new shape, so they are dropped rather than migrated.
-const RUNS_STORAGE_KEY = 'rpg_runs_v2';
-const META_STORAGE_KEY = 'rpg_meta_v1';
-
-function defaultMeta(): MetaState {
-  const skillLevels = Object.fromEntries(ALL_SKILLS.map((s) => [s, 0])) as Record<SkillId, number>;
-  for (const root of ROOT_SKILLS) skillLevels[root] = 1; // start owning the three roots
-  return { gold: 0, skillLevels, loadout: [...ROOT_SKILLS], passive: null };
-}
-
-// Fill in any skills a stored meta predates, and drop an equipped entry the
-// player no longer owns, so the shape is always complete and valid.
-function sanitizeMeta(raw: Partial<MetaState> | null): MetaState {
-  const base = defaultMeta();
-  if (!raw) return base;
-  const skillLevels = { ...base.skillLevels, ...(raw.skillLevels ?? {}) } as Record<SkillId, number>;
-  const loadout = (raw.loadout ?? base.loadout)
-    .filter((s) => ALL_SKILLS.includes(s) && !isPassiveSkill(s) && (skillLevels[s] ?? 0) > 0)
-    .slice(0, MAX_EQUIPPED);
-  const passive =
-    raw.passive && ALL_SKILLS.includes(raw.passive) && isPassiveSkill(raw.passive) && (skillLevels[raw.passive] ?? 0) > 0
-      ? raw.passive
-      : null;
-  return { gold: raw.gold ?? 0, skillLevels, loadout, passive };
-}
-
-async function loadMeta(): Promise<MetaState> {
-  try {
-    const raw = await AsyncStorage.getItem(META_STORAGE_KEY);
-    return sanitizeMeta(raw ? (JSON.parse(raw) as Partial<MetaState>) : null);
-  } catch {
-    return defaultMeta();
-  }
-}
-
-async function persistMeta(meta: MetaState) {
-  try {
-    await AsyncStorage.setItem(META_STORAGE_KEY, JSON.stringify(meta));
-  } catch {
-    // best-effort; ignore storage failures
-  }
-}
-
-// The gold a run pays out is 1 per wave cleared, banked at the end: clearing
-// wave N is worth 1+2+...+N.
-function goldForWavesCleared(waves: number): number {
-  return waves > 0 ? (waves * (waves + 1)) / 2 : 0;
-}
-
-async function loadRuns(): Promise<RunSave[]> {
-  try {
-    const raw = await AsyncStorage.getItem(RUNS_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as RunSave[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function persistRuns(runs: RunSave[]) {
-  try {
-    await AsyncStorage.setItem(RUNS_STORAGE_KEY, JSON.stringify(runs));
-  } catch {
-    // best-effort; ignore storage failures
-  }
-}
-
-function buildFreshState(meta: MetaState): GameState {
-  return {
-    player: makePlayer(),
-    abilities: makeAbilities(meta.loadout, meta.skillLevels),
-    passive: makePassive(meta),
-    equipped: new Array(EQUIP_SLOTS).fill(null),
-    bag: new Array(BAG_SLOTS).fill(null),
-    materials: 0,
-    wave: 0,
-  };
-}
-
-function buildTestState(meta: MetaState): GameState {
-  const base = makePlayer();
-  const targetLevel = 10;
-  let maxHp = base.maxHp;
-  for (let lvl = 2; lvl <= targetLevel; lvl++) {
-    maxHp += 10;
-  }
-  const player: PlayerState = {
-    ...base,
-    level: targetLevel,
-    xp: 0,
-    xpToNext: xpForLevel(targetLevel),
-    maxHp,
-    hp: maxHp,
-  };
-  const randomTestItem = () => makeItem(ITEM_KINDS[Math.floor(Math.random() * ITEM_KINDS.length)], Math.max(1, targetLevel + Math.floor(Math.random() * 5) - 2));
-  const equipped: Slot[] = [randomTestItem(), randomTestItem(), randomTestItem()];
-  const bag: Slot[] = new Array(BAG_SLOTS).fill(null);
-  bag[0] = randomTestItem();
-  bag[1] = randomTestItem();
-  bag[2] = randomTestItem();
-  return { player, abilities: makeAbilities(meta.loadout, meta.skillLevels), passive: makePassive(meta), equipped, bag, materials: 0, wave: targetLevel - 1 };
-}
-
-function buildStateFromSave(save: RunSave): GameState {
-  const base = makePlayer();
-  const player: PlayerState = {
-    ...base,
-    level: save.level,
-    xp: save.xp,
-    xpToNext: save.xpToNext,
-    hp: save.hp,
-    maxHp: save.maxHp,
-    mana: save.mana,
-  };
-  return {
-    player,
-    abilities: save.abilities,
-    passive: save.passive ?? null,
-    equipped: save.equipped,
-    bag: save.bag,
-    materials: save.materials,
-    wave: save.wave,
-  };
-}
-
 export default function App() {
   const [screen, setScreen] = useState<'menu' | 'continue' | 'skilltree' | 'game'>('menu');
   /**
@@ -2502,6 +502,7 @@ export default function App() {
   const [aimPreviewPoint, setAimPreviewPoint] = useState<Vec | null>(null);
   const [projectiles, setProjectiles] = useState<Projectile[]>([]);
   const [hitFlashes, setHitFlashes] = useState<HitFlash[]>([]);
+  const [skillMarks, setSkillMarks] = useState<SkillMark[]>([]);
   const [bloodSplats, setBloodSplats] = useState<BloodSplat[]>([]);
   const [corpses, setCorpses] = useState<Corpse[]>([]);
   const [coneZones, setConeZones] = useState<ConeZone[]>([]);
@@ -2544,12 +545,16 @@ export default function App() {
    * the coins in it are decoration, so nothing of worth is lost.
    */
   const [sackOff, setSackOff] = useState(false);
+  // Whether the technical readout (fps/sim/dom counters) is shown at all.
+  // Starts on DEBUG_PERF's say-so but is a real runtime toggle from here on,
+  // reachable from the settings overlay instead of only a build flag.
+  const [techAreaOn, setTechAreaOn] = useState(DEBUG_PERF);
   // The module flag follows the state rather than being set beside it, so the
   // two cannot drift apart -- a hot reload keeps module variables and resets
   // state, and setting both in the toggle left the label saying one thing and
   // playSfx doing the other.
   useEffect(() => {
-    SFX_KILLED = sfxOff || allSoundOff;
+    SFX_STATE.killed = sfxOff || allSoundOff;
   }, [sfxOff, allSoundOff]);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
@@ -2715,6 +720,7 @@ export default function App() {
   const [skillsMenuOpen, setSkillsMenuOpen] = useState(false);
   const [invMenuOpen, setInvMenuOpen] = useState(false);
   const [mobStatsOpen, setMobStatsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [dragging, setDragging] = useState<{ kind: ItemKind; level: number; x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
 
@@ -2726,6 +732,7 @@ export default function App() {
   const passiveRef = useRef(passive);
   const projectilesRef = useRef(projectiles);
   const hitFlashesRef = useRef(hitFlashes);
+  const skillMarksRef = useRef(skillMarks);
   const bloodSplatsRef = useRef(bloodSplats);
   const corpsesRef = useRef(corpses);
   const coneZonesRef = useRef(coneZones);
@@ -2743,7 +750,10 @@ export default function App() {
   const groundItemsRef = useRef(groundItems);
   const equippedRef = useRef(equipped);
   const bagRef = useRef(bag);
-  const waveQueueRef = useRef<MobType[]>([]);
+  // One entry per wave that is still spawning, each with its own queue and its
+  // own timer -- so several waves spawn side by side (one mob per wave per
+  // interval) instead of sharing a single spawn slot and trickling out serially.
+  const waveQueueRef = useRef<{ wave: number; types: MobType[]; timer: number }[]>([]);
   // Wave numbers whose clear-reward loot hasn't dropped yet. Starting a new wave
   // before the field is clear leaves the previous wave's loot owed here.
   const lootOwedRef = useRef<number[]>([]);
@@ -2815,6 +825,7 @@ export default function App() {
   passiveRef.current = passive;
   projectilesRef.current = projectiles;
   hitFlashesRef.current = hitFlashes;
+  skillMarksRef.current = skillMarks;
   bloodSplatsRef.current = bloodSplats;
   corpsesRef.current = corpses;
   coneZonesRef.current = coneZones;
@@ -2827,7 +838,7 @@ export default function App() {
   bagRef.current = bag;
   materialsRef.current = materials;
   screenRef.current = screen;
-  overlayOpenRef.current = skillsMenuOpen || invMenuOpen || mobStatsOpen || tooltip != null;
+  overlayOpenRef.current = skillsMenuOpen || invMenuOpen || mobStatsOpen || settingsOpen || tooltip != null;
 
   // Run bookkeeping: which saved run (if any) is active, and whether this is a
   // throwaway test run that should never be persisted.
@@ -2838,7 +849,6 @@ export default function App() {
   // Guards the one-time gold payout when a run ends.
   const goldBankedRef = useRef(false);
 
-  const spawnTimerRef = useRef(0);
   const lastTimeRef = useRef<number | null>(null);
   const rafRef = useRef<number | null>(null);
 
@@ -3101,12 +1111,15 @@ export default function App() {
    */
   const queueConeHits = (hits: { id: number; pos: Vec; amount: number }[], origin: Vec) => {
     const now = Date.now();
+    const marks: SkillMark[] = [];
     for (const h of hits) {
       const travel = CONE_DAMAGE_RIDES_WAVE
         ? RUPTURE_ZONE_DELAY_MS + (dist(origin, h.pos) / CONE_ZONE.sweepSpeed) * 1000
         : 0;
       coneHitsRef.current.push({ mobId: h.id, amount: h.amount, at: now + travel });
+      marks.push({ id: ++skillMarkIdCounter, pos: h.pos, radius: 22, color: SKILL_META.cone.color, createdAt: now + travel });
     }
+    if (marks.length > 0) setSkillMarks((prev) => prev.concat(marks));
   };
 
   const handlePlayAreaRelease = (e: GestureResponderEvent) => {
@@ -3162,7 +1175,7 @@ export default function App() {
     if (skill === 'summon') {
       // Ours: the cast pose. The summon itself is untouched.
       pendingCastAnimRef.current = 'ancestor';
-      setAllies(makeAlliesForLevel(ab.level, p.pos));
+      setAllies(makeAlliesForLevel(ab.level, p.pos, ability1Stats));
     } else if (skill === 'cone') {
       // Ours: the cast pose. The cone itself is untouched.
       pendingCastAnimRef.current = 'rupture';
@@ -3202,6 +1215,13 @@ export default function App() {
       const now = Date.now();
       const flashes: HitFlash[] = [];
       const texts: FloatingText[] = [];
+      const marks: SkillMark[] = allies.map((a) => ({
+        id: ++skillMarkIdCounter,
+        pos: { ...a.pos },
+        radius: FIREBALL_RADIUS,
+        color: SKILL_META.fireball.color,
+        createdAt: now,
+      }));
       const nextMobs = mobsRef.current.map((m) => {
         let dmg = 0;
         for (const a of allies) {
@@ -3217,6 +1237,7 @@ export default function App() {
       setMobs(nextMobs);
       setHitFlashes((prev) => prev.concat(flashes));
       setFloatingTexts((prev) => prev.concat(texts));
+      setSkillMarks((prev) => prev.concat(marks));
     } else if (skill === 'burn') {
       // Set the closest enemy afire; it explodes when it dies.
       const target = nearestTarget(p.pos, mobsRef.current.filter((m) => m.hp > 0).map((m) => ({ kind: 'mob' as const, id: m.id, pos: m.pos })), Infinity);
@@ -3225,6 +1246,9 @@ export default function App() {
       const dps = burnDamagePerSec(ab.level);
       setMobs(mobsRef.current.map((m) => (m.id === target.id ? { ...m, burnPct: pct, burnDps: dps } : m)));
       setFloatingTexts((prev) => prev.concat(makeFloatingText('afire', target.pos, '#ff7043', Date.now())));
+      setSkillMarks((prev) =>
+        prev.concat({ id: ++skillMarkIdCounter, pos: { ...target.pos }, radius: 18, color: SKILL_META.burn.color, createdAt: Date.now() })
+      );
     } else if (skill === 'push') {
       // Shove every enemy outward and deal a share of the player's attack damage.
       const now = Date.now();
@@ -3246,6 +1270,9 @@ export default function App() {
       setMobs(nextMobs);
       setHitFlashes((prev) => prev.concat(flashes));
       setFloatingTexts((prev) => prev.concat(texts));
+      setSkillMarks((prev) =>
+        prev.concat({ id: ++skillMarkIdCounter, pos: { ...p.pos }, radius: 46, color: SKILL_META.push.color, createdAt: now })
+      );
     }
 
     setPlayer((prev) => ({ ...prev, mana: prev.mana - cost }));
@@ -3253,11 +1280,15 @@ export default function App() {
   };
 
   const handleStartNextWave = () => {
-    if (gameOverRef.current || waveActiveRef.current) return;
+    // No longer gated on waveActiveRef: the button stays clickable at all
+    // times, so several waves can be queued and spawning simultaneously.
+    if (gameOverRef.current) return;
     const nextWave = waveRef.current + 1;
-    spawnTimerRef.current = 0;
     waveRef.current = nextWave;
-    waveQueueRef.current = buildWaveQueue(nextWave);
+    // Starts on its own timer at 0, so its first mob lands a full interval from
+    // now -- the same cadence every other active wave's queue is keeping, just
+    // out of phase with them.
+    waveQueueRef.current = waveQueueRef.current.concat({ wave: nextWave, types: buildWaveQueue(nextWave), timer: 0 });
     waveActiveRef.current = true;
     lootOwedRef.current.push(nextWave);
     setWave(nextWave);
@@ -3275,6 +1306,7 @@ export default function App() {
     bloodSplatsRef.current = [];
     corpsesRef.current = [];
     coneZonesRef.current = [];
+    skillMarksRef.current = [];
     coneHitsRef.current = [];
     floatingTextsRef.current = [];
     waveRef.current = s.wave;
@@ -3286,7 +1318,6 @@ export default function App() {
     waveQueueRef.current = [];
     lootOwedRef.current = [];
     materialsRef.current = s.materials;
-    spawnTimerRef.current = 0;
     lastTimeRef.current = null;
     dieTimerRef.current = null;
     pendingCastAnimRef.current = null;
@@ -3303,6 +1334,7 @@ export default function App() {
     setBloodSplats([]);
     setCorpses([]);
     setConeZones([]);
+    setSkillMarks([]);
     setFloatingTexts([]);
     setWave(s.wave);
     setWaveActive(false);
@@ -4249,15 +2281,22 @@ export default function App() {
         }
       }
 
-      // Wave spawning from queue
+      // Wave spawning from queue. Every wave still spawning keeps its own timer,
+      // so a board with several waves queued drops one mob per wave per tick --
+      // ten waves started at once flood in ten at a time, not one at a time.
       let newWaveActive = waveActiveRef.current;
       if (waveActiveRef.current && waveQueueRef.current.length > 0) {
-        spawnTimerRef.current += dt;
-        if (spawnTimerRef.current >= WAVE_SPAWN_INTERVAL) {
-          spawnTimerRef.current = 0;
-          const type = waveQueueRef.current.shift()!;
-          survivorMobs.push(spawnMob(type, waveRef.current));
+        const stillSpawning: typeof waveQueueRef.current = [];
+        for (const entry of waveQueueRef.current) {
+          entry.timer += dt;
+          if (entry.timer >= WAVE_SPAWN_INTERVAL) {
+            entry.timer -= WAVE_SPAWN_INTERVAL;
+            const type = entry.types.shift();
+            if (type) survivorMobs.push(spawnMob(type, entry.wave));
+          }
+          if (entry.types.length > 0) stillSpawning.push(entry);
         }
+        waveQueueRef.current = stillSpawning;
         if (waveQueueRef.current.length === 0) newWaveActive = false;
       }
 
@@ -4268,7 +2307,7 @@ export default function App() {
       if (lootOwedRef.current.length > 0) {
         const stillOwed: number[] = [];
         for (const w of lootOwedRef.current) {
-          const doneSpawning = w !== waveRef.current || waveQueueRef.current.length === 0;
+          const doneSpawning = !waveQueueRef.current.some((e) => e.wave === w);
           const anyAlive = survivorMobs.some((m) => m.wave === w);
           if (doneSpawning && !anyAlive) {
             remainingItems.push(spawnLoot(w));
@@ -4309,6 +2348,7 @@ export default function App() {
       // entries whose time is spent -- counted from when they come up, not
       // from the cast that ordered them.
       const survivorConeZones = coneZonesRef.current.filter((z) => now < z.startAt + CONE_ZONE_MS);
+      const survivorSkillMarks = skillMarksRef.current.filter((m) => now - m.createdAt < SKILL_MARK_DURATION);
       const survivorFloatingTexts = floatingTextsRef.current
         .filter((f) => now - f.createdAt < FLOATING_TEXT_DURATION)
         .concat(newFloatingTexts);
@@ -4375,6 +2415,7 @@ export default function App() {
       bloodSplatsRef.current = survivorBlood;
       corpsesRef.current = survivorCorpses;
       coneZonesRef.current = survivorConeZones;
+      skillMarksRef.current = survivorSkillMarks;
       floatingTextsRef.current = survivorFloatingTexts;
       waveActiveRef.current = newWaveActive;
       gameOverRef.current = isGameOver;
@@ -4392,6 +2433,7 @@ export default function App() {
       setBloodSplats(survivorBlood);
       setCorpses(survivorCorpses);
       setConeZones(survivorConeZones);
+      setSkillMarks(survivorSkillMarks);
       setFloatingTexts(survivorFloatingTexts);
       setWaveActive(newWaveActive);
       if (isGameOver) setGameOver(true);
@@ -4497,6 +2539,45 @@ export default function App() {
     );
   }
 
+  // A single toggle row: label on the left, ON/OFF pill on the right. Shared
+  // by every switch in the settings overlay so they read as one list.
+  function renderSettingRow(label: string, on: boolean, onToggle: () => void) {
+    return (
+      <Pressable onPress={onToggle} style={styles.settingsRow}>
+        <Text style={styles.settingsRowLabel}>{label}</Text>
+        <View style={[styles.settingsPill, !on && styles.settingsPillOff]}>
+          <Text style={styles.settingsPillText}>{on ? 'ON' : 'OFF'}</Text>
+        </View>
+      </Pressable>
+    );
+  }
+
+  // Every sound/weather/music toggle, plus the technical readout's own switch,
+  // gathered behind the cogwheel instead of scattered as loose buttons. Shared
+  // between the menu and the game screen, since both mount their own overlays.
+  function renderSettingsOverlay() {
+    if (!settingsOpen) return null;
+    return (
+      <View style={styles.menuOverlay}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setSettingsOpen(false)} />
+        <View style={styles.menuPanel}>
+          <View style={styles.menuHeader}>
+            <Text style={styles.menuTitle}>Settings</Text>
+            <Pressable onPress={() => setSettingsOpen(false)} style={styles.menuClose}>
+              <Text style={styles.menuCloseText}>X</Text>
+            </Pressable>
+          </View>
+          {renderSettingRow('Sound', !allSoundOff, () => setAllSoundOff((v) => !v))}
+          {renderSettingRow('Sound effects', !sfxOff, () => setSfxOff((v) => !v))}
+          {renderSettingRow('Music', !musicOff, () => setMusicOff((v) => !v))}
+          {renderSettingRow('Weather', !weatherOff, () => setWeatherOff((v) => !v))}
+          {COINSACK_ENABLED && renderSettingRow('Coin sack', !sackOff, () => setSackOff((v) => !v))}
+          {DEBUG_PERF && renderSettingRow('Technical info', techAreaOn, () => setTechAreaOn((v) => !v))}
+        </View>
+      </View>
+    );
+  }
+
   if (screen === 'menu') {
     const hasSaves = runsLoaded && savedRuns.length > 0;
     return (
@@ -4570,6 +2651,10 @@ export default function App() {
           </Pressable>
         </View>
 
+        <Pressable onPress={() => setSettingsOpen(true)} style={styles.menuSettingsButton}>
+          <Text style={styles.topBarIconText}>⚙️</Text>
+        </Pressable>
+
         {leaveVeil}
 
         {/* The story, over the top of a menu that is already built and waiting.
@@ -4577,8 +2662,11 @@ export default function App() {
         {!introDone && <IntroSequence onDone={() => setIntroDone(true)} />}
 
         {/* Here too, and above the story, since the intro's fog is the heaviest
-            thing on the screen at any point. Delete with DEBUG_PERF. */}
-        {DEBUG_PERF && <PerfOverlay />}
+            thing on the screen at any point. Its own toggle now lives in the
+            settings overlay; DEBUG_PERF still strips it from the build. */}
+        {DEBUG_PERF && techAreaOn && <PerfOverlay />}
+
+        {renderSettingsOverlay()}
 
         <StatusBar style="auto" />
       </View>
@@ -4893,10 +2981,13 @@ export default function App() {
         )}
         <View style={styles.topBarRight}>
           <Text style={styles.topBarText}>Wave {shownWave}</Text>
+          <Pressable onPress={() => setSettingsOpen(true)} style={styles.topBarIconButton}>
+            <Text style={styles.topBarIconText}>⚙️</Text>
+          </Pressable>
           <Pressable onPress={() => setMobStatsOpen(true)} style={styles.topBarButton}>
             <Text style={styles.topBarButtonText}>Mob Stats</Text>
           </Pressable>
-          {!waveActive && !gameOver && (
+          {!gameOver && (
             <Pressable onPress={handleStartNextWave} style={styles.startWaveButton}>
               <Text style={styles.startWaveText}>Start Wave {wave + 1}</Text>
             </Pressable>
@@ -4984,6 +3075,23 @@ export default function App() {
           const x = pr.from.x + (pr.to.x - pr.from.x) * progress;
           const y = pr.from.y + (pr.to.y - pr.from.y) * progress;
           return <View key={pr.id} style={[styles.projectile, { left: x - 4, top: y - 4, backgroundColor: pr.color }]} />;
+        })}
+
+        {skillMarks.map((m) => {
+          const age = Date.now() - m.createdAt;
+          if (age < 0) return null;
+          const t = Math.min(1, age / SKILL_MARK_DURATION);
+          const opacity = 0.55 * (1 - t);
+          const size = m.radius * 2 * (1 + t * 0.15);
+          return (
+            <View
+              key={m.id}
+              style={[
+                styles.skillMark,
+                { left: m.pos.x - size / 2, top: m.pos.y - size / 2, width: size, height: size, borderRadius: size / 2, borderColor: m.color, opacity },
+              ]}
+            />
+          );
         })}
 
         {hitFlashes.map((f) => {
@@ -5376,45 +3484,12 @@ export default function App() {
       )}
 
       {/* Over everything, including the veil, so a fade cannot hide the numbers.
-          Delete with DEBUG_PERF. */}
-      {DEBUG_PERF && <PerfOverlay />}
+          Pushed down below the top bar so it reads inside the play field
+          instead of overlapping the run controls. Its own toggle now lives in
+          the settings overlay; DEBUG_PERF still strips it from the build. */}
+      {DEBUG_PERF && techAreaOn && <PerfOverlay style={styles.perfOverlayInGame} />}
 
-      {/* The kill switches, beside the numbers. Tap one, play a minute, feel
-          whether the stutter left with it. Delete with DEBUG_PERF. */}
-      {DEBUG_PERF && (
-        <View style={styles.perfSwitchRow}>
-          <Pressable
-            onPress={() => setAllSoundOff((v) => !v)}
-            style={[styles.perfSwitch, allSoundOff && styles.perfSwitchOff]}
-          >
-            <Text style={styles.perfSwitchText}>{allSoundOff ? 'ALT LYD FRA' : 'alt lyd'}</Text>
-          </Pressable>
-          <Pressable onPress={() => setSfxOff((v) => !v)} style={[styles.perfSwitch, sfxOff && styles.perfSwitchOff]}>
-            <Text style={styles.perfSwitchText}>{sfxOff ? 'lyd FRA' : 'lyd til'}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setWeatherOff((v) => !v)}
-            style={[styles.perfSwitch, weatherOff && styles.perfSwitchOff]}
-          >
-            <Text style={styles.perfSwitchText}>{weatherOff ? 'vejr FRA' : 'vejr til'}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setMusicOff((v) => !v)}
-            style={[styles.perfSwitch, musicOff && styles.perfSwitchOff]}
-          >
-            <Text style={styles.perfSwitchText}>{musicOff ? 'musik FRA' : 'musik til'}</Text>
-          </Pressable>
-          {/* A dead switch is a lie -- it only shows while the skull exists. */}
-          {COINSACK_ENABLED && (
-            <Pressable
-              onPress={() => setSackOff((v) => !v)}
-              style={[styles.perfSwitch, sackOff && styles.perfSwitchOff]}
-            >
-              <Text style={styles.perfSwitchText}>{sackOff ? 'sæk FRA' : 'sæk til'}</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
+      {renderSettingsOverlay()}
 
       {/* The same two layers the menu put up, coming back off over the field. */}
       {leaveVeil}
@@ -5450,6 +3525,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#37474f',
     paddingHorizontal: 12,
     paddingVertical: 6,
+  },
+  topBarIconButton: {
+    backgroundColor: '#37474f',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topBarIconText: {
+    fontSize: 15,
+  },
+  // The menu screen has no top bar to hang the gear off, so it gets its own
+  // corner instead -- clear of the plaque and the minor-links row beneath it.
+  menuSettingsButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(17,17,34,0.7)',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   topBarButtonText: {
     color: '#fff',
@@ -5491,15 +3590,6 @@ const styles = StyleSheet.create({
     width: SCREEN_W,
     height: PLAY_H,
   },
-  rain: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: SCREEN_W,
-    height: PLAY_H,
-    overflow: 'hidden',
-    pointerEvents: 'none',
-  },
   rangeRing: {
     position: 'absolute',
     borderWidth: 1.5,
@@ -5534,6 +3624,11 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     backgroundColor: '#ffffff',
+  },
+  skillMark: {
+    position: 'absolute',
+    borderWidth: 3,
+    backgroundColor: 'transparent',
   },
   floatingText: {
     position: 'absolute',
@@ -5786,6 +3881,9 @@ const styles = StyleSheet.create({
     top: 0,
     width: SCREEN_W,
     height: SCREEN_H,
+    // Above the quick-cast bar's own zIndex: 5 -- its round buttons poke up
+    // over the field and must not float over a menu meant to cover them.
+    zIndex: 10,
   },
   menuBackdrop: {
     position: 'absolute',
@@ -6069,6 +4167,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 20,
+    // Above the quick-cast bar (zIndex: 5) and any open menu (zIndex: 10) --
+    // the run has ended, nothing beneath it should still be reachable.
+    zIndex: 20,
   },
   gameOverText: {
     color: '#fff',
@@ -6163,23 +4264,34 @@ const styles = StyleSheet.create({
   tuneButtons: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   tuneButton: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#3949ab' },
   tuneButtonOn: { backgroundColor: '#4fc3f7' },
-  // The hitch hunt's switches; delete with DEBUG_PERF.
-  perfSwitchRow: {
-    position: 'absolute',
-    top: 2,
-    right: 2,
-    zIndex: 300,
+  // Overrides PerfOverlay's own top-left corner so it sits under the top bar,
+  // inside the play field, on the game screen. Delete with DEBUG_PERF.
+  perfOverlayInGame: {
+    top: TOP_BAR_HEIGHT + 4,
+  },
+  // Settings overlay: one row per toggle, gathered behind the cogwheel.
+  settingsRow: {
     flexDirection: 'row',
-    gap: 4,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  perfSwitch: {
+  settingsRowLabel: {
+    color: '#e0e0e0',
+    fontSize: 14,
+  },
+  settingsPill: {
+    backgroundColor: '#2e7d32',
     borderRadius: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    backgroundColor: 'rgba(0,0,0,0.66)',
+    minWidth: 44,
+    alignItems: 'center',
   },
-  perfSwitchOff: { backgroundColor: '#b3402a' },
-  perfSwitchText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  settingsPillOff: { backgroundColor: '#b3402a' },
+  settingsPillText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   tuneButtonText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   // The chosen colour on its own, since a rim two pixels wide is hard to read
   // a slider against.

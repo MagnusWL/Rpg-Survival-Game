@@ -23,7 +23,7 @@
  * being collected.
  */
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 
 /**
  * How many times the game loop actually simulated this second, as opposed to
@@ -49,7 +49,7 @@ type Stats = {
   blinked: boolean;
 };
 
-export default function PerfOverlay() {
+export default function PerfOverlay({ style }: { style?: StyleProp<ViewStyle> }) {
   const [s, setS] = useState<Stats | null>(null);
 
   useEffect(() => {
@@ -103,14 +103,14 @@ export default function PerfOverlay() {
   // frames at all -- otherwise the panel is simply absent and reads as broken.
   if (!s) {
     return (
-      <View style={styles.box}>
+      <View style={[styles.box, style]}>
         <Text style={styles.line}>maaler...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.box}>
+    <View style={[styles.box, style]}>
       <Text style={styles.line}>
         {s.fps} fps{'  '}sim {s.sim}{'  '}med {s.med}{'  '}p90 {s.p90}{'  '}top {s.top} ms
       </Text>
