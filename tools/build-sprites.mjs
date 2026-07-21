@@ -188,6 +188,76 @@ function rimMask(data, width, height, cell, opts) {
   return mask;
 }
 
+/**
+ * Trimming the empty space out of the cells.
+ *
+ * A cell is 128x128 but the knight rarely fills it: idle sits inside 60x79,
+ * and his rim mask inside 44x73. That padding is free on disk -- it compresses
+ * to nothing -- but not in memory, where a sheet costs width x height x 4
+ * bytes whatever it holds. Measured across his twenty sheets, 45% of him is
+ * air, which is 67 MB.
+ *
+ * Each sheet gets its own box: the tightest rectangle that still holds all 120
+ * of its cells. The offset is written to atlas.json and added back when the
+ * game draws, so every animation keeps the anchor it had -- the old worry
+ * about him jumping between animations applies to a single shared crop, not to
+ * one box per sheet with its offset travelling alongside.
+ *
+ * A sheet and its rim share one box, so the light can never drift off the body.
+ *
+ * Set enabled to false and rebuild to get the old full-size sheets back; the
+ * game reads the offsets from the atlas, so it follows either way.
+ */
+const TRIM = { enabled: true };
+
+/** The tightest box holding every cell's content, in cell coordinates. */
+function contentBox(buffers, width, cell, cols, rows) {
+  let minX = cell, minY = cell, maxX = -1, maxY = -1;
+  for (const data of buffers) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        for (let y = 0; y < cell; y++) {
+          const gy = r * cell + y;
+          for (let x = 0; x < cell; x++) {
+            const gx = c * cell + x;
+            // Anything at all, not "enough to see": a threshold of 8 clipped
+            // edge pixels at 3% opacity, which cost nothing to look at but
+            // meant the trimmed sheets were not provably the same picture.
+            if (data[(gy * width + gx) * 4 + 3] > 0) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (maxX < 0) return { x: 0, y: 0, w: cell, h: cell }; // an empty sheet: leave it be
+  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+/** Copies each cell's box into a tighter grid. Straight buffer work: no resampling. */
+function cropCells(data, width, cell, cols, rows, box) {
+  const outW = box.w * cols;
+  const outH = box.h * rows;
+  const out = Buffer.alloc(outW * outH * 4);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      for (let y = 0; y < box.h; y++) {
+        const srcStart = ((r * cell + box.y + y) * width + c * cell + box.x) * 4;
+        const dstStart = ((r * box.h + y) * outW + c * box.w) * 4;
+        data.copy(out, dstStart, srcStart, srcStart + box.w * 4);
+      }
+    }
+  }
+  return { out, outW, outH };
+}
+
+/** name -> box, written beside the sheets so the game can put the offset back. */
+const atlas = {};
+
 mkdirSync(OUT_DIR, { recursive: true });
 
 const scale = OUT_CELL / SRC_CELL;
@@ -214,31 +284,55 @@ for (const entry of SHEETS) {
   // exact multiple of OUT_CELL (128 -> 96 is a clean 3/4), no frame bleeds
   // into its neighbour.
   const sheet = sharp(srcPath).resize(outW, outH, { kernel: 'lanczos3', fit: 'fill' });
-  await sheet.clone().png({ compressionLevel: 9, palette: false }).toFile(outPath);
+  const { data: sheetRaw, info } = await sheet.clone().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
 
   // The light is read off the finished sheet, so its band is measured in the
   // pixels the game actually draws rather than in the source's. He is left
   // exactly as he was -- the light is a separate picture laid over him.
-  if (RIM.enabled) {
-    const { data, info } = await sheet.clone().ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const mask = rimMask(data, info.width, info.height, OUT_CELL, RIM);
-    await sharp(Buffer.from(mask.buffer), {
-      raw: { width: info.width, height: info.height, channels: 4 },
-    })
-      .png({ compressionLevel: 9 })
-      .toFile(path.join(OUT_DIR, `${outName}-rim.png`));
-  }
+  const rimRaw = RIM.enabled ? Buffer.from(rimMask(sheetRaw, info.width, info.height, OUT_CELL, RIM).buffer) : null;
+
+  // One box for the pair. The rim is worked out from the sheet's own body
+  // pixels so it cannot reach past them, but measuring both costs nothing and
+  // removes the question.
+  const box = TRIM.enabled
+    ? contentBox(rimRaw ? [sheetRaw, rimRaw] : [sheetRaw], info.width, OUT_CELL, COLS, ROWS)
+    : { x: 0, y: 0, w: OUT_CELL, h: OUT_CELL };
+  atlas[outName] = box;
+
+  const write = async (raw, file) => {
+    const { out, outW: w, outH: h } = cropCells(raw, info.width, OUT_CELL, COLS, ROWS, box);
+    await sharp(out, { raw: { width: w, height: h, channels: 4 } })
+      .png({ compressionLevel: 9, palette: false })
+      .toFile(file);
+  };
+  await write(sheetRaw, outPath);
+  if (rimRaw) await write(rimRaw, path.join(OUT_DIR, `${outName}-rim.png`));
 
   const before = statSync(srcPath).size;
   const after = statSync(outPath).size;
   const saved = Math.round((1 - after / before) * 100);
+  const kept = Math.round(((box.w * box.h) / (OUT_CELL * OUT_CELL)) * 100);
   console.log(
-    `${name.padEnd(6)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
-      `${(after / 1024).toFixed(0).padStart(5)} KB   (-${saved}%)`
+    `${name.padEnd(14)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
+      `${(after / 1024).toFixed(0).padStart(5)} KB   (-${saved}%)   ` +
+      `celle ${String(box.w).padStart(3)}x${String(box.h).padEnd(3)} = ${String(kept).padStart(3)}% af 128x128`
   );
 }
 
-console.log(`\nSkrevet til ${path.relative(ROOT, OUT_DIR)}`);
+// Written beside the art: the game adds each offset back when it draws, so a
+// trimmed sheet lands exactly where the full one did.
+writeFileSync(path.join(OUT_DIR, 'atlas.json'), JSON.stringify(atlas, null, 2));
+
+{
+  const full = Object.keys(atlas).length * 2 * OUT_CELL * COLS * OUT_CELL * ROWS * 4;
+  const trimmed = Object.values(atlas).reduce((sum, b) => sum + b.w * COLS * b.h * ROWS * 4, 0) * 2;
+  console.log(
+    `\nHukommelse for ridderens ark: ${(full / 1048576).toFixed(0)} MB  ->  ` +
+      `${(trimmed / 1048576).toFixed(0)} MB   (${Math.round((1 - trimmed / full) * 100)}% sparet)`
+  );
+}
+
+console.log(`Skrevet til ${path.relative(ROOT, OUT_DIR)}`);
 
 // --- Enemies -------------------------------------------------------------
 // The zombie pack ships loose frames in one folder per direction rather than a

@@ -113,8 +113,24 @@ export const INTRO_HOLD_FRAME = SPRITE_COLS - 1;
 
 export type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn' | 'kick' | 'die' | 'rupture' | 'ancestor';
 
+/**
+ * Where a sheet's cells actually are, once the empty space has been cut away.
+ *
+ * A cell is nominally 128x128, but the knight rarely fills it -- idle sits
+ * inside 60x79 -- and padding costs nothing on disk yet full price in memory,
+ * where a sheet is width x height x 4 bytes whatever it holds. So the build
+ * crops each sheet to its own tightest box and records it here: `w`/`h` are
+ * the cell size that was kept, `x`/`y` where it sat in the old 128 box.
+ *
+ * Adding the offset back when drawing is what keeps every animation on the
+ * same anchor, so he does not shift when one hands over to the next.
+ */
+export type SheetTrim = { x: number; y: number; w: number; h: number };
+
 export type AnimDef = {
   sheet: ImageSourcePropType;
+  /** Set from atlas.json below. Absent means whole 128 cells, untrimmed. */
+  trim?: SheetTrim;
   /**
    * The rim light for this animation, frame for frame: white, with alpha
    * carrying how strongly each pixel is lit. Built by tools/build-sprites.mjs
@@ -277,6 +293,30 @@ export const ANIMS: Record<AnimName, AnimDef> = {
     passes: ['fwd', 'rev', 'fwd'],
   },
 };
+
+/**
+ * The boxes the build trimmed each of his sheets to, keyed by the sheet's own
+ * name -- which is also the animation's, so they meet here.
+ *
+ * Attached after the fact rather than written into all ten entries above: the
+ * numbers are the build's to decide, and repeating them by hand is how the art
+ * and the drawing would come to disagree. Rebuild with TRIM off and this file
+ * says 128x128 everywhere, which is exactly the old behaviour.
+ */
+const KNIGHT_ATLAS: Record<string, SheetTrim> = require('./assets/sprites/knight/atlas.json');
+
+/** Animations whose sheet is not named after them. The rest match already. */
+const SHEET_FILE: Partial<Record<AnimName, string>> = {
+  attack: 'melee',
+  hurt: 'takedamage',
+  spawn: 'unsheathsword',
+  rupture: 'special1',
+  ancestor: 'special2',
+};
+for (const [name, def] of Object.entries(ANIMS) as [AnimName, AnimDef][]) {
+  const box = KNIGHT_ATLAS[SHEET_FILE[name] ?? name];
+  if (box) def.trim = box;
+}
 
 /**
  * The kick's reach and where it lands, all Nicolai's choices of 20 July.
@@ -842,27 +882,61 @@ export function SpriteSheet({
   // actually on screen, keyed on the anim name so swapping still remounts it
   // (the source-reload blink this trades away in exchange for the node count).
   const shownAnims = mountAllAnims ? Object.entries(anims) : active ? [[anim, active] as [string, AnimDef]] : [];
+  /**
+   * One frame of one sheet, clipped to its own cell and set down where that
+   * cell used to sit inside the nominal 128 box.
+   *
+   * The clipping has to happen here rather than on the outer box, and that is
+   * the whole subtlety of trimming: an untrimmed cell is exactly as big as the
+   * box, so the box alone hid the neighbours. A trimmed cell is smaller -- idle
+   * is 60x79 -- so a 128 box would show the frames on either side of the one
+   * wanted. Measured before it was believed: the silhouette filled the box
+   * corner to corner instead of standing in it.
+   *
+   * With the offset added back the frame lands exactly where the untrimmed one
+   * did, which is what keeps every animation on a shared anchor. Untrimmed,
+   * `trim` is absent and this reduces to what it always was.
+   */
+  const cell = (def: AnimDef, source: ImageSourcePropType, key: string, opacity: number, tint?: string) => {
+    const t = def.trim;
+    const rows = def.rows ?? SPRITE_ROWS;
+    const cw = t ? t.w : SPRITE_CELL;
+    const ch = t ? t.h : SPRITE_CELL;
+    // The box is `size` across for one nominal 128 cell, so this is how much
+    // the art is scaled by -- 1 while the knight is drawn at his native size.
+    const s = size / SPRITE_CELL;
+    return (
+      <View
+        key={key}
+        style={{
+          position: 'absolute',
+          left: (t ? t.x : 0) * s,
+          top: (t ? t.y : 0) * s,
+          width: cw * s,
+          height: ch * s,
+          overflow: 'hidden',
+          opacity,
+        }}
+      >
+        <Image
+          source={source}
+          tintColor={tint}
+          style={{
+            position: 'absolute',
+            width: cw * SPRITE_COLS * s,
+            height: ch * rows * s,
+            left: -cw * animColumn(def, animTime) * s,
+            top: -ch * Math.min(facing, rows - 1) * s,
+          }}
+        />
+      </View>
+    );
+  };
   return (
     <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
-      {shownAnims.map(([name, def]) => {
-        const rows = def.rows ?? SPRITE_ROWS;
-        return (
-          <Image
-            key={name}
-            source={def.sheet}
-            style={{
-              position: 'absolute',
-              // Drawn at native size, so one cell lands exactly on the clip box
-              // and the art renders pixel-for-pixel.
-              width: size * SPRITE_COLS,
-              height: size * rows,
-              left: -size * animColumn(def, animTime),
-              top: -size * Math.min(facing, rows - 1),
-              opacity: mountAllAnims && name !== anim ? 0 : 1,
-            }}
-          />
-        );
-      })}
+      {shownAnims.map(([name, def]) =>
+        cell(def, def.sheet, name, mountAllAnims && name !== anim ? 0 : 1)
+      )}
 
       {/* The light on his lit edge: the matching frame of the rim sheet, tinted
           and faded as it is drawn.
@@ -893,44 +967,20 @@ export function SpriteSheet({
             mixBlendMode: rim.blend,
           }}
         >
-          {shownAnims.map(([name, def]) => {
-            if (!def.rim) return null;
-            const rows = def.rows ?? SPRITE_ROWS;
-            return (
-              <Image
-                key={name}
-                source={def.rim}
-                tintColor={rgb(rim.color)}
-                style={{
-                  position: 'absolute',
-                  width: size * SPRITE_COLS,
-                  height: size * rows,
-                  left: -size * animColumn(def, animTime),
-                  top: -size * Math.min(facing, rows - 1),
-                  opacity: mountAllAnims && name !== anim ? 0 : rim.strength,
-                }}
-              />
-            );
-          })}
+          {/* The same box as the sheet it lights: the build crops a sheet and
+              its rim together for exactly this reason. */}
+          {shownAnims.map(([name, def]) =>
+            def.rim
+              ? cell(def, def.rim, name, mountAllAnims && name !== anim ? 0 : rim.strength, rgb(rim.color))
+              : null
+          )}
         </View>
       )}
 
       {/* The same frame again in one colour, laid on top. Only the active sheet
           is drawn twice, and only while a flash is running. */}
-      {flash && flash.opacity > 0 && active && (
-        <Image
-          source={active.sheet}
-          tintColor={flash.color}
-          style={{
-            position: 'absolute',
-            width: size * SPRITE_COLS,
-            height: size * activeRows,
-            left: -size * animColumn(active, animTime),
-            top: -size * Math.min(facing, activeRows - 1),
-            opacity: flash.opacity,
-          }}
-        />
-      )}
+      {flash && flash.opacity > 0 && active &&
+        cell(active, active.sheet, 'flash', flash.opacity, flash.color)}
     </View>
   );
 }

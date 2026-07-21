@@ -283,7 +283,29 @@ der først viser sig på en telefon.
 disken og `idle-rim.png` fylder 17 KB — i hukommelsen fylder de nøjagtig det
 samme. Et ark er 1920×1024 pixels à 4 bytes. Punktum.
 
-### Beskæring: den største gevinst, målt 21. juli
+### Beskæring: GJORT 21. juli — ridderen 150 → 97 MB
+
+Hvert ark er nu beskåret til sin egen tætteste kasse, og forskydningen ligger
+i `assets/sprites/knight/atlas.json`. Spillet lægger den tilbage, når det
+tegner, så ankeret er uændret.
+
+**Bevist identisk:** alle 20 ark, alle 120 celler hver — 2400 billeder
+sammenlignet pixel for pixel mod originalerne fra git. Ingen afvigelse.
+
+**Én fælde undervejs, værd at huske:** klippeboksen var stadig 128×128, men
+en beskåret celle er kun fx 60×79 — så nabocellerne sivede ind i billedet.
+Klippet skal følge cellen, ikke den nominelle boks. Fanget ved at måle, hvor
+silhuetten faktisk landede, ikke ved at kigge.
+
+**Rul tilbage:** `TRIM.enabled = false` øverst i `tools/build-sprites.mjs` +
+`npm run build:sprites`. Atlas'et siger så 128×128 overalt, og spillet følger
+med af sig selv. Originalerne ligger desuden i git.
+
+Zombierne er **ikke** beskåret endnu — samme greb dér er 52 → ~30 MB.
+
+---
+
+### Baggrunden for beskæringen (målt 21. juli)
 
 Cellerne er 128×128, men figuren fylder dem sjældent. Målt på hvert ark
 (tætteste kasse der rummer alle 120 celler, så ét fælles anker bevares):
