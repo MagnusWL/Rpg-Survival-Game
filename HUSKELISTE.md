@@ -283,6 +283,33 @@ der først viser sig på en telefon.
 disken og `idle-rim.png` fylder 17 KB — i hukommelsen fylder de nøjagtig det
 samme. Et ark er 1920×1024 pixels à 4 bytes. Punktum.
 
+### Beskæring: den største gevinst, målt 21. juli
+
+Cellerne er 128×128, men figuren fylder dem sjældent. Målt på hvert ark
+(tætteste kasse der rummer alle 120 celler, så ét fælles anker bevares):
+
+| ark | indhold | tomt |
+|---|---|---|
+| idle-rim | 44×73 | **80%** |
+| walk-rim | 52×75 | 76% |
+| idle | 60×79 | 71% |
+| walk | 72×88 | 61% |
+| takedamage | 80×96 | 53% |
+| run | 88×97 | 48% |
+| unsheathsword | 124×117 | 11% |
+
+**Ridderen: 150 MB → 83 MB (45% sparet).** Lysmaskerne er de tommeste af
+alle — rim-lyset klæber tæt til figuren, så der er næsten kun luft omkring.
+
+**Beskæring + rim bagt ind = 150 MB → 41 MB.** Samme skarphed, intet
+udseende ændret. Det er bedre end 64 px-arkene (38 MB) uden at koste
+en eneste detalje.
+
+Arbejdet: byggeriet gemmer hvert arks forskydning, `AnimDef` får den med,
+og `SpriteSheet` lægger den til når den tegner. Ankeret bevares *fordi*
+forskydningen følger med — den gamle bekymring om at ridderen ville hoppe
+mellem animationer gælder kun ved én fælles beskæring, ikke ved én pr. ark.
+
 ### Beslutning der venter: skal rim-lyset bages ind? (Nicolai, 21. juli)
 
 Nicolai foreslår at gøre rim-lyset til en **permanent del af arkene**, så vi
@@ -305,6 +332,14 @@ ville skulle bruges *før* bygningen i stedet for under spillet.
 maskerne (`RIM` i `tools/build-sprites.mjs`); den skal blot lægge dem oven på
 arket i stedet for at skrive dem ved siden af, og `AnimDef.rim` + rim-laget i
 `SpriteSheet` kan så ryge ud.
+
+### Farvereduktion og palette-teksturer: virker ikke her
+
+Færre farver gør PNG'en mindre **på disken**, men ikke i hukommelsen —
+browseren pakker altid ud til 4 bytes pr. pixel. En ægte palette-tekstur
+(1 byte pr. pixel, 75% sparet) kræver en shader, og den dør har vi ikke
+adgang til med almindelige billeder i en browser. **Kunne åbne sig**, hvis
+spillet en dag flytter ind i Magnus's `wip/skia-play-area-canvas`.
 
 ### Mindre ark? Afprøvet og lagt fra os (21. juli)
 
