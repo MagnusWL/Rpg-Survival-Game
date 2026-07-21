@@ -1632,6 +1632,50 @@ function pierceTargetCount(level: number): number {
 }
 const PIERCE_WIDTH = 26; // how close to the shot's line an enemy must be to be pierced
 
+// ---- Main-menu skill tree layout ----
+// A small hand-placed layout in a fixed coordinate space: the three root
+// skills in a column, each branching into an active child (above) and a
+// passive child (below) once tapped open -- the same hub-and-branch structure
+// as the reference tree, sized to our nine skills instead of its own set.
+const TREE_ROOT_SIZE = 64;
+const TREE_CHILD_SIZE = 52;
+const TREE_ROOT_X = 60;
+const TREE_CHILD_X = 210;
+const TREE_CANVAS_W = 300;
+const TREE_CANVAS_H = 680;
+// Roots sit 220px apart -- enough that a child's two-line label (e.g. "Summon
+// Regen") never crowds the neighbouring root's nearest child above/below it.
+const TREE_NODE_POS: Record<SkillId, Vec> = {
+  summon: { x: TREE_ROOT_X, y: 100 },
+  fireball: { x: TREE_CHILD_X, y: 45 },
+  summonregen: { x: TREE_CHILD_X, y: 155 },
+  cone: { x: TREE_ROOT_X, y: 320 },
+  burn: { x: TREE_CHILD_X, y: 265 },
+  cdreduce: { x: TREE_CHILD_X, y: 375 },
+  ranged: { x: TREE_ROOT_X, y: 540 },
+  push: { x: TREE_CHILD_X, y: 485 },
+  pierce: { x: TREE_CHILD_X, y: 595 },
+};
+
+// A line-shaped View spanning two points. Sized and centred on its own
+// midpoint rather than one endpoint, since that is where RN rotates a view
+// by default (no transform-origin needed).
+function treeLineStyle(x1: number, y1: number, x2: number, y2: number, thickness: number, color: string) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.hypot(dx, dy);
+  const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+  return {
+    position: 'absolute' as const,
+    left: (x1 + x2) / 2 - length / 2,
+    top: (y1 + y2) / 2 - thickness / 2,
+    width: length,
+    height: thickness,
+    backgroundColor: color,
+    transform: [{ rotate: `${angleDeg}deg` }],
+  };
+}
+
 const PROJECTILE_SPEED = 700; // px/sec
 const HIT_FLASH_DURATION = 150; // ms
 const FLOATING_TEXT_DURATION = 700; // ms
@@ -2717,6 +2761,11 @@ export default function App() {
   const [mobStatsOpen, setMobStatsOpen] = useState(false);
   const [dragging, setDragging] = useState<{ kind: ItemKind; level: number; x: number; y: number } | null>(null);
   const [, setTick] = useState(0);
+  // Main-menu skill tree: which root branches are fanned open, and a brief
+  // toast for feedback ("NOT ENOUGH GOLD" etc.), mirroring the reference tree.
+  const [expandedSkills, setExpandedSkills] = useState<Partial<Record<SkillId, boolean>>>({});
+  const [treeFlash, setTreeFlash] = useState<string | null>(null);
+  const treeFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const playerRef = useRef(player);
   const metaRef = useRef(meta);
@@ -2860,6 +2909,20 @@ export default function App() {
     persistMeta(next);
   };
 
+  // A short toast, shown over the skill tree for feedback on a tap that
+  // couldn't do anything ("NOT ENOUGH GOLD" etc.) -- mirrors the reference
+  // tree's flash messages.
+  const flashTreeMsg = (msg: string) => {
+    setTreeFlash(msg);
+    if (treeFlashTimerRef.current) clearTimeout(treeFlashTimerRef.current);
+    treeFlashTimerRef.current = setTimeout(() => setTreeFlash(null), 1600);
+  };
+
+  // Reveal (or re-hide) a root skill's two children in the tree.
+  const toggleExpand = (skill: SkillId) => {
+    setExpandedSkills((prev) => ({ ...prev, [skill]: !prev[skill] }));
+  };
+
   // Buy the next level of a skill (its first level unlocks it), if the tree
   // requirement is met and there is gold for it.
   const buySkillLevel = (skill: SkillId) => {
@@ -2867,14 +2930,21 @@ export default function App() {
     const level = m.skillLevels[skill] ?? 0;
     if (level >= ABILITY_MAX_LEVEL) return;
     const parent = SKILL_PARENT[skill];
-    if (parent && (m.skillLevels[parent] ?? 0) < 1) return; // locked by the tree
+    if (parent && (m.skillLevels[parent] ?? 0) < 1) {
+      flashTreeMsg(`UNLOCK ${SKILL_META[parent].label.toUpperCase()} FIRST`);
+      return;
+    }
     const cost = skillLevelCost(level + 1);
-    if (m.gold < cost) return;
+    if (m.gold < cost) {
+      flashTreeMsg('NOT ENOUGH GOLD');
+      return;
+    }
     commitMeta({
       ...m,
       gold: m.gold - cost,
       skillLevels: { ...m.skillLevels, [skill]: level + 1 },
     });
+    flashTreeMsg(`${SKILL_META[skill].label.toUpperCase()} LV ${level + 1}`);
   };
 
   // Toggle a skill in or out of its slot. Passives share a single slot (so
@@ -2891,7 +2961,10 @@ export default function App() {
     if (has) {
       loadout = m.loadout.filter((s) => s !== skill);
     } else {
-      if (m.loadout.length >= MAX_EQUIPPED) return;
+      if (m.loadout.length >= MAX_EQUIPPED) {
+        flashTreeMsg(`ONLY ${MAX_EQUIPPED} SKILLS CAN BE EQUIPPED`);
+        return;
+      }
       loadout = [...m.loadout, skill];
     }
     commitMeta({ ...m, loadout });
@@ -4610,10 +4683,18 @@ export default function App() {
   }
 
   if (screen === 'skilltree') {
+    const anyExpanded = ROOT_SKILLS.some((r) => expandedSkills[r]);
     return (
       <View style={styles.root}>
         <ScrollView style={styles.skillTreeScroll} contentContainerStyle={styles.skillTreeContent}>
-          <Text style={styles.menuScreenTitle}>Skills · {meta.gold} gold</Text>
+          <View style={styles.treeGoldRow}>
+            <Text style={styles.treeGoldIcon}>🪙</Text>
+            <Text style={styles.treeGoldText}>{meta.gold}</Text>
+          </View>
+          <Text style={styles.menuScreenTitle}>Skill Tree</Text>
+          <Text style={styles.skillTreeHint}>
+            {anyExpanded ? 'Tap a node to buy or level · tap an owned node to equip' : 'Tap a skill to grow its branch'}
+          </Text>
 
           {/* The equipped loadout, shown the same way it appears in a run. */}
           <View style={styles.loadoutPreview}>
@@ -4634,71 +4715,125 @@ export default function App() {
               </View>
             )}
           </View>
-          <Text style={styles.skillTreeHint}>
-            Active {meta.loadout.length}/{MAX_EQUIPPED} · Passive {meta.passive ? SKILL_META[meta.passive].label : '—'}/{MAX_PASSIVE}
-          </Text>
 
-          {ROOT_SKILLS.map((root) => {
-            const rows = [root, ...ALL_SKILLS.filter((s) => SKILL_PARENT[s] === root)];
-            return (
-              <View key={root} style={styles.skillTreeGroup}>
-                {rows.map((skill) => {
-                  const level = meta.skillLevels[skill] ?? 0;
-                  const owned = level > 0;
-                  const parent = SKILL_PARENT[skill];
-                  const isChild = parent != null;
-                  const unlocked = !parent || (meta.skillLevels[parent] ?? 0) >= 1;
-                  const atMax = level >= ABILITY_MAX_LEVEL;
-                  const nextCost = skillLevelCost(level + 1);
-                  const canBuy = unlocked && !atMax && meta.gold >= nextCost;
-                  const passiveKind = isPassiveSkill(skill);
-                  const equipped = passiveKind ? meta.passive === skill : meta.loadout.includes(skill);
-                  const equipFull = !passiveKind && !equipped && meta.loadout.length >= MAX_EQUIPPED;
-                  const meta2 = SKILL_META[skill];
-                  return (
-                    <View key={skill} style={[styles.skillRow, isChild && styles.skillRowChild]}>
-                      <View style={[styles.skillSwatch, { backgroundColor: meta2.color }, !unlocked && styles.abilityLocked]}>
-                        <Text style={styles.skillSwatchIcon}>{meta2.icon}</Text>
+          {/* The tree: three root skills in a column, each opening into an
+              active child (above) and a passive child (below) when tapped --
+              the branching structure of the reference tree, carrying our own
+              nine skills, levels and gold costs instead of its fixed ranks. */}
+          <View style={styles.treeCanvas}>
+            {ROOT_SKILLS.flatMap((root) => {
+              if (!expandedSkills[root]) return [];
+              const rootPos = TREE_NODE_POS[root];
+              return ALL_SKILLS.filter((s) => SKILL_PARENT[s] === root).map((child) => {
+                const childPos = TREE_NODE_POS[child];
+                const lit = meta.loadout.includes(child) || meta.passive === child;
+                return (
+                  <View
+                    key={`line-${child}`}
+                    style={treeLineStyle(rootPos.x, rootPos.y, childPos.x, childPos.y, lit ? 3 : 2, lit ? '#4fdf9a' : '#4a4030')}
+                  />
+                );
+              });
+            })}
+
+            {ALL_SKILLS.map((skill) => {
+              const parent = SKILL_PARENT[skill];
+              if (parent && !expandedSkills[parent]) return null; // hidden until its branch opens
+              const pos = TREE_NODE_POS[skill];
+              const level = meta.skillLevels[skill] ?? 0;
+              const owned = level > 0;
+              const isRoot = parent == null;
+              const unlocked = !parent || (meta.skillLevels[parent] ?? 0) >= 1;
+              const atMax = level >= ABILITY_MAX_LEVEL;
+              const nextCost = skillLevelCost(level + 1);
+              const passiveKind = isPassiveSkill(skill);
+              const equipped = passiveKind ? meta.passive === skill : meta.loadout.includes(skill);
+              const meta2 = SKILL_META[skill];
+              const size = isRoot ? TREE_ROOT_SIZE : TREE_CHILD_SIZE;
+              const open = isRoot && !!expandedSkills[skill];
+
+              // Not owned: tap buys the first level. Owned root: tap opens its
+              // branch. Owned child: tap toggles it in the loadout / passive slot.
+              const onPress = () => {
+                if (!owned) {
+                  buySkillLevel(skill);
+                  return;
+                }
+                if (isRoot) {
+                  toggleExpand(skill);
+                  return;
+                }
+                toggleEquip(skill);
+              };
+
+              return (
+                <View key={skill} style={{ position: 'absolute', left: pos.x - size / 2, top: pos.y - size / 2, width: size, alignItems: 'center' }}>
+                  <Pressable
+                    {...registerSlot(`tree-${skill}`)}
+                    onPress={onPress}
+                    onLongPress={() => showTooltipAboveKey(`tree-${skill}`, skillDescription(skill) + skillStatsSuffix(skill))}
+                    style={[
+                      styles.treeNodeCircle,
+                      { width: size, height: size, borderRadius: size / 2, backgroundColor: meta2.color },
+                      !unlocked && styles.abilityLocked,
+                      (equipped || open) && styles.treeNodeLit,
+                    ]}
+                  >
+                    <Text style={{ fontSize: isRoot ? 30 : 24 }}>{meta2.icon}</Text>
+                    {owned && (
+                      <View style={styles.pipsRow}>
+                        {[1, 2, 3, 4].map((pip) => (
+                          <View key={pip} style={[styles.pip, pip <= level && styles.pipFilled]} />
+                        ))}
                       </View>
-                      <View style={styles.skillRowInfo}>
-                        <Text style={styles.skillRowName}>
-                          {isChild ? '↳ ' : ''}{meta2.label} · {owned ? `Lv ${level}/${ABILITY_MAX_LEVEL}` : unlocked ? 'not owned' : `needs ${SKILL_META[parent!].label}`}
-                        </Text>
-                        <Text style={styles.skillRowDesc}>{skillDescription(skill)}</Text>
-                      </View>
-                      <View style={styles.skillRowButtons}>
-                        <Pressable
-                          onPress={() => buySkillLevel(skill)}
-                          disabled={!canBuy}
-                          style={[styles.skillBuyButton, !canBuy && styles.skillButtonDisabled]}
-                        >
-                          <Text style={styles.skillBuyText}>{atMax ? 'MAX' : `${owned ? 'Level' : 'Buy'} ${nextCost}g`}</Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => toggleEquip(skill)}
-                          disabled={!owned || equipFull}
-                          style={[
-                            styles.skillEquipButton,
-                            equipped && styles.skillEquipButtonOn,
-                            (!owned || equipFull) && styles.skillButtonDisabled,
-                          ]}
-                        >
-                          <Text style={styles.skillEquipText}>
-                            {equipped ? 'Equipped' : passiveKind ? 'Passive' : 'Equip'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            );
-          })}
+                    )}
+                  </Pressable>
+                  {unlocked && !atMax && (
+                    <Pressable onPress={() => buySkillLevel(skill)} style={styles.levelUpButton}>
+                      <Text style={styles.treeCostText}>{nextCost}</Text>
+                    </Pressable>
+                  )}
+                  <Text style={styles.treeNodeLabel}>{meta2.label}</Text>
+                  <Text style={styles.treeNodeSub}>
+                    {!unlocked
+                      ? `needs ${SKILL_META[parent!].label}`
+                      : !owned
+                      ? 'tap to buy'
+                      : isRoot
+                      ? open
+                        ? equipped
+                          ? 'equipped'
+                          : 'tap to equip'
+                        : 'tap to expand'
+                      : equipped
+                      ? 'equipped'
+                      : 'tap to equip'}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
 
           <Pressable onPress={() => setScreen('menu')} style={styles.menuBackButton}>
             <Text style={styles.menuBackButtonText}>Back</Text>
           </Pressable>
         </ScrollView>
+
+        {treeFlash && (
+          <View style={styles.treeFlashBox} pointerEvents="none">
+            <Text style={styles.treeFlashText}>{treeFlash}</Text>
+          </View>
+        )}
+
+        {tooltip && (
+          <>
+            <Pressable style={styles.tooltipDismissOverlay} onPress={handleDismissOverlayPress} />
+            <View pointerEvents="none" style={[styles.tooltipBox, tooltipPositionStyle(tooltip.x, tooltip.y)]}>
+              <Text style={styles.tooltipText}>{tooltip.text}</Text>
+            </View>
+          </>
+        )}
+
         <StatusBar style="auto" />
       </View>
     );
@@ -6092,43 +6227,69 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // --- Main-menu skill tree / shop ---
+  // --- Main-menu skill tree ---
   skillTreeHint: { color: '#b0bec5', fontSize: 12, marginBottom: 12, textAlign: 'center' },
-  skillTreeGroup: {
-    marginBottom: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-    paddingTop: 8,
+  treeGoldRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
   },
-  skillRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  skillRowChild: { paddingLeft: 16, opacity: 0.98 },
-  skillSwatch: { width: 26, height: 26, borderRadius: 13, marginRight: 10, justifyContent: 'center', alignItems: 'center' },
-  skillSwatchIcon: { fontSize: 15 },
-  skillRowInfo: { flex: 1, paddingRight: 8 },
-  skillRowName: { color: '#eceff1', fontSize: 13, fontWeight: 'bold' },
-  skillRowDesc: { color: '#90a4ae', fontSize: 10, marginTop: 2 },
-  skillRowButtons: { flexDirection: 'row', alignItems: 'center' },
-  skillBuyButton: {
-    backgroundColor: '#5c6bc0',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 4,
-    marginRight: 6,
-    minWidth: 62,
+  treeGoldIcon: { fontSize: 16 },
+  treeGoldText: { color: '#f0c860', fontSize: 18, fontWeight: 'bold' },
+  treeCanvas: {
+    width: TREE_CANVAS_W,
+    height: TREE_CANVAS_H,
+    alignSelf: 'center',
+  },
+  treeNodeCircle: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#15120c',
+    borderWidth: 3,
+    borderColor: '#3a352a',
+  },
+  treeNodeLit: {
+    borderColor: '#4fdf9a',
+  },
+  treeCostText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  treeNodeLabel: {
+    color: '#d8d2c0',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  treeNodeSub: {
+    color: '#8a7f62',
+    fontSize: 9,
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  treeFlashBox: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
     alignItems: 'center',
   },
-  skillBuyText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
-  skillEquipButton: {
-    backgroundColor: '#37474f',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+  treeFlashText: {
+    color: '#e8c56a',
+    fontSize: 13,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    backgroundColor: 'rgba(14,11,7,0.9)',
+    borderWidth: 1,
+    borderColor: '#6b5f45',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 4,
-    minWidth: 62,
-    alignItems: 'center',
+    overflow: 'hidden',
   },
-  skillEquipButtonOn: { backgroundColor: '#2e7d32' },
-  skillEquipText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
-  skillButtonDisabled: { opacity: 0.35 },
 
   // --- Temporary coin sack tuning panel; delete with DEBUG_COINSACK_TUNING ---
   tunePanel: {

@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Bundled Page</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #faf9f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    #__bundler_loading { position: fixed; bottom: 20px; right: 20px; font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif; color: #666; background: #fff; padding: 8px 14px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.12); z-index: 10000; }
+    #__bundler_thumbnail { position: fixed; inset: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #faf9f5; z-index: 9999; }
+    #__bundler_thumbnail svg { width: 100%; height: 100%; object-fit: contain; }
+    #__bundler_placeholder { color: #999; font-size: 14px; }
+  </style>
+  <noscript>
+    <style>#__bundler_loading { display: none; }</style>
+    <div style="position:fixed;bottom:12px;left:12px;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#999;background:rgba(255,255,255,0.9);padding:6px 12px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.08);z-index:10000;">
+      This page requires JavaScript to display.
+    </div>
+  </noscript>
+</head>
+<body>
+  <div id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" sc-camel-view-box="0 0 100 100"><rect width="100" height="100" fill="#12080a"></rect><circle cx="50" cy="36" r="13" fill="none" stroke="#9c1b16" stroke-width="5"></circle><path d="M50 49 L50 76" stroke="#9c1b16" stroke-width="5"></path><circle cx="50" cy="80" r="4" fill="#c0332b"></circle></svg></div>
+  <div id="__bundler_loading">Unpacking...</div>
+
+  <script>
+    
+document.addEventListener('DOMContentLoaded', async function() {
+  const loading = document.getElementById('__bundler_loading');
+  function setStatus(msg) { if (loading) loading.textContent = msg; }
+
+  const FONT_MIME = /^(font[/]|application[/](x-)?font-|application[/]vnd\.ms-fontobject)/i;
+  const MIME_TOKEN = /^[\w.+-]+[/][\w.+-]+$/;
+  function toBase64(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+  }
+
+  // Error sink persists across replaceWith since it's on window, not the DOM.
+  window.addEventListener('error', function(e) {
+    // Failed resource loads (CSP-blocked links, scripts, images) fire plain
+    // events at the element — warn only; real JS errors carry message/error.
+    if (!e.message && !e.error && e.target && e.target !== window) {
+      console.warn('[bundle] resource failed to load:',
+        e.target.tagName, String(e.target.src || e.target.href || ''));
+      return;
+    }
+    var p = document.body || document.documentElement;
+    var d = document.getElementById('__bundler_err') || p.appendChild(document.createElement('div'));
+    d.id = '__bundler_err';
+    d.style.cssText = 'position:fixed;bottom:12px;left:12px;right:12px;font:12px/1.4 ui-monospace,monospace;background:#2a1215;color:#ff8a80;padding:10px 14px;border-radius:8px;border:1px solid #5c2b2e;z-index:99999;white-space:pre-wrap;max-height:40vh;overflow:auto';
+    d.textContent = (d.textContent ? d.textContent + String.fromCharCode(10) : '') +
+      '[bundle] ' + (e.message || e.type) +
+      (e.filename ? ' (' + e.filename.slice(0, 60) + ':' + e.lineno + ')' : '');
+  }, true);
+
+  try {
+    const manifestEl = document.querySelector('script[type="__bundler/manifest"]');
+    const templateEl = document.querySelector('script[type="__bundler/template"]');
+    if (!manifestEl || !templateEl) {
+      setStatus('Error: missing bundle data');
+      console.error('[bundler] Missing script tags — manifestEl:', !!manifestEl, 'templateEl:', !!templateEl);
+      return;
+    }
+
+    const manifest = JSON.parse(manifestEl.textContent);
+    let template = JSON.parse(templateEl.textContent);
+
+    // Nested page bundles (iframe targets). Each ships ONCE, in the ROOT
+    // document's manifest; frame srcs carry an about:blank#<uuid> marker
+    // instead of a substitutable uuid. Every document mints the blobs for
+    // its OWN frames — from local text at the root, or text obtained from
+    // its DIRECT parent over the relay protocol below — so each frame
+    // navigation stays same-origin with its initiator and a deduped page
+    // loads at any depth on any host, including a file:// download's
+    // opaque origins (where a blob minted by one document cannot be
+    // navigated to by another).
+    const pageOrderEl = document.querySelector('script[type="__bundler/page_order"]');
+    const pageOrder = pageOrderEl ? JSON.parse(pageOrderEl.textContent) : [];
+    const pageSet = new Set(pageOrder);
+    const pageTexts = {};
+
+    // ── Nested-page text protocol (parent-chain relay) ──
+    // Page bundles ship once, in the ROOT document's manifest. Every
+    // document mints the blobs for its OWN frames, obtaining page text
+    // through a strict parent-chain relay: a document only ever SENDS to
+    // its direct parent (which, for every document the publisher's own
+    // runtime minted, is another publisher document) and only ACCEPTS
+    // text from that direct parent; requests from below are honored only
+    // for the document's own child frames, and the ROOT never sends
+    // upward at all. That last rule is load-bearing: the artifact host's
+    // frame-ancestors allows claude.ai (and friends) to frame an
+    // artifact, so window.top can be a FOREIGN document — a top-addressed
+    // protocol would hand page uuids to that ancestor and accept forged
+    // "page text" from it, minting attacker HTML as an artifact-origin
+    // blob document. The chain never touches the ancestor: requests stop
+    // at the root, replies are origin-addressed per hop (never '*' when
+    // an origin exists), and both directions are origin-gated (on https
+    // a foreign sender's origin can never equal this document's; in
+    // opaque contexts — file:// — everything serializes as 'null', where
+    // an embedded EXTERNAL frame still fails the gate by carrying its
+    // own real origin, and a sandboxed child of such a frame is excluded
+    // by the own-child-frames check plus uuid unguessability). Shape is
+    // deny-by-default: one request form, one reply form, no error
+    // replies.
+    // window.origin is the SERIALIZED SECURITY origin ('null' in opaque
+    // contexts such as a sandboxed preview iframe) — location.origin is
+    // computed from the URL and stays 'https://…' even when the document
+    // is sandboxed, which would misgate every opaque chain.
+    const OWN_TARGET = /^https?:[/][/]/.test(window.origin || '')
+      ? window.origin
+      : '*';
+    function trustedOrigin(e) {
+      if (e.origin === window.origin) return true; // https chains; opaque==opaque
+      // file:// trees: Chrome serializes the file document's origin as
+      // 'file://' while the blob: documents it mints serialize as 'null',
+      // so the two legitimate shapes can never string-match — accept the
+      // pair in both directions. https origins never serialize as either,
+      // and sender identity (own child frame / direct parent) is checked
+      // separately.
+      return (
+        (e.origin === 'null' &&
+          (window.origin === 'file://' ||
+            window.location.protocol === 'file:')) ||
+        (/^file:/.test(e.origin) && window.origin === 'null')
+      );
+    }
+    // Non-empty only in the root document (nested bundles ship an empty
+    // island), so it doubles as the root marker: the root answers from
+    // local text and treats a miss as authoritative — never relaying to
+    // its (possibly foreign) parent.
+    const isPageRoot = pageOrder.length > 0;
+    const blobUrls = {};
+    const resourceBlobs = {};
+    const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const pendingFrames = {}; // uuid -> [{el, frag}] awaiting text for own frames
+    const pendingRelays = {}; // uuid -> [childWindow] awaiting text to pass down
+    function mountPage(el, frag, text) {
+      const pageBlob = new Blob([text], { type: 'text/html' });
+      const u = URL.createObjectURL(pageBlob);
+      resourceBlobs[u] = pageBlob;
+      el.src = u + frag;
+    }
+    function deliverPage(uuid, text) {
+      const frames = pendingFrames[uuid];
+      delete pendingFrames[uuid];
+      if (frames) for (const f of frames) mountPage(f.el, f.frag, text);
+      const relays = pendingRelays[uuid];
+      delete pendingRelays[uuid];
+      if (relays) {
+        for (const cw of relays) {
+          try { cw.postMessage({ __bundler_page: uuid, __bundler_text: text }, OWN_TARGET); } catch (err) { /* gone */ }
+        }
+      }
+    }
+    function ownFrameWindows() {
+      const out = [];
+      for (const f of Array.from(document.querySelectorAll('iframe'))) {
+        try { if (f.contentWindow) out.push(f.contentWindow); } catch (err) { /* detached */ }
+      }
+      return out;
+    }
+    window.addEventListener('message', function (e) {
+      const d = e.data;
+      if (!d || typeof d !== 'object' || !e.source) return;
+      // Origin gate first; the structural checks below (own-child-frames
+      // for requests, direct-parent + solicited-uuid for replies, the
+      // root's never-relay rule) are what hold in fully opaque chains
+      // where origin strings can't discriminate — a sandboxed root's
+      // FOREIGN wrapper still fails all three even though both serialize
+      // as real-vs-'null' rather than matching.
+      if (!trustedOrigin(e)) return;
+      if (typeof d.__bundler_need === 'string' && UUID_SHAPE.test(d.__bundler_need)) {
+        // Requests are honored only for this document's own child frames.
+        if (ownFrameWindows().indexOf(e.source) < 0) return;
+        const uuid = d.__bundler_need;
+        const text = pageTexts[uuid];
+        if (typeof text === 'string') {
+          try { e.source.postMessage({ __bundler_page: uuid, __bundler_text: text }, OWN_TARGET); } catch (err) { /* gone */ }
+          return;
+        }
+        if (isPageRoot || window.parent === window) return; // authoritative miss
+        const waiting = pendingRelays[uuid];
+        if (waiting) {
+          if (waiting.indexOf(e.source) < 0) waiting.push(e.source);
+          return;
+        }
+        // Never-answered uuids would otherwise accumulate forever under a
+        // request spray; past the cap (far above any real page count) new
+        // relays are dropped rather than remembered.
+        if (Object.keys(pendingRelays).length >= 128) return;
+        pendingRelays[uuid] = [e.source];
+        window.parent.postMessage({ __bundler_need: uuid }, OWN_TARGET);
+      } else if (
+        typeof d.__bundler_page === 'string' &&
+        UUID_SHAPE.test(d.__bundler_page) &&
+        typeof d.__bundler_text === 'string'
+      ) {
+        // The shape test is load-bearing beyond tidiness: the solicited
+        // check below uses the in operator, which matches prototype keys
+        // ('__proto__', 'constructor') — an unshaped key would reach
+        // deliverPage and throw, painting the error banner.
+        // Text is accepted only from the direct parent — the document
+        // that minted this one.
+        if (e.source !== window.parent || window.parent === window) return;
+        if (!(d.__bundler_page in pendingFrames) && !(d.__bundler_page in pendingRelays)) return;
+        deliverPage(d.__bundler_page, d.__bundler_text);
+      }
+    });
+
+    const uuids = Object.keys(manifest);
+    setStatus('Unpacking ' + uuids.length + ' assets...');
+
+    await Promise.all(uuids.map(async (uuid) => {
+      const entry = manifest[uuid];
+      try {
+        const binaryStr = atob(entry.data);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+
+        let finalBytes = bytes;
+        if (entry.compressed) {
+          if (typeof DecompressionStream !== 'undefined') {
+            const ds = new DecompressionStream('gzip');
+            const writer = ds.writable.getWriter();
+            const reader = ds.readable.getReader();
+            writer.write(bytes);
+            writer.close();
+            const chunks = [];
+            let totalLen = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              totalLen += value.length;
+            }
+            finalBytes = new Uint8Array(totalLen);
+            let offset = 0;
+            for (const chunk of chunks) { finalBytes.set(chunk, offset); offset += chunk.length; }
+          } else {
+            console.warn('DecompressionStream not available, asset ' + uuid + ' may not render');
+          }
+        }
+
+        if (pageSet.has(uuid)) {
+          pageTexts[uuid] = new TextDecoder().decode(finalBytes);
+          return;
+        }
+        if (FONT_MIME.test(entry.mime) && MIME_TOKEN.test(entry.mime)) {
+          // Strict artifact hosts allow font-src data: but not blob:.
+          blobUrls[uuid] = 'data:' + entry.mime + ';base64,' +
+            (entry.compressed ? toBase64(finalBytes) : entry.data);
+        } else {
+          const blob = new Blob([finalBytes], { type: entry.mime });
+          blobUrls[uuid] = URL.createObjectURL(blob);
+          resourceBlobs[blobUrls[uuid]] = blob;
+        }
+      } catch (err) {
+        console.error('Failed to decode asset ' + uuid + ':', err);
+        const blob = new Blob([], { type: entry.mime });
+        blobUrls[uuid] = URL.createObjectURL(blob);
+        resourceBlobs[blobUrls[uuid]] = blob;
+      }
+    }));
+
+    const extResEl = document.querySelector('script[type="__bundler/ext_resources"]');
+    const extResources = extResEl ? JSON.parse(extResEl.textContent) : [];
+    const resourceMap = {};
+    for (const entry of extResources) {
+      if (blobUrls[entry.uuid]) resourceMap[entry.id] = blobUrls[entry.uuid];
+    }
+
+    // Artifact-host CSP (connect-src 'self') refuses fetch() of blob: URLs —
+    // consumers read these Blobs directly. Survives the swap like the error sink.
+    window.__resourceBlobs = resourceBlobs;
+
+    setStatus('Rendering...');
+    // Page uuids have no blob here — they ride inside about:blank#<uuid>
+    // frame markers the pass below resolves after the swap.
+    for (const uuid of uuids) {
+      if (pageSet.has(uuid)) continue;
+      template = template.split(uuid).join(blobUrls[uuid]);
+    }
+
+    // Strip integrity + crossorigin — blob URLs from a file:// document inherit
+    // a null origin, so crossorigin forces a CORS fetch that SRI then rejects.
+    // The manifest bytes are ours; SRI protects against CDN compromise, not this.
+    template = template.replace(/\s+integrity="[^"]*"/gi, '').replace(/\s+crossorigin="[^"]*"/gi, '');
+
+    const resourceScript = '<script>window.__resources = ' +
+      JSON.stringify(resourceMap).replace(/<\//g, '<\\/') +
+      ';</' + 'script>';
+    // Inject after <head> so the DOCTYPE stays first; prepending the script
+    // would push the parser into quirks mode. DOMParser always emits a <head>
+    // (synthesizing one if the source HTML omitted it) but may carry
+    // attributes through, so match the full opening tag. slice() rather than
+    // replace() keeps us clear of $-pattern substitution in resourceScript.
+    const headOpen = template.match(/<head[^>]*>/i);
+    if (headOpen) {
+      const i = headOpen.index + headOpen[0].length;
+      template = template.slice(0, i) + resourceScript + template.slice(i);
+    }
+
+    // Parse the template and swap the root element. Scripts inserted via
+    // DOMParser/replaceWith are inert per spec — re-create each with
+    // createElement so they execute, awaiting onload for src scripts to
+    // preserve ordering (React before ReactDOM before Babel before text/babel).
+    const doc = new DOMParser().parseFromString(template, 'text/html');
+    document.documentElement.replaceWith(doc.documentElement);
+
+    // Resolve page-frame markers: mint this document's own blob for each
+    // framed page — from local text when this is the root, otherwise by
+    // asking the direct parent over the relay protocol above. An
+    // unanswered request leaves the frame on about:blank, the same
+    // degraded state as a refused embed.
+    {
+      const MARKER = /^about:blank#([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(#.*)?$/;
+      const needed = [];
+      for (const el of Array.from(document.querySelectorAll('iframe'))) {
+        const m = MARKER.exec(el.getAttribute('src') || '');
+        if (!m) continue;
+        const text = pageTexts[m[1]];
+        if (typeof text === 'string') {
+          mountPage(el, m[2] || '', text);
+        } else if (window.parent !== window && !isPageRoot) {
+          const had = pendingFrames[m[1]];
+          (pendingFrames[m[1]] = had || []).push({ el: el, frag: m[2] || '' });
+          if (!had) needed.push(m[1]);
+        }
+      }
+      for (const uuid of needed) {
+        window.parent.postMessage({ __bundler_need: uuid }, OWN_TARGET);
+      }
+    }
+
+    const dead = Array.from(document.scripts);
+    for (const old of dead) {
+      const s = document.createElement('script');
+      for (const a of old.attributes) s.setAttribute(a.name, a.value);
+      s.textContent = old.textContent;
+      // text/babel scripts with a src: read and inline. transformScriptTags
+      // does XHR against the src, but blob:null/ from a file:// origin is
+      // silently dropped. Inlining makes it a plain inline babel script,
+      // which transformScriptTags handles unconditionally.
+      if ((s.type === 'text/babel' || s.type === 'text/jsx') && s.src) {
+        const pre = resourceBlobs[s.src.split('#')[0]];
+        s.textContent = pre ? await pre.text() : await (await fetch(s.src)).text();
+        s.removeAttribute('src');
+      }
+      const p = s.src ? new Promise(function(r) { s.onload = s.onerror = r; }) : null;
+      old.replaceWith(s);
+      if (p) await p;
+    }
+    // Babel standalone auto-transforms type=text/babel on DOMContentLoaded,
+    // which fired before we swapped the document. Trigger manually if present.
+    if (window.Babel && typeof window.Babel.transformScriptTags === 'function') {
+      window.Babel.transformScriptTags();
+    }
+  } catch (err) {
+    setStatus('Error unpacking: ' + err.message);
+    console.error('Bundle unpack error:', err);
+  }
+});
+
+  </script>
+
+  <script type="__bundler/manifest">
+{"Redacted"}}
+  </script>
+
+  <script type="__bundler/ext_resources">
+[{"id":"https://unpkg.com/react@18.3.1/umd/react.production.min.js","uuid":"34105805-b163-4d1a-aa7a-5132c7587236"},{"id":"https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js","uuid":"eab1591a-b7a7-483d-ac7d-f6bd892d6286"}]
+  </script>
+
+  <script type="__bundler/page_order">
+[]
+  </script>
+
+  <script type="__bundler/template">
+"<!DOCTYPE html>\n<html><head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<script src=\"3a47b4a6-da00-4874-8ffb-0ae5e077f03c\"><\u002Fscript>\n<\u002Fhead>\n<body>\n<x-dc>\n<helmet data-dc-atomics=\"\">\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"\">\n<style>/* latin-ext */\n@font-face {\n  font-family: 'Cinzel';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"8219ed0f-95ab-4527-ac48-f368dd34bdf5\") format('woff2');\n  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;\n}\n/* latin */\n@font-face {\n  font-family: 'Cinzel';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"1d16bf6d-d9d9-4efb-b73a-f6fc71d12f55\") format('woff2');\n  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;\n}\n/* latin-ext */\n@font-face {\n  font-family: 'Cinzel';\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"8219ed0f-95ab-4527-ac48-f368dd34bdf5\") format('woff2');\n  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;\n}\n/* latin */\n@font-face {\n  font-family: 'Cinzel';\n  font-style: normal;\n  font-weight: 700;\n  font-display: swap;\n  src: url(\"1d16bf6d-d9d9-4efb-b73a-f6fc71d12f55\") format('woff2');\n  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;\n}\n/* cyrillic-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"b397ab92-1aea-42bf-b1ea-cb0b1f32b7dd\") format('woff2');\n  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;\n}\n/* cyrillic */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"7ac22e91-3ac8-43e7-8ebc-c250861cdd33\") format('woff2');\n  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;\n}\n/* greek-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"59c6edd7-b36f-4c13-8836-0fd93a1c580c\") format('woff2');\n  unicode-range: U+1F00-1FFF;\n}\n/* greek */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"d16c08a3-1b59-4e92-9c38-97fd62565e06\") format('woff2');\n  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;\n}\n/* vietnamese */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"954abae9-87ae-4803-9098-ff074dd7daef\") format('woff2');\n  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;\n}\n/* latin-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"55f052f7-7c58-4a43-8a03-de904eb42f91\") format('woff2');\n  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;\n}\n/* latin */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: italic;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"846f205f-366e-4a60-af00-e22778f1aee9\") format('woff2');\n  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;\n}\n/* cyrillic-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"67286868-96f8-4075-92d8-48fcadb75959\") format('woff2');\n  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;\n}\n/* cyrillic */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"31d19b2f-e291-4fe4-8113-e229fce26c53\") format('woff2');\n  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;\n}\n/* greek-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"13e81c5e-d934-4aad-8a80-2bbc32dfaf29\") format('woff2');\n  unicode-range: U+1F00-1FFF;\n}\n/* greek */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"3207c22d-0504-49cd-83b3-631bcb9fafd9\") format('woff2');\n  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;\n}\n/* vietnamese */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"2542963b-ea69-4d89-bed0-5cbf9a414f02\") format('woff2');\n  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;\n}\n/* latin-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"639b981e-eefd-4b85-8a43-5b20eaf544df\") format('woff2');\n  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;\n}\n/* latin */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"8bf014a3-2ac9-4651-b163-3cfed6ef0064\") format('woff2');\n  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;\n}\n/* cyrillic-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"67286868-96f8-4075-92d8-48fcadb75959\") format('woff2');\n  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;\n}\n/* cyrillic */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"31d19b2f-e291-4fe4-8113-e229fce26c53\") format('woff2');\n  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;\n}\n/* greek-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"13e81c5e-d934-4aad-8a80-2bbc32dfaf29\") format('woff2');\n  unicode-range: U+1F00-1FFF;\n}\n/* greek */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"3207c22d-0504-49cd-83b3-631bcb9fafd9\") format('woff2');\n  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;\n}\n/* vietnamese */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"2542963b-ea69-4d89-bed0-5cbf9a414f02\") format('woff2');\n  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;\n}\n/* latin-ext */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"639b981e-eefd-4b85-8a43-5b20eaf544df\") format('woff2');\n  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;\n}\n/* latin */\n@font-face {\n  font-family: 'EB Garamond';\n  font-style: normal;\n  font-weight: 500;\n  font-display: swap;\n  src: url(\"8bf014a3-2ac9-4651-b163-3cfed6ef0064\") format('woff2');\n  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;\n}\n/* latin-ext */\n@font-face {\n  font-family: 'Pirata One';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"7506cb65-c4be-4257-84ff-2ba49ba6d372\") format('woff2');\n  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;\n}\n/* latin */\n@font-face {\n  font-family: 'Pirata One';\n  font-style: normal;\n  font-weight: 400;\n  font-display: swap;\n  src: url(\"58ca0f9d-1a10-4fdf-8509-c99ac558f259\") format('woff2');\n  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;\n}\n<\u002Fstyle>\n<style>\n  body{margin:0;background:#0a0a0c;display:flex;justify-content:center;align-items:flex-start;min-height:100vh}\n  a{color:#c9a24e;text-decoration:none} a:hover{color:#f0c860}\n  *{box-sizing:border-box}\n  @keyframes softpulse{0%,100%{opacity:.28}50%{opacity:.8}}\n  @keyframes strandgrow{from{stroke-dashoffset:var(--len)}to{stroke-dashoffset:0}}\n  @keyframes dripfall{0%,55%{opacity:0;transform:translateY(0)}68%{opacity:1}100%{opacity:.9;transform:translateY(7px)}}\n  @keyframes nodepop{0%{opacity:0;transform:scale(.4)}70%{opacity:1;transform:scale(1.09)}100%{opacity:1;transform:scale(1)}}\n  @keyframes greenglow{0%,100%{box-shadow:0 0 0 3px #4fdf9a,0 0 0 5px #0b0a07,0 0 14px #4fdf9a66,inset 0 0 14px rgba(0,0,0,.5)}50%{box-shadow:0 0 0 3px #7bffc4,0 0 0 5px #0b0a07,0 0 26px #4fdf9aaa,inset 0 0 14px rgba(0,0,0,.5)}}\n  @keyframes flashfade{0%{opacity:0;transform:translate(-50%,6px)}15%,80%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-6px)}}\n  @keyframes dolly{to{transform:translate(var(--dx),var(--dy)) scale(var(--dz));opacity:0}}\n  @keyframes fadein{from{opacity:0;transform:scale(1.06)}to{opacity:1;transform:scale(1)}}\n<\u002Fstyle>\n<\u002Fhelmet>\n<div style=\"padding:22px 0\">\n<div style=\"width:432px;padding:9px;border-radius:48px;background:linear-gradient(160deg,#171719,#050506);box-shadow:0 30px 70px rgba(0,0,0,.7),inset 0 0 0 1px rgba(255,255,255,.04)\">\n<div style=\"position:relative;width:414px;height:896px;border-radius:40px;overflow:hidden;background:#0a0b0a\">\n\n  <div style=\"position:absolute;inset:0;background:url(&quot;1607ff26-9979-4e44-8284-5c6f643739f8&quot;) center 30% / cover;z-index:0\"><\u002Fdiv>\n  <div style=\"position:absolute;inset:0;z-index:1;background:radial-gradient(130% 90% at 40% 45%, rgba(6,8,7,.42), rgba(4,5,5,.93) 82%), linear-gradient(180deg, rgba(4,5,5,.8), rgba(3,4,4,.7) 40%, rgba(3,4,4,.9))\"><\u002Fdiv>\n\n  <div sc-camel-on-click=\"{{ onBgTap }}\" style=\"position:absolute;inset:0;z-index:2\">\n    <div style=\"{{ treeWrapStyle }}\">\n    <sc-if value=\"{{ showBg }}\" hint-placeholder-val=\"{{ true }}\"><div style=\"{{ bgStyle }}\"><\u002Fdiv><\u002Fsc-if>\n    <canvas ref=\"{{ canvasRef }}\" width=\"1280\" height=\"1440\" style=\"position:absolute;left:0;top:-160px;width:1280px;height:1440px;pointer-events:none;image-rendering:pixelated\"><\u002Fcanvas>\n    <sc-for list=\"{{ nodes }}\" as=\"nd\" hint-placeholder-count=\"4\">\n      <div sc-camel-on-click=\"{{ nd.onClick }}\" style=\"{{ nd.wrapStyle }}\" style-hover=\"transform:scale(1.06)\">\n        <div style=\"{{ nd.frameStyle }}\">\n          <sc-if value=\"{{ nd.pulse }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"{{ nd.pulseStyle }}\"><\u002Fdiv><\u002Fsc-if>\n          <span style=\"{{ nd.iconStyle }}\"><\u002Fspan>\n        <\u002Fdiv>\n        <sc-if value=\"{{ nd.showCost }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"{{ nd.costStyle }}\"><span style=\"{{ nd.costCoin }}\"><\u002Fspan><span style=\"font-family:'Cinzel',serif;font-weight:700;font-size:11px;color:#f0c860\">{{ nd.cost }}<\u002Fspan><\u002Fdiv><\u002Fsc-if>\n        <div style=\"{{ nd.nameStyle }}\">{{ nd.name }}<\u002Fdiv>\n        <sc-if value=\"{{ nd.sub }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"{{ nd.subStyle }}\">{{ nd.sub }}<\u002Fdiv><\u002Fsc-if>\n      <\u002Fdiv>\n    <\u002Fsc-for>\n    <sc-for list=\"{{ upNodes }}\" as=\"nd\" hint-placeholder-count=\"3\">\n      <div sc-camel-on-click=\"{{ nd.onClick }}\" style=\"{{ nd.wrapStyle }}\" style-hover=\"transform:scale(1.06)\">\n        <div style=\"{{ nd.frameStyle }}\">\n          <sc-if value=\"{{ nd.pulse }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"{{ nd.pulseStyle }}\"><\u002Fdiv><\u002Fsc-if>\n          <span style=\"{{ nd.iconStyle }}\"><\u002Fspan>\n        <\u002Fdiv>\n        <sc-if value=\"{{ nd.showCost }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"{{ nd.costStyle }}\"><span style=\"{{ nd.costCoin }}\"><\u002Fspan><span style=\"font-family:'Cinzel',serif;font-weight:700;font-size:11px;color:#f0c860\">{{ nd.cost }}<\u002Fspan><\u002Fdiv><\u002Fsc-if>\n        <div style=\"{{ nd.nameStyle }}\">{{ nd.name }}<\u002Fdiv>\n        <sc-if value=\"{{ nd.sub }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"{{ nd.subStyle }}\">{{ nd.sub }}<\u002Fdiv><\u002Fsc-if>\n      <\u002Fdiv>\n    <\u002Fsc-for>\n    <\u002Fdiv>\n  <\u002Fdiv>\n\n  <div style=\"position:absolute;top:0;left:0;right:0;z-index:6;height:90px;background:linear-gradient(180deg,rgba(6,7,6,.94),rgba(6,7,6,.55) 70%,transparent);padding:16px 14px 0\">\n    <sc-if value=\"{{ showBack }}\" hint-placeholder-val=\"{{ false }}\">\n      <div sc-camel-on-click=\"{{ onZoomOut }}\" style=\"position:absolute;top:14px;left:14px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:linear-gradient(180deg,#3a352a,#14110b);box-shadow:0 0 0 2px #060507, inset 0 0 0 2px #5a5140, inset 0 0 0 3px #100d09;border-radius:4px;z-index:2\">\n        <div style=\"width:9px;height:9px;border-left:2.5px solid #c9b98a;border-bottom:2.5px solid #c9b98a;transform:translateX(2px) rotate(45deg)\"><\u002Fdiv>\n      <\u002Fdiv>\n    <\u002Fsc-if>\n    <div style=\"text-align:center;padding:2px 44px 0\">\n      <div style=\"font-family:'Pirata One',cursive;font-size:26px;letter-spacing:1px;color:#d8d2c0;text-shadow:0 2px 0 #000,0 0 12px rgba(201,162,78,.25);line-height:1\">{{ title }}<\u002Fdiv>\n      <div style=\"{{ hintStyle }}\">{{ hint }}<\u002Fdiv>\n    <\u002Fdiv>\n    <div sc-camel-on-click=\"{{ onReset }}\" style=\"position:absolute;top:58px;left:14px;z-index:7;padding:5px 10px;cursor:pointer;font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:2px;color:#8a7f62;background:linear-gradient(180deg,#2a2417,#0e0b07);box-shadow:0 0 0 1px #060507, inset 0 0 0 1px #4a4030;border-radius:3px\" style-hover=\"color:#e8c56a\">RESET<\u002Fdiv>\n    <div style=\"position:absolute;top:14px;right:14px;display:flex;align-items:center;gap:5px;background:linear-gradient(180deg,#2a2417,#0e0b07);box-shadow:0 0 0 1px #060507,inset 0 0 0 1px #6b5f45;padding:4px 9px 4px 6px;border-radius:3px\">\n      <span style=\"{{ coinStyleHdr }}\"><\u002Fspan>\n      <span style=\"font-family:'Cinzel',serif;font-weight:700;font-size:15px;color:#f0c860;line-height:1\">{{ gold }}<\u002Fspan>\n    <\u002Fdiv>\n  <\u002Fdiv>\n\n  <div style=\"position:absolute;bottom:0;left:0;right:0;z-index:6;background:linear-gradient(0deg,rgba(6,7,6,.95),rgba(6,7,6,.6) 70%,transparent);padding:14px 14px 15px\">\n    <div style=\"display:flex;align-items:center;gap:8px;padding:0 4px;margin-bottom:8px\">\n      <div style=\"height:1px;flex:1;background:linear-gradient(90deg,transparent,#3f6b4f)\"><\u002Fdiv>\n      <div style=\"font-family:'Cinzel',serif;font-weight:700;font-size:10px;letter-spacing:3px;color:#6fbf94\">EQUIPPED · {{ loadoutCount }}/{{ maxEquip }}<\u002Fdiv>\n      <div style=\"height:1px;flex:1;background:linear-gradient(90deg,#3f6b4f,transparent)\"><\u002Fdiv>\n    <\u002Fdiv>\n    <div style=\"display:flex;gap:10px;justify-content:center\">\n      <sc-for list=\"{{ loadout }}\" as=\"sl\" hint-placeholder-count=\"3\">\n        <div sc-camel-on-click=\"{{ sl.onClick }}\" style=\"{{ sl.slotStyle }}\">\n          <sc-if value=\"{{ sl.filled }}\" hint-placeholder-val=\"{{ true }}\"><span style=\"{{ sl.iconStyle }}\"><\u002Fspan><\u002Fsc-if>\n          <sc-if value=\"{{ sl.empty }}\" hint-placeholder-val=\"{{ false }}\"><div style=\"width:16px;height:16px;transform:rotate(45deg);box-shadow:inset 0 0 0 1.5px #3f6b4f\"><\u002Fdiv><\u002Fsc-if>\n        <\u002Fdiv>\n      <\u002Fsc-for>\n    <\u002Fdiv>\n  <\u002Fdiv>\n\n  <sc-if value=\"{{ flash }}\" hint-placeholder-val=\"{{ false }}\">\n    <div style=\"position:absolute;top:112px;left:50%;z-index:30;animation:flashfade 1.6s ease-in-out forwards;background:linear-gradient(180deg,#2a2417,#0e0b07);box-shadow:0 0 0 1px #060507, inset 0 0 0 1px #6b5f45, 0 6px 18px rgba(0,0,0,.6);padding:9px 18px;border-radius:3px;font-family:'Cinzel',serif;font-weight:700;font-size:13px;letter-spacing:2px;color:#e8c56a;white-space:nowrap\">{{ flash }}<\u002Fdiv>\n  <\u002Fsc-if>\n\n<\u002Fdiv>\n<\u002Fdiv>\n<\u002Fdiv>\n\n<\u002Fx-dc>\n<script type=\"text/x-dc\" data-dc-script=\"\" data-props=\"{&quot;$preview&quot;:{&quot;width&quot;:456,&quot;height&quot;:940},&quot;startingGold&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:10000,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:0,&quot;max&quot;:50000,&quot;unit&quot;:&quot;g&quot;,&quot;section&quot;:&quot;Economy&quot;},&quot;maxEquip&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:3,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:1,&quot;max&quot;:5,&quot;section&quot;:&quot;Loadout&quot;},&quot;showBackdrop&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Background&quot;},&quot;bgOffsetX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:210,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:-600,&quot;max&quot;:600,&quot;step&quot;:10,&quot;section&quot;:&quot;Background&quot;},&quot;bgOffsetY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:100,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:-600,&quot;max&quot;:600,&quot;step&quot;:10,&quot;section&quot;:&quot;Background&quot;},&quot;vineLitColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#4b0b0b&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Vines &amp; Glow&quot;},&quot;vineOffColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#57413d&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Vines &amp; Glow&quot;},&quot;glowColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#6b3629&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Vines &amp; Glow&quot;},&quot;airbladeX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:190,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Air Blade (Awakening III)&quot;},&quot;airbladeY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:185,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Air Blade (Awakening III)&quot;},&quot;judgementX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:540,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Judgement (Awakening III)&quot;},&quot;judgementY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:560,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Judgement (Awakening III)&quot;},&quot;ancestorX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:245,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Ancestor (Awakening III)&quot;},&quot;ancestorY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1015,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Ancestor (Awakening III)&quot;},&quot;bonewallX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:545,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Bone Wall (Awakening III)&quot;},&quot;bonewallY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:200,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Bone Wall (Awakening III)&quot;},&quot;chainX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:560,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Chain Lightning (Awakening III)&quot;},&quot;chainY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:920,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Chain Lightning (Awakening III)&quot;},&quot;gravevortexX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:885,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Grave Vortex (Awakening III)&quot;},&quot;gravevortexY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:290,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Grave Vortex (Awakening III)&quot;},&quot;hellfireX&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:900,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:150,&quot;max&quot;:1200,&quot;step&quot;:5,&quot;section&quot;:&quot;Hellfire (Awakening III)&quot;},&quot;hellfireY&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:800,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:40,&quot;max&quot;:1080,&quot;step&quot;:5,&quot;section&quot;:&quot;Hellfire (Awakening III)&quot;}}\">\nclass Component extends DCLogic {\n  PAL = {\n    k:'#0a0b0c', K:'#1c1d1f',\n    W:'#efe9d6', b:'#cfc7b0', B:'#a49a82', M:'#8593b4', n:'#6f6656',\n    i:'#5a554a', I:'#3a362f',\n    G:'#ffd97a', o:'#f0b840', O:'#c9862e',\n    r:'#e0483a', R:'#b8322e', d:'#7a1f1f',\n    t:'#9ff0c0', T:'#5fbf8a', e:'#2f7a5a',\n    p:'#c8f06a', P:'#86c23a', q:'#4a7a24',\n    f:'#f08a2e', F:'#c23a1e',\n    v:'#c69cff', V:'#8a5cd0', u:'#4e2f80',\n    s:'#8a8a6a', S:'#5a5a44',\n    c:'#a7e0ff', C:'#4aa8e8', z:'#2f6fd6'\n  };\n\n  ART = {\nancestor:`\n................\n...k...k...k....\n..kTk.kTk.kTk...\n..kTk.kTk.kTk...\n..kTk.kTk.kTk...\n..kTk.kTk.kTk...\n...kTk.kTk.k....\n....kTTTTTk.....\n....kTTTTTk.....\n....eTTTTTe.....\n.....kTTTk......\n....e.kkk.e.....\n...e.......e....\n..e.........e...\n................\n................`,\nairblade:`\n.............kk.\n............kWk.\n...........kWk..\n..t.......kWk...\n...t.....kWk....\n..tt....kWk.....\n.t.....kWk......\n.tt...kIIk......\n.t...kok........\n....k...........\n................\n................\n................\n................\n................\n................`,\njudgement:`\n......kok.......\n.....kIIIk......\n......kWk.......\n......kWk.......\n......kWk.......\n......krk.......\n.....R...R......\n....R..r..R.....\n...R..rrr..R....\n..R.rrRrrr.R....\n.R.rRRRRRRr.R...\nR.rRRRRRRRRr.R..\n................\n................\n................\n................`,\nwhirlwind:`\n................\n.BBBBBBBBBB.....\n.WWWWWWWWWWB....\n..BBBBBBBB......\n...WWWWWWWB.....\n...BBBBBBB......\n....WWWWWB......\n....BBBBB.......\n.....WWWB.......\n.....BBB........\n......WB........\n......B.........\n................\n................\n................\n................`,\nshieldcharge:`\n..kkkkkkkkkk....\n..kbBBBBBBbk....\n..kbBMMMMBbk....\n..kbBMoMMBbk....\n..kbBMooMBbk....\n..kbBMMoMBbk....\n..kbBMMooMbk....\n..kbBMMoMMbk....\n...kbBMoMbk.....\n....kbBMbk......\n.....kbbk.......\n......kk........\n................\n................\n................\n................`,\nbonewall:`\n................\n..k...k...k.....\n.kWk.kWk.kWk....\n.kWk.kWk.kWk....\n.kWk.kWk.kWk....\n.kbk.kbk.kbk....\n.kbk.kbk.kbk....\n.kbk.kbk.kbk....\n.kbk.kbk.kbk....\nkkkkkkkkkkkkk...\nkIIIIIIIIIIIk...\n................\n................\n................\n................\n................`,\ngravevortex:`\n................\n.....vVVVv......\n...vVk...kVv....\n..vk..uuu..kv...\n.vk..uVVVu..kv..\n.vk.uVk.kVu.kv..\n.vk.uk...ku.kv..\n.vk.uVk.kVu.kv..\n.vk..uVVVu..kv..\n..vk..uuu..kv...\n...vVk...kVv....\n.....vVVVv......\n................\n................\n................\n................`,\nchain:`\n................\n........ccc.....\n.......ccc......\n......ccc.......\n.....ccc........\n....CCcccc......\n......ccccC.....\n........ccc.....\n.......ccc......\n......ccc.......\n.....ccc........\n....ccc.........\n...cc...........\n................\n................\n................`,\nmeteor:`\n............ff..\n...........ffr..\n..........fr....\n.........fr.....\n....kkkk.r......\n...kBBBBk.......\n..kBKKKBk.......\n..kBKKKBk.......\n..kBBWBBk.......\n..kBkkkBk.......\n...kBkBk........\n....kkk.........\n..f..f..f.......\n.f..f..f........\n................\n................`,\nricochet:`\n............kk..\n...........kck..\n..........kck...\n.........kck....\n........kck.....\n.......kck......\n......kck.......\n.....kIk........\n....kok.........\n...c............\n..c..c..........\n.c.....c........\n....c......c....\n................\n................\n................`,\ncleave:`\n...kkkkkkkk.....\n...kWWWWWWk.....\n...kWWWWWWk.....\n...kWWWWWBk.....\n...kWWWWWBk.....\n...kBBBBBBk.....\n...kBBBBBBk.....\n...kkkkkkkk.....\n......kWk.......\n......kWk.......\n......kWk.......\n......kOk.......\n......kOk.......\n.....kOOOk......\n......kkk.......\n................`,\nhellfire:`\n................\n.......F........\n......FrF.......\n......FrF.......\n.....FrfrF......\n....FrfffrF.....\n...FrfffffrF....\n..FrfffofffrF...\n..FrfffofffrF...\n..FrfffffffrF...\n..FRrfffffRRF...\n...FRrfffRRF....\n....FRRfRRF.....\n.....FRRRF......\n......FRF.......\n................`,\nplague:`\n......kkk.......\n......kIk.......\n......kkk.......\n......kSk.......\n.....kSSSk......\n....kSpppSk.....\n...kSPPPPPSk....\n...kPPqPPPPk....\n...kPPPqPPPk....\n...kPqPPPPPk....\n...kSPPPPPSk....\n....kkkkkk......\n.....pp.p.......\n....p..p........\n................\n................`,\nnightswarm:`\n................\n.v.v......v.v...\nvVvVv....vVvVv..\n.vVv......vVv...\n................\n....v.v.........\n...vVvVv........\n....vVv.........\n.........v.v....\n........vVvVv...\n.........vVv....\n................\n................\n................\n................\n................`,\nbloodpact:`\n.......k........\n.......k........\n......krk.......\n......krk.......\n.....krRk.......\n.....kRRk.......\n....kRRRk.......\n....kRRRRk......\n...kRdRRRk......\n...kRRRRRk......\n...kRRRRRk......\n....kRRRk.......\n....kkkk........\n................\n................\n................`,\nfrostnova:`\n.......k........\n......kck.......\n.....kcck.......\n.k...kcCck...k..\nkck..kcCck..kck.\n.kck.kcCck.kck..\n..kckcCCCckck...\n.kck.kcCck.kck..\nkck..kcCck..kck.\n.k...kcCck...k..\n.....kcck.......\n......kck.......\n.......k........\n................\n................\n................`,\nsoulharvest:`\n...kkkkkk.......\n..kWWWWWWk......\n.kWk...kWWk.....\nkWk......kWk....\nkk........kk....\n...........k...\n.......k.......\n.......knk......\n.......knk......\n.......knk......\n.......knk......\n.......knk......\n.......knk......\n.......knk......\n.......kkk......\n................`,\nimpale:`\n.......k........\n......kWk.......\n......kWk.......\n.....kWWWk......\n.....kWBWk......\n.....kWBWk......\n......kBk.......\n......knk.......\n......knk.......\n......knk.......\n......knk.......\n......knk.......\n......knk.......\n......knk.......\n......kkk.......\n................`,\nraisedead:`\n................\n....k...k.......\n...kBk.kBk......\n...kBk.kBk......\n...kBk.kBk......\n....kBkBk.......\n.....kBk........\n....kkkkk.......\n..kkkkkkkkk.....\n.kIIIIIIIIIk....\n.kIIIIIIIIIk....\nkIIIIIIIIIIIk...\nkIIIIIIIIIIIk...\n................\n................\n................`,\ndoom:`\n.k..........k..\n.kk........kk..\n..kk......kk...\n..kbkkkkkkbk...\n.kbbbbbbbbbbk..\n.kbbbbbbbbbbk..\n.kbKKbbbbKKbk..\n.kbKKbbbbKKbk..\n.kbbbbrbbbbbk..\n.kbbbkkkkbbbk..\n.kbbbbbbbbbbk..\n..kbkbkbkbkk...\n..kkkkkkkkk....\n...k.r..r.k....\n................\n................`,\ncoin:`\n................\n................\n.....OOOO.......\n...OOooooOO.....\n..OoGGGGGGoO....\n..OoGGGGGGoO....\n.OoGGsGGGGGoO...\n.OoGGGGGGGGoO...\n.OoGGGGGGGGoO...\n..OoGGGGGGoO....\n..OoGGGGGGoO....\n...OOooooOO.....\n.....OOOO.......\n................\n................\n................`,\nskull:`\n................\n....kkkkkk......\n...kBBBBBBk.....\n..kBBBBBBBBk....\n..kBKKBBKKBk....\n..kBKKBBKKBk....\n..kBBBWWBBBk....\n..kBBKKKKBBk....\n..kBBBBBBBBk....\n...kBkBkBkk.....\n...kkkkkkk......\n................\n................\n................\n................\n................`,\nlock:`\n................\n.....kkkk.......\n....kn..nk......\n....kn..nk......\n...kkkkkkkk.....\n...kBBBBBBk.....\n...kBBkkBBk.....\n...kBkOOkBk.....\n...kBBOOBBk.....\n...kBBBBBBk.....\n...kkkkkkkk.....\n................\n................\n................\n................\n................`\n  };\n\n  constructor(props){\n    super(props);\n    const mk=(id,name,tint,art,cost,type,desc,levels)=>({ id,name,tint,art,cost,type,desc,levels:levels||null,\n      upgrades:[ {id:id+'_r2',name:'Rank II',cost:150}, {id:id+'_r3',name:'Rank III',cost:300}, {id:id+'_r4',name:'Rank IV',cost:500} ] });\n    this.SKILLS=[\n      mk('airblade','Air Blade','#f0b840','airblade',0,'RANGED','Attacks turn ranged; tap for +50% attack speed.','+4 / +8 / +12 / +16 dmg'),\n      mk('judgement','Judgement','#c0392e','judgement',0,'CONE','A widening cone of damage plus % of max HP.','10 / 20 / 30 / 40 dmg'),\n      mk('ancestor','Ancestor','#5fbf8a','ancestor',0,'SUMMON','Summon 1\\u20134 allied mobs to fight for you.','1 / 2 / 3 / 4 allies'),\n      mk('bonewall','Bone Wall','#cfc7b0','bonewall',300,'SUMMON','Raise a wall of jagged bone to block foes.'),\n      mk('chain','Chain Lightning','#4aa8e8','chain',450,'MAGIC','Lightning leaps between nearby enemies.'),\n      mk('gravevortex','Grave Vortex','#9a6cd6','gravevortex',500,'CURSE','A vortex drags foes inward and crushes them.'),\n      mk('hellfire','Hellfire','#f08a2e','hellfire',700,'MAGIC','Rain hellfire that scorches the ground.')\n    ];\n    this.NODE={};\n    this.SKILLS.forEach(s=>{ this.NODE[s.id]=s; s.upgrades.forEach(u=>{ u.art=s.art; u.tint=s.tint; u.parent=s.id; this.NODE[u.id]=u; }); });\n    this.icons={}; Object.keys(this.ART).forEach(k=>{ this.icons[k]=this.iconSvg(this.rows(this.ART[k])); });\n    this.canvasRef=(typeof React!=='undefined'&&React.createRef)?React.createRef():{current:null};\n    this.state={ gold:(props&&props.startingGold!=null)?props.startingGold:10000, owned:{airblade:true,judgement:true,ancestor:true}, equipped:['airblade','judgement','ancestor'], expanded:{}, revealed:false, awakening2:false, awakening3:false, variant:'a', flash:null };\n  }\n\n  rows(str){ return str.split('\\n').map(l=>l.trim()).filter(Boolean); }\n  iconSvg(rows){ const pal=this.PAL; const h=rows.length; let w=0; for(const r of rows) w=Math.max(w,r.length); let cells='';\n    for(let y=0;y<h;y++){ const row=rows[y]; let x=0; while(x<row.length){ const ch=row[x]; if(ch==='.'||ch===' '){x++;continue;} let run=1; while(x+run<row.length && row[x+run]===ch) run++; cells+=\"<rect x='\"+x+\"' y='\"+y+\"' width='\"+run+\"' height='1' fill='\"+(pal[ch]||'#f0f')+\"'/>\"; x+=run; } }\n    return 'data:image/svg+xml,'+encodeURIComponent(\"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 \"+w+\" \"+h+\"' shape-rendering='crispEdges'>\"+cells+\"<\u002Fsvg>\"); }\n  bg(u){ return { backgroundImage:'url(\"'+u+'\")', backgroundSize:'contain', backgroundRepeat:'no-repeat', backgroundPosition:'center', imageRendering:'pixelated' }; }\n  shade(hex,amt){ let h=String(hex||'#888888').replace('#',''); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; const n=parseInt(h,16)||0; let r=(n>>16)&255,g=(n>>8)&255,b=n&255; const f=(c)=> amt>=0? Math.round(c+(255-c)*amt) : Math.round(c*(1+amt)); r=f(r);g=f(g);b=f(b); return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1); }\n  strandPal(lit){ const pr=this.props||{}; const base= lit ? (pr.vineLitColor||'#9c1b16') : (pr.vineOffColor||'#3a322c'); this._palC=this._palC||{}; const k=(lit?'L':'O')+base; if(!this._palC[k]) this._palC[k]={ edge:this.shade(base,-0.72), body:base, deep2:this.shade(base,-0.3), wet:this.shade(base,0.3), node:this.shade(base,0.42), flash:this.shade(base,0.72) }; return this._palC[k]; }\n  _hx(h){ h=String(h||'#888888').replace('#',''); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2]; const n=parseInt(h,16)||0; return [(n>>16)&255,(n>>8)&255,n&255]; }\n  mix(a,b,t){ const pa=this._hx(a), pb=this._hx(b); const r=Math.round(pa[0]+(pb[0]-pa[0])*t), g=Math.round(pa[1]+(pb[1]-pa[1])*t), bl=Math.round(pa[2]+(pb[2]-pa[2])*t); return '#'+((1<<24)+(r<<16)+(g<<8)+bl).toString(16).slice(1); }\n  palMix(t){ const pr=this.props||{}; const off=(pr.vineOffColor||'#3a322c'), lit=(pr.vineLitColor||'#9c1b16'); const q=Math.round(Math.max(0,Math.min(1,t))*24); this._palM=this._palM||{}; const k=off+'|'+lit+'|'+q; if(!this._palM[k]){ const base=this.mix(off,lit,q/24); this._palM[k]={ edge:this.shade(base,-0.72), body:base, deep2:this.shade(base,-0.3), wet:this.shade(base,0.3), node:this.shade(base,0.42), flash:this.shade(base,0.72) }; } return this._palM[k]; }\n  maxEquip(){ return (this.props && this.props.maxEquip != null) ? this.props.maxEquip : 3; }\n\n  toggleReveal(){ this.setState(s=>({ revealed:!s.revealed })); }\n  expand(id){ this.setState(st=>({ revealed:true, expanded:{...st.expanded,[id]:true} })); }\n  collapseAll(){ this.setState({ expanded:{} }); }\n  visibleSkills(){ return this.SKILLS.slice(0, this.state.awakening3?7:(this.state.awakening2?5:3)); }\n  layout(){\n    const aw2=this.state.awakening2, aw3=this.state.awakening3, pr=this.props||{};\n    const P={ root:{x:110,y:560}, gravevortex:{x:(pr.gravevortexX!=null?pr.gravevortexX:885),y:(pr.gravevortexY!=null?pr.gravevortexY:290)}, hellfire:{x:(pr.hellfireX!=null?pr.hellfireX:900),y:(pr.hellfireY!=null?pr.hellfireY:800)} };\n    if(!aw2){ P.airblade={x:420,y:210}; P.judgement={x:420,y:560}; P.ancestor={x:420,y:910}; P.bonewall={x:660,y:340}; P.chain={x:660,y:780}; }\n    else if(!aw3){ P.airblade={x:420,y:160}; P.judgement={x:420,y:560}; P.ancestor={x:420,y:960}; P.bonewall={x:660,y:300}; P.chain={x:660,y:820}; }\n    else { P.airblade={x:(pr.airbladeX!=null?pr.airbladeX:190),y:(pr.airbladeY!=null?pr.airbladeY:185)}; P.judgement={x:(pr.judgementX!=null?pr.judgementX:540),y:(pr.judgementY!=null?pr.judgementY:560)}; P.ancestor={x:(pr.ancestorX!=null?pr.ancestorX:245),y:(pr.ancestorY!=null?pr.ancestorY:1015)}; P.bonewall={x:(pr.bonewallX!=null?pr.bonewallX:545),y:(pr.bonewallY!=null?pr.bonewallY:200)}; P.chain={x:(pr.chainX!=null?pr.chainX:560),y:(pr.chainY!=null?pr.chainY:920)}; }\n    return P;\n  }\n  rankPos(P,sid,j){ const p=P[sid]; const ang=Math.atan2(p.y-P.root.y, p.x-P.root.x); const DA=[-0.66,0,0.66], RC=[155,175,155]; const a=ang+DA[j]; return { x:p.x+RC[j]*Math.cos(a), y:p.y+RC[j]*Math.sin(a) }; }\n  unlockAw2(){ if(this.state.awakening2){ this.flashMsg('ALREADY AWAKENED'); return; } if(this.state.gold<800){ this.flashMsg('NEED 800 GOLD'); return; } this.setState(st=>({ awakening2:true, gold:st.gold-800 })); this.flashMsg('SECOND AWAKENING'); }\n  unlockAw3(){ if(!this.state.awakening2){ this.flashMsg('UNLOCK II FIRST'); return; } if(this.state.awakening3){ this.flashMsg('FULLY AWAKENED'); return; } if(this.state.gold<1600){ this.flashMsg('NEED 1600 GOLD'); return; } this.setState(st=>({ awakening3:true, gold:st.gold-1600 })); this.flashMsg('THIRD AWAKENING'); }\n  resetAll(){ const g=(this.props&&this.props.startingGold!=null)?this.props.startingGold:10000; this.setState({ gold:g, owned:{airblade:true,judgement:true,ancestor:true}, equipped:['airblade','judgement','ancestor'], expanded:{}, revealed:false, awakening2:false, awakening3:false }); this.flashMsg('RESET'); }\n  flashMsg(m){ this.setState({ flash:m }); clearTimeout(this._ft); this._ft=setTimeout(()=>this.setState({flash:null}),1600); }\n  unlock(id){ const s=this.NODE[id]; if(!s||this.state.owned[id]) return;\n    const parentOwned = s.parent ? !!this.state.owned[s.parent] : true;\n    if(!parentOwned){ this.flashMsg('UNLOCK '+(this.NODE[s.parent].name||'').toUpperCase()+' FIRST'); return; }\n    if(this.state.gold < (s.cost||0)){ this.flashMsg('NOT ENOUGH GOLD'); return; }\n    this.setState(st=>({ gold:st.gold-(s.cost||0), owned:{...st.owned,[id]:true} }));\n    this.flashMsg((s.name||'SKILL').toUpperCase()+' UNLOCKED'); }\n  toggleEquip(id){ if(!this.state.owned[id]) return; const eq=this.state.equipped.slice(); const i=eq.indexOf(id);\n    if(i>=0){ eq.splice(i,1); } else if(eq.length<this.maxEquip()){ eq.push(id); } else { this.flashMsg('ONLY 3 SKILLS CAN BE EQUIPPED'); return; }\n    this.setState({ equipped:eq }); }\n\n  easeOutCubic(t){ return 1-Math.pow(1-t,3); }\n  noise2(x,y){ const n=Math.sin(x*12.9898+y*78.233)*43758.5453; return n-Math.floor(n); }\n  bez(A,C,B,t){ const m=1-t; return { x:m*m*A.x+2*m*t*C.x+t*t*B.x, y:m*m*A.y+2*m*t*C.y+t*t*B.y }; }\n  ctrlOf(s){ const dx=s.bx-s.ax, dy=s.by-s.ay, dist=Math.hypot(dx,dy)||1; const perp={x:-dy/dist,y:dx/dist}; const lc=(s.litCur!=null?s.litCur:(s.lit?1:0)); const sway=Math.sin(s.ph!=null?s.ph:(s.seed||0))*5; const sag=((s.sag||12)*(1+0.9*lc))+sway; return { x:(s.ax+s.bx)/2+perp.x*sag, y:(s.ay+s.by)/2+perp.y*sag+(12+16*lc) }; }\n  blk(cx,cy,sz,col,a){ const g=this.GRID,ctx=this.ctx; const x=Math.round((cx-sz/2)/g)*g, y=Math.round((cy-sz/2)/g)*g; ctx.globalAlpha=(a==null?1:a); ctx.fillStyle=col; ctx.fillRect(x,y,sz,sz); ctx.globalAlpha=1; }\n  _setupCanvas(){ let cv=this.canvasRef&&this.canvasRef.current; if(!cv) cv=document.querySelector('canvas'); if(!cv) return false; this.ctx=cv.getContext('2d'); this.dpr=Math.min(2,window.devicePixelRatio||1); this.CW=1280; this.CH=1120; this.CM=160; cv.width=this.CW*this.dpr; cv.height=(this.CH+2*this.CM)*this.dpr; return true; }\n  componentDidMount(){ this.GRID=1.5; this.COL={edge:'#0b0202',deep:'#300707',deep2:'#560d0d',body:'#66100e',bright:'#7e1610',wet:'#9e2419',node:'#b83a2c',flash:'#cf7e6e'}; this.sim=new Map(); this.drips=[]; this.now=performance.now(); this.last=this.now; this._setupCanvas(); this._loopBound=this._loop.bind(this); this._raf=requestAnimationFrame(this._loopBound); }\n  componentWillUnmount(){ if(this._raf) cancelAnimationFrame(this._raf); }\n  _desired(){ const out=[], rev=this.state.revealed, exp=this.state.expanded, eqA=this.state.equipped, P=this.layout(), UPDX=[120,160,120], UPDY=[-95,0,95]; if(rev){ this.visibleSkills().forEach((s,i)=>{ const p=P[s.id], lit=eqA.indexOf(s.id)>=0; out.push({key:'o_'+s.id,ax:P.root.x,ay:P.root.y,bx:p.x,by:p.y,seed:i*13+3,delay:(i<3?0:120),thick:4+(i%3),sag:8+i*4,lit:lit}); if(exp[s.id] && lit){ s.upgrades.forEach((u,j)=>{ const q=this.rankPos(P,s.id,j); out.push({key:'u_'+u.id,ax:p.x,ay:p.y,bx:q.x,by:q.y,seed:i*7+j*17+40,delay:540,thick:3,sag:3+j*2,lit:lit}); }); } }); } return out; }\n  step(now,dt){ if(!this.ctx){ if(!this._setupCanvas()) return; } const desired=this._desired(), dset=new Set(desired.map(d=>d.key)); for(const d of desired){ if(!this.sim.has(d.key)) this.sim.set(d.key,{...d,born:now,grow:0,dying:false,thickCur:(d.thick*(d.lit?1.6:0.4)),ph:(d.seed||0),litCur:(d.lit?1:0)}); else { const s=this.sim.get(d.key); const kk=1-Math.exp(-dt/200); s.ax+=(d.ax-s.ax)*kk; s.ay+=(d.ay-s.ay)*kk; s.bx+=(d.bx-s.bx)*kk; s.by+=(d.by-s.by)*kk; s.sag=d.sag; s.thick=d.thick; s.lit=d.lit; const tt=d.thick*(d.lit?1.6:0.4); s.thickCur=(s.thickCur==null?tt:s.thickCur+(tt-s.thickCur)*kk); if(s.lit) s.ph=(s.ph==null?(s.seed||0):s.ph)+dt*0.0009; const lt=d.lit?1:0; s.litCur=(s.litCur==null?lt:s.litCur+(lt-s.litCur)*kk); if(s.dying){ s.dying=false; s.born=now; s.grow=0; } } } for(const [k,s] of this.sim){ if(!dset.has(k)) s.dying=true; } for(const [k,s] of this.sim){ if(s.dying){ s.grow-=dt/360; if(s.grow<=0){ this.sim.delete(k); continue; } } else { const age=now-s.born-(s.delay||0); s.grow= age<=0?0:this.easeOutCubic(Math.min(1,age/900)); } } for(const [k,s] of this.sim){ if(!s.dying && s.lit && s.grow>0.96 && Math.random()<dt/1000*0.55){ const t=0.28+Math.random()*0.5, p=this.bez({x:s.ax,y:s.ay},this.ctrlOf(s),{x:s.bx,y:s.by},t); this.drips.push({x:p.x,y:p.y,vy:0,age:0,life:1.4+Math.random()*1.4,hang:2+Math.random()*3}); } } for(let i=this.drips.length-1;i>=0;i--){ const d=this.drips[i]; d.age+=dt/1000; if(d.age<0.75){ d.hang+=dt*0.02; } else { d.vy+=560*dt/1000; d.y+=d.vy*dt/1000; } if(d.age>d.life||d.y>this.CH+12) this.drips.splice(i,1); } }\n  draw(){ const ctx=this.ctx; if(!ctx) return; const m=this.CM||0; ctx.setTransform(this.dpr,0,0,this.dpr,0,m*this.dpr); ctx.clearRect(0,-m,this.CW,this.CH+2*m); for(const [k,s] of this.sim) this.drawStrand(s,this.now); for(const d of this.drips) this.drawDrip(d); }\n  drawStrand(s,now){ const C=this.palMix(s.litCur!=null?s.litCur:(s.lit?1:0)),g=this.GRID; const A={x:s.ax,y:s.ay},B={x:s.bx,y:s.by},ctrl=this.ctrlOf(s); const dx=B.x-A.x,dy=B.y-A.y,dist=Math.hypot(dx,dy)||1,perp={x:-dy/dist,y:dx/dist}; const head=Math.max(0,Math.min(1,s.grow)); const segs=Math.max(22,Math.round(dist/(g*0.8))); const pts=[]; for(let i=0;i<=segs;i++){ const t=i/segs; if(t>head+0.0001) break; const m=1-t; let x=m*m*A.x+2*m*t*ctrl.x+t*t*B.x, y=m*m*A.y+2*m*t*ctrl.y+t*t*B.y; const wob=Math.sin(t*6.3+s.seed)*2.4+Math.sin(t*15.1+s.seed*1.7)*1.1; x+=perp.x*wob; y+=perp.y*wob; const w=Math.max(2, (s.thickCur!=null?s.thickCur:s.thick)*(0.55+0.45*m)); pts.push({x:x,y:y,w:w}); } for(let i=0;i<pts.length;i++){ const p=pts[i]; this.blk(p.x,p.y,p.w+g*1.4,C.edge,1); } for(let i=0;i<pts.length;i++){ const p=pts[i]; const t=i/((pts.length-1)||1); this.blk(p.x,p.y,p.w,(t<0.55?C.body:C.deep2),1); } for(let i=0;i<pts.length;i++){ const p=pts[i]; this.blk(p.x-perp.x*p.w*0.22,p.y-perp.y*p.w*0.22,Math.max(g,p.w-g*2),C.wet,0.85); } const hp=pts.length?pts[pts.length-1]:A; const hth=(s.thickCur!=null?s.thickCur:s.thick); this.blk(hp.x,hp.y,hth*0.7+g,C.edge,1); this.blk(hp.x,hp.y,hth*0.6,C.node,1); this.blk(hp.x,hp.y,g,C.flash,0.9); }\n  drawDrip(d){ const C=this.strandPal(true),g=this.GRID,hang=Math.max(g,d.hang); this.blk(d.x,d.y,g,C.edge,0.85); this.blk(d.x,d.y+g,g,C.body,1); this.blk(d.x,d.y+hang,g+(d.age>0.75?g:0),C.wet,0.95); this.blk(d.x,d.y+hang+g,g,C.deep,0.8); }\n  _loop(now){ const dt=Math.min(50,now-this.last); this.last=now; this.now=now; this.step(now,dt); this.draw(); this._raf=requestAnimationFrame(this._loopBound); }\n\n  renderVals(){\n    const icons=this.icons, rev=this.state.revealed, exp=this.state.expanded, owned=this.state.owned, eq=this.state.equipped, max=this.maxEquip();\n    const bg=this.bg.bind(this);\n    const P=this.layout(), UPDX=[120,160,120], UPDY=[-95,0,95], aw2=this.state.awakening2, pr2=this.props||{}, glowC=(pr2.glowColor||'#4fdf9a'), glowLight=this.shade(glowC,0.35);\n    const nodes=[], upNodes=[];\n\n    const addNode=(n,x,y,size,iconSize,opts)=>{\n      const isOwned=!!owned[n.id], isEq=eq.indexOf(n.id)>=0;\n      const parentOwned = opts.parent ? !!owned[opts.parent] : true;\n      const available = !isOwned && parentOwned && !opts.root;\n      const tint=n.tint||'#f0b840';\n      const frameStyle={ width:'100%', height:'100%', borderRadius:'50%', background:'linear-gradient(180deg,#15120c,#0a0806)', display:'flex', alignItems:'center', justifyContent:'center', position:'relative', transition:'box-shadow .3s' };\n      const lit=!!opts.lit;\n      if(opts.root) frameStyle.boxShadow='0 0 0 3px '+glowC+', 0 0 0 5px #0b0a07, 0 0 18px '+glowC+'80, inset 0 0 14px rgba(0,0,0,.5)';\n      else if(lit) frameStyle.boxShadow='0 0 0 3px '+glowC+', 0 0 0 5px #0b0a07, 0 0 18px '+glowC+'88, inset 0 0 14px rgba(0,0,0,.5)';\n      else if(!isOwned && available) frameStyle.boxShadow='0 0 0 3px #6b5c38, 0 0 0 5px #0b0a07, inset 0 0 14px rgba(0,0,0,.6)';\n      else if(isOwned) frameStyle.boxShadow='0 0 0 3px #453d33, 0 0 0 5px #0b0a07, inset 0 0 14px rgba(0,0,0,.65)';\n      else frameStyle.boxShadow='0 0 0 3px #3a352a, 0 0 0 5px #0b0a07, inset 0 0 14px rgba(0,0,0,.7)';\n      const wrapStyle={ position:'absolute', left:(x-size/2)+'px', top:(y-size/2)+'px', width:size+'px', height:size+'px', cursor:'pointer', zIndex:'3', transformOrigin:'center', transition:'left .8s cubic-bezier(.22,.61,.36,1), top .8s cubic-bezier(.22,.61,.36,1)' };\n      if(opts.anim){ wrapStyle.animation='nodepop .55s ease-out both'; wrapStyle.animationDelay=((opts.popDelay!=null?opts.popDelay:0.82))+'s'; }\n      (opts.list||nodes).push({\n        key:n.id, name:n.name, cost:n.cost, sub:opts.sub, pulse: lit || !!opts.forcePulse, showCost: available && n.cost>0,\n        onClick: opts.onClick, wrapStyle, frameStyle,\n        pulseStyle:{ position:'absolute', inset:'-5px', borderRadius:'50%', boxShadow:'0 0 12px 3px '+((opts.root||lit)?glowC:tint), opacity:'0.5', animation:'softpulse 1.7s ease-in-out infinite', pointerEvents:'none' },\n        iconStyle:{ width:iconSize+'px', height:iconSize+'px', ...bg(icons[n.art]), opacity: lit?1:(isOwned?0.62:(available?0.85:0.5)) },\n        nameStyle:{ position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)', marginTop:'6px', fontFamily:\"'EB Garamond',serif\", fontWeight:'500', fontSize:(opts.root||opts.big)?'15px':'13px', color:(lit?glowLight:(isOwned?'#a99e83':'#8f8467')), whiteSpace:'nowrap', textShadow:'0 1px 3px #000', pointerEvents:'none' },\n        subStyle:{ position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)', marginTop:'26px', fontFamily:\"'Cinzel',serif\", fontWeight:'700', fontSize:'8px', letterSpacing:'1.5px', color:(lit?glowLight:'#7a6f52'), whiteSpace:'nowrap', pointerEvents:'none' },\n        costStyle:{ position:'absolute', top:'-9px', right:'-8px', display:'flex', alignItems:'center', gap:'2px', background:'linear-gradient(180deg,#2a2417,#0e0b07)', boxShadow:'0 0 0 1px #060507, inset 0 0 0 1px #6b5f45', padding:'2px 5px 2px 3px', borderRadius:'3px', zIndex:'4' },\n        costCoin:{ width:'12px', height:'12px', ...bg(icons.coin) }\n      });\n    };\n\n    addNode({id:'root',name:'Awakening',art:'skull',tint:'#f0b840'}, P.root.x, P.root.y, 88, 58, { root:true, forcePulse:(!rev||!aw2||!this.state.awakening3), sub: rev?(aw2?(this.state.awakening3?'AWAKENED III':'UNLOCK III \\u00b7 1600 G'):'UNLOCK II \\u00b7 800 G'):'TAP TO UNFURL', onClick:(e)=>{e&&e.stopPropagation&&e.stopPropagation(); if(!this.state.revealed){ this.toggleReveal(); } else if(!this.state.awakening2){ this.unlockAw2(); } else { this.unlockAw3(); } } });\n    if(rev){\n      this.visibleSkills().forEach((s,i)=>{\n        const p=P[s.id], isExp=!!exp[s.id], sEq=eq.indexOf(s.id)>=0, sOwn=!!owned[s.id];\n        addNode(s, p.x, p.y, 78, 50, { i, anim:true, popDelay:(i<3?0.9:1.1), lit:sEq, sub:(isExp?(sEq?'EQUIPPED':'TAP TO EQUIP'):null), onClick:(e)=>{e&&e.stopPropagation&&e.stopPropagation(); if(!sOwn){ this.unlock(s.id); } else if(!isExp){ this.expand(s.id); } else { this.toggleEquip(s.id); } } });\n      });\n      Object.keys(exp).forEach(sid=>{\n        if(!exp[sid]||!P[sid]) return; const sN=this.NODE[sid]; if(!sN||!sN.upgrades) return; const p=P[sid];\n        sN.upgrades.forEach((u,j)=>{ const q=this.rankPos(P,sid,j); addNode(u, q.x, q.y, 56, 38, { i:j, anim:true, popDelay:1.5, parent:sid, list:upNodes, lit:(eq.indexOf(sid)>=0), onClick:(e)=>{e&&e.stopPropagation&&e.stopPropagation(); this.unlock(u.id);} }); });\n      });\n    }\n\n    const loadout=[];\n    for(let i=0;i<max;i++){ const id=eq[i]; const b={ width:'48px', height:'48px', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'3px', cursor:'pointer', flexShrink:'0' };\n      if(id){ const nn=this.NODE[id]; loadout.push({ filled:true, empty:false, iconStyle:{ width:'34px', height:'34px', ...bg(icons[nn.art]) }, onClick:()=>this.zoomTo(id), slotStyle:{ ...b, background:'radial-gradient(circle at 50% 40%, '+glowC+'26, rgba(8,7,5,0) 70%), #100d09', boxShadow:'0 0 0 2px '+glowC+', inset 0 0 10px rgba(0,0,0,.6)' } }); }\n      else { loadout.push({ filled:false, empty:true, onClick:()=>this.flashMsg('EQUIP A SKILL'), slotStyle:{ ...b, background:'#100d09', boxShadow:'inset 0 0 0 1px #2f4a3a, inset 0 0 10px rgba(0,0,0,.7)' } }); } }\n\n    const vis=[{x:P.root.x,y:P.root.y,r:44}];\n    this.visibleSkills().forEach((s)=>{ const p=P[s.id]; vis.push({x:p.x,y:p.y,r:39}); if(rev&&exp[s.id]) s.upgrades.forEach((u,j)=>{ const q=this.rankPos(P,s.id,j); vis.push({x:q.x,y:q.y,r:28}); }); });\n    let bx0=1e9,by0=1e9,bx1=-1e9,by1=-1e9;\n    vis.forEach(n=>{ bx0=Math.min(bx0,n.x-n.r-30); by0=Math.min(by0,n.y-n.r-30); bx1=Math.max(bx1,n.x+n.r+30); by1=Math.max(by1,n.y+n.r+48); });\n    const vpx0=10,vpy0=104,vpx1=404,vpy1=816, bw=Math.max(1,bx1-bx0), bh=Math.max(1,by1-by0);\n    const cs=Math.min((vpx1-vpx0)/bw,(vpy1-vpy0)/bh,1.06);\n    const ctX=(vpx0+vpx1)/2 - cs*(bx0+bx1)/2, ctY=(vpy0+vpy1)/2 - cs*(by0+by1)/2;\n    const treeWrapStyle={ position:'absolute', left:'0', top:'0', width:'1280px', height:'1120px', transformOrigin:'0 0', transform:'translate('+ctX+'px,'+ctY+'px) scale('+cs+')', transition:'transform .5s cubic-bezier(.22,.61,.36,1)' };\n    const bgStyle={ position:'absolute', left:(-400+(pr2.bgOffsetX!=null?pr2.bgOffsetX:0))+'px', top:(-800+(pr2.bgOffsetY!=null?pr2.bgOffsetY:0))+'px', width:'2000px', height:'2700px', background:\"linear-gradient(rgba(4,5,4,.38),rgba(4,5,4,.55)), url('assets/skilltree-bg.png') left center / cover no-repeat\", imageRendering:'pixelated' };\n    return {\n      nodes, upNodes, loadout, canvasRef:this.canvasRef, treeWrapStyle, bgStyle, showBg:(pr2.showBackdrop!=null?pr2.showBackdrop:true),\n      gold:this.state.gold, coinStyleHdr:{ width:'17px', height:'17px', ...bg(icons.coin) },\n      showBack: Object.keys(exp).length>0, title:'SKILL TREE',\n      hint: rev ? (Object.keys(exp).length>0?'Tap upgrades to unlock \\u00b7 tap a skill to equip':'Tap a skill to grow its branch') : 'Tap the core to unfurl the tree',\n      hintStyle:{ fontFamily:\"'EB Garamond',serif\", fontStyle:'italic', fontSize:'13px', color:'#8a7f62', marginTop:'3px', letterSpacing:'.5px' },\n      loadoutCount: eq.length, maxEquip:max, flash:this.state.flash,\n      onReset:(e)=>{e&&e.stopPropagation&&e.stopPropagation(); this.resetAll();},\n      onZoomOut:(e)=>{e&&e.stopPropagation&&e.stopPropagation(); this.collapseAll();},\n      onBgTap:()=>{ this.collapseAll(); }\n    };\n  }\n}\n<\u002Fscript>\n\n\n<\u002Fbody><\u002Fhtml>"
+  </script>
+</body>
+</html>
