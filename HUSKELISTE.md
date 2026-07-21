@@ -315,6 +315,18 @@ sig selv. Originalerne ligger desuden i git.
 **Spillet i alt: 260 → 149 MB.** Zombierne er **ikke** pakket endnu og er nu
 den største post (52,5 MB) — samme greb dér, og de har mere luft end ridderen.
 
+**Hvad pakningen gør ved ydelsen (målt 21. juli):** løbende fps er *uændret*
+(236 fps, hak 0) — at tegne et billede koster det samme uanset teksturens
+størrelse. Men **afkodningen er 4-5× billigere**: idle 1,3 ms, melee 5,2 ms,
+mod 1,97 mio. pixels pr. ark før. Det er præcis den udgift, Magnus beskrev som
+*"7,5 MB decode på main thread = 90 ms hak"*. Derfor er pakningen af
+zombierne mere end hukommelse: Magnus har netop sat dem til at **skifte kilde
+direkte**, hvilket betaler afkodningen igen hver gang.
+
+Én pris tilføjet, ikke bevist gratis: rammens størrelse ændrer sig nu pr.
+billede (før fast 128), så browseren omberegner layout ~16 gange/sek for
+ridderens 20 monterede lag. Ikke målbart i tallene, men ikke modbevist.
+
 ---
 
 ### Baggrunden for beskæringen (målt 21. juli)
