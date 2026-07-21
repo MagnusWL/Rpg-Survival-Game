@@ -7,6 +7,7 @@ import { Asset } from 'expo-asset';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { StatusBar } from 'expo-status-bar';
 import { memo, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   Animated,
   Dimensions,
@@ -425,7 +426,7 @@ type TooltipState = { key: string; text: string; x: number; y: number } | null;
 
 // A simple fading ring left on the ground where a skill hit -- Cone, Fireball,
 // Burn and Push each drop one so their impact lingers a beat after the numbers land.
-type SkillMark = { id: number; pos: Vec; radius: number; color: string; createdAt: number };
+export type SkillMark = { id: number; pos: Vec; radius: number; color: string; createdAt: number };
 
 let projectileIdCounter = 0;
 let hitFlashIdCounter = 0;
@@ -479,6 +480,98 @@ function DebugSlider({
     </View>
   );
 }
+
+/**
+ * The high-frequency rendering island. The simulation replaces its actor
+ * arrays every frame, but the rest of the game screen no longer has to walk
+ * this large tree while React reconciles those updates.
+ */
+const PlayField = memo(function PlayField({
+  player,
+  mobs,
+  corpses,
+  allies,
+  groundActors,
+  playerAttackRange,
+  aimingAbility,
+  aimPreviewPoint,
+  coneZones,
+  groundItems,
+  bloodSplats,
+  projectiles,
+  skillMarks,
+  hitFlashes,
+  floatingTexts,
+  weatherOff,
+  onGrant,
+  onMove,
+  onRelease,
+  children: _children,
+}: {
+  player: PlayerState;
+  mobs: Mob[];
+  corpses: Corpse[];
+  allies: Ally[];
+  groundActors: ReactNode[];
+  playerAttackRange: number;
+  aimingAbility: AbilityId | null;
+  aimPreviewPoint: Vec | null;
+  coneZones: ConeZone[];
+  groundItems: GroundItem[];
+  bloodSplats: BloodSplat[];
+  projectiles: Projectile[];
+  skillMarks: SkillMark[];
+  hitFlashes: HitFlash[];
+  floatingTexts: FloatingText[];
+  weatherOff: boolean;
+  onGrant: (event: GestureResponderEvent) => void;
+  onMove: (event: GestureResponderEvent) => void;
+  onRelease: (event: GestureResponderEvent) => void;
+  children?: ReactNode;
+}) {
+  const renderCone = (angleDeg: number) => {
+    const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
+    const baseWidth = 2 * CONE_RANGE * Math.tan(halfRad);
+    return (
+      <View pointerEvents="none" style={{ position: 'absolute', left: player.pos.x - baseWidth / 2, top: player.pos.y - CONE_RANGE, width: baseWidth, height: CONE_RANGE * 2, transform: [{ rotate: `${angleDeg - 90}deg` }] }}>
+        <View style={{ position: 'absolute', top: CONE_RANGE, left: 0, width: 0, height: 0, borderLeftWidth: baseWidth / 2, borderRightWidth: baseWidth / 2, borderBottomWidth: CONE_RANGE, borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: 'rgba(255,138,80,0.28)' }} />
+      </View>
+    );
+  };
+
+  return (
+    <View style={styles.playArea} onStartShouldSetResponder={() => true} onResponderGrant={onGrant} onResponderMove={onMove} onResponderRelease={onRelease}>
+      <Image source={BACKGROUND} style={styles.background} resizeMode="cover" />
+      <View pointerEvents="none" style={[styles.rangeRing, { width: playerAttackRange * 2, height: playerAttackRange * 2, borderRadius: playerAttackRange, left: player.pos.x - playerAttackRange, top: player.pos.y - playerAttackRange }]} />
+      {aimingAbility === 2 && aimPreviewPoint && renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
+      {coneZones.map((z) => z.startAt <= Date.now() ? <ConeZoneFx key={`czone-${z.id}`} zone={z} /> : null)}
+      {groundItems.map((it) => {
+        const def = ITEM_DEFS[it.item.kind];
+        return <View key={it.item.id} style={[styles.groundItem, { left: it.pos.x - ITEM_SIZE / 2, top: it.pos.y - ITEM_SIZE / 2, backgroundColor: def.color }]}><Text style={styles.groundItemText}>{it.item.level}</Text></View>;
+      })}
+      {bloodSplats.map((b) => <SpriteSheet key={b.id} anims={BLOOD_ANIMS} anim="blood" animTime={(Date.now() - b.createdAt) / 1000} facing={b.variant} size={BLOOD_SIZE} left={b.pos.x - BLOOD_SIZE / 2} top={b.pos.y - BLOOD_SIZE / 2} />)}
+      {RAIN_ENABLED && !weatherOff && PUDDLE_SPOTS.length > 0 && <RippleLayer />}
+      {groundActors}
+      {RAIN_ENABLED && !weatherOff && <RainLayer />}
+      {projectiles.map((pr) => {
+        const progress = Math.min(1, (Date.now() - pr.createdAt) / pr.duration);
+        return <View key={pr.id} style={[styles.projectile, { left: pr.from.x + (pr.to.x - pr.from.x) * progress - 4, top: pr.from.y + (pr.to.y - pr.from.y) * progress - 4, backgroundColor: pr.color }]} />;
+      })}
+      {skillMarks.map((m) => {
+        const age = Date.now() - m.createdAt;
+        if (age < 0) return null;
+        const t = Math.min(1, age / SKILL_MARK_DURATION);
+        const size = m.radius * 2 * (1 + t * 0.15);
+        return <View key={m.id} style={[styles.skillMark, { left: m.pos.x - size / 2, top: m.pos.y - size / 2, width: size, height: size, borderRadius: size / 2, borderColor: m.color, opacity: 0.55 * (1 - t) }]} />;
+      })}
+      {hitFlashes.map((f) => <View key={f.id} style={[styles.hitFlash, { left: f.pos.x - 10, top: f.pos.y - 10, opacity: Math.max(0, 1 - (Date.now() - f.createdAt) / HIT_FLASH_DURATION) }]} />)}
+      {floatingTexts.map((f) => {
+        const t = Math.min(1, (Date.now() - f.createdAt) / FLOATING_TEXT_DURATION);
+        return <Text key={f.id} pointerEvents="none" style={[styles.floatingText, { left: f.pos.x - 25, top: f.pos.y - t * FLOATING_TEXT_RISE - 10, color: f.color, opacity: Math.max(0, 1 - t) }]}>{f.text}</Text>;
+      })}
+    </View>
+  );
+});
 
 export default function App() {
   const [screen, setScreen] = useState<'menu' | 'continue' | 'skilltree' | 'game'>('menu');
@@ -2894,6 +2987,7 @@ export default function App() {
           left={player.pos.x - PLAYER_SPRITE_SIZE / 2}
           top={player.pos.y + PLAYER_SPRITE_FOOT_OFFSET - PLAYER_SPRITE_SIZE}
           rim={rim}
+          mountAllAnims
         />
       ),
     },
@@ -2995,13 +3089,28 @@ export default function App() {
         </View>
       </View>
 
-      <View
-        style={styles.playArea}
-        onStartShouldSetResponder={() => true}
-        onResponderGrant={handlePlayAreaGrant}
-        onResponderMove={handlePlayAreaMove}
-        onResponderRelease={handlePlayAreaRelease}
+      <PlayField
+        player={player}
+        mobs={mobs}
+        corpses={corpses}
+        allies={allies}
+        groundActors={groundActors}
+        playerAttackRange={playerAttackRange}
+        aimingAbility={aimingAbility}
+        aimPreviewPoint={aimPreviewPoint}
+        coneZones={coneZones}
+        groundItems={groundItems}
+        bloodSplats={bloodSplats}
+        projectiles={projectiles}
+        skillMarks={skillMarks}
+        hitFlashes={hitFlashes}
+        floatingTexts={floatingTexts}
+        weatherOff={weatherOff}
+        onGrant={handlePlayAreaGrant}
+        onMove={handlePlayAreaMove}
+        onRelease={handlePlayAreaRelease}
       >
+        {false && <>
         {/* The ground, behind everything else in the play area. */}
         <Image source={BACKGROUND} style={styles.background} resizeMode="cover" />
 
@@ -3021,7 +3130,7 @@ export default function App() {
 
         {aimingAbility === 2 &&
           aimPreviewPoint &&
-          renderCone((Math.atan2(aimPreviewPoint.y - player.pos.y, aimPreviewPoint.x - player.pos.x) * 180) / Math.PI)}
+          renderCone((Math.atan2(aimPreviewPoint!.y - player.pos.y, aimPreviewPoint!.x - player.pos.x) * 180) / Math.PI)}
 
         {/* The cone's zone, on the ground plane under everyone's feet. It
             mounts when the pose reaches its 13th picture, and mounting is
@@ -3116,7 +3225,8 @@ export default function App() {
           );
         })}
 
-      </View>
+        </>}
+      </PlayField>
 
       <View style={styles.quickCastBar}>
         {/* Inventory, moved out of the old bottom bar: a small bag at the far

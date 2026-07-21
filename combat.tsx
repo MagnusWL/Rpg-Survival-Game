@@ -794,11 +794,15 @@ export function xpForLevel(level: number) {
  * Draws one frame of a sprite sheet: a clipping box with the sheet inside it,
  * shifted so the wanted cell lands in view.
  *
- * Every animation stays mounted and only the active one is made visible.
- * Swapping a single Image's source instead makes react-native-web reload it --
- * it renders the picture as a CSS background and clears that background while
- * the new one loads, even from cache -- and the frames in between draw nothing,
- * so the character blinks each time the animation changes.
+ * `mountAllAnims` keeps every animation mounted and toggles opacity instead of
+ * swapping the active one. Swapping a single Image's source makes
+ * react-native-web reload it -- it renders the picture as a CSS background and
+ * clears that background while the new one loads, even from cache -- and the
+ * frames in between draw nothing, so the character blinks each time the
+ * animation changes. Worth paying for the knight, who is one sprite mounting
+ * five sheets; not worth it for a crowd of mobs, where the same choice is five
+ * sheets each, times however many are alive, and a blink lost in a crowd of
+ * bodies is not one anybody sees. Mobs and corpses swap the source directly.
  */
 export function SpriteSheet({
   anims,
@@ -810,6 +814,7 @@ export function SpriteSheet({
   top,
   flash,
   rim,
+  mountAllAnims = false,
 }: {
   anims: Record<string, AnimDef>;
   anim: string;
@@ -828,12 +833,18 @@ export function SpriteSheet({
    * sheet, which is the knight's and no one else's.
    */
   rim?: RimStyle;
+  /** See the doc comment above -- on for the knight, off for everyone else. */
+  mountAllAnims?: boolean;
 }) {
   const active = anims[anim];
   const activeRows = active ? active.rows ?? SPRITE_ROWS : SPRITE_ROWS;
+  // Every anim's entry when mounting them all; otherwise just the one frame
+  // actually on screen, keyed on the anim name so swapping still remounts it
+  // (the source-reload blink this trades away in exchange for the node count).
+  const shownAnims = mountAllAnims ? Object.entries(anims) : active ? [[anim, active] as [string, AnimDef]] : [];
   return (
     <View style={{ position: 'absolute', width: size, height: size, overflow: 'hidden', left, top }}>
-      {Object.entries(anims).map(([name, def]) => {
+      {shownAnims.map(([name, def]) => {
         const rows = def.rows ?? SPRITE_ROWS;
         return (
           <Image
@@ -847,7 +858,7 @@ export function SpriteSheet({
               height: size * rows,
               left: -size * animColumn(def, animTime),
               top: -size * Math.min(facing, rows - 1),
-              opacity: name === anim ? 1 : 0,
+              opacity: mountAllAnims && name !== anim ? 0 : 1,
             }}
           />
         );
@@ -863,7 +874,10 @@ export function SpriteSheet({
           change. Worse, an unmounted sheet's decoded pixels are the first
           thing the browser evicts, so each swap back was a fresh 7.5 MB decode
           on the main thread -- measured in play as 90 ms hitches that landed
-          exactly on stopping, starting and striking.
+          exactly on stopping, starting and striking. Only the knight carries a
+          rim at all, and he is always mountAllAnims, so this list is never the
+          single-frame kind in practice -- written to match anyway, in case a
+          rim ever finds its way onto something drawn single-frame.
 
           The blend goes on a wrapper rather than on the image, the way the
           ground glow does it -- it has to mix with him, and an element that
@@ -879,7 +893,7 @@ export function SpriteSheet({
             mixBlendMode: rim.blend,
           }}
         >
-          {Object.entries(anims).map(([name, def]) => {
+          {shownAnims.map(([name, def]) => {
             if (!def.rim) return null;
             const rows = def.rows ?? SPRITE_ROWS;
             return (
@@ -893,7 +907,7 @@ export function SpriteSheet({
                   height: size * rows,
                   left: -size * animColumn(def, animTime),
                   top: -size * Math.min(facing, rows - 1),
-                  opacity: name === anim ? rim.strength : 0,
+                  opacity: mountAllAnims && name !== anim ? 0 : rim.strength,
                 }}
               />
             );
