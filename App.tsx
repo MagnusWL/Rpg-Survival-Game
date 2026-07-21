@@ -844,6 +844,25 @@ const RippleLayer = memo(function RippleLayer() {
  */
 const BACKGROUND = require('./assets/sprites/background.jpg');
 
+/**
+ * The cone's strike lines, baked. Eight arcs drawn once by
+ * tools/build-cone-fx.mjs and shipped as a sheet -- 7 KB on disk, under a
+ * megabyte in memory.
+ *
+ * This replaced four hundred and twenty separate squares, and the reason is
+ * Nicolai's: tailoring every effect by hand until it is cheap enough is not a
+ * way of working. The knight and the zombies are sheets so that nobody has to
+ * think about what they cost, and an effect should be no different. Eight
+ * pictures appearing in turn is the whole wave now.
+ *
+ * What is baked is the line rather than the whole wedge on purpose: unfolded,
+ * the cone is 789 x 650 px, so a film of it is either forty megabytes or so
+ * few frames that the wave crawls. A line is thin, there are eight of them,
+ * and the travel then costs nothing at all.
+ */
+const CONE_ARC_SHEET = require('./assets/sprites/fx/cone-arcs.png');
+const CONE_ARCS: { cellW: number; cellH: number; radii: number[] } = require('./assets/sprites/fx/cone-arcs.json');
+
 // --- Menu ------------------------------------------------------------------
 // The title screen. The art carries the game's name, so nothing is drawn over
 // it -- only the plaque that starts a run sits on top.
@@ -917,6 +936,7 @@ const ALL_SHEETS: number[] = [
   ...Object.values(MOB_ANIMS).map((a) => a.sheet),
   ...Object.values(MOB_DIE_ANIMS).map((a) => a.sheet),
   BLOOD_ANIM.sheet,
+  CONE_ARC_SHEET,
   BACKGROUND,
   GLOW,
 ] as number[];
@@ -1260,22 +1280,15 @@ const ABILITY2_HALF_ANGLE_DEG = 21; // ~60% of the original 35deg half-angle
 // game loop only drops the entry when its time is up.
 const CONE_ZONE = {
   /**
-   * How long one pixel's whole life lasts, from the front reaching it to it
-   * having drifted away. Every pixel runs this same span, started at its own
-   * distance-delay -- which is what makes the zone fade from the tip outward
-   * rather than all at once: the near pixels began first, so they finish
-   * first. Nicolai's ask of 21 July.
+   * How long one strike line's whole life lasts, from the front reaching it
+   * to it having drifted away. Every line runs this same span, started at its
+   * own distance-delay -- which is what makes the zone fade from the tip
+   * outward rather than all at once: the near lines began first, so they
+   * finish first. Nicolai's ask of 21 July.
    */
   cellLifeMs: 1500,
-  /** How far a pixel drifts up as it dies. Four steps, so four whole pixels. */
+  /** How far a line drifts up as it dies. Four steps, so four whole pixels. */
   drift: 16,
-  /**
-   * One pixel of the carpet, in screen px. Halved twice on Nicolai's eye, 8
-   * to 4 to 2 -- a twentieth of the knight's width. Each halving quadruples
-   * the candidates, so the densities below were cut to match every time: a
-   * finer grain, not sixteen times the cost.
-   */
-  cell: 2,
   /**
    * px/s the wave runs outward at. Slower than the old bare ignition (1500),
    * because it now carries the hop and a wave has to be seen travelling to
@@ -1301,49 +1314,10 @@ const CONE_ZONE = {
    * least one pixel wide -- see CONE_HOPS.
    */
   hopSteps: 4,
-  /**
-   * The blow itself -- Nicolai's ask of 21 July: the wave needs a line you
-   * can point at and say that is what strikes.
-   *
-   * So the pixels are laid on arcs of constant distance instead of scattered.
-   * The front is itself a ring of constant distance, so it reaches a whole
-   * arc at the same instant and lights it as one line, which then travels.
-   * Dotted rather than solid (half the pixels of the arc) because a solid
-   * line of 4 px squares costs twice as much and reads no better.
-   */
-  arcGap: 96,
-  arcDensity: 0.55,
-  /**
-   * The wedge's two straight edges, now a hint rather than a frame -- toned
-   * down on Nicolai's eye once the arcs took over the job of showing the
-   * shape. `edgeBand` is how far in from the edge still counts as the edge.
-   */
-  edgeBand: 4,
-  edgeDensity: 0.16,
-  /** The scatter between the arcs: a little texture, nothing more. */
-  fillNear: 0.007,
-  fillFar: 0.003,
-  fillFalloff: 460,
-  /**
-   * Never mount more than this, however the wedge happens to fall.
-   *
-   * Halved on 21 July because Nicolai could feel the cost. Every pixel is a
-   * separate thing for the browser to lay out, animate and composite, so the
-   * count IS the price -- and cutting it turned out to improve the effect as
-   * well: at 420, nine tenths of what is drawn is the strike lines
-   * themselves, which is what the eye was meant to follow all along.
-   */
-  maxCells: 420,
-  /**
-   * The strike line burns brightest; the edge and the scatter sit under it.
-   * These are the colours at the peak of the leap -- the animation dims
-   * every pixel to about half once the front has passed, so what is left
-   * behind the line is a trail rather than a second line.
-   */
-  arcColors: ['rgba(255,228,175,0.95)', 'rgba(255,196,107,0.9)'],
-  edgeColors: ['rgba(255,138,80,0.32)', 'rgba(217,83,30,0.3)'],
-  fillColors: ['rgba(255,138,80,0.35)', 'rgba(217,83,30,0.3)', 'rgba(255,196,107,0.3)'],
 };
+
+/** How wide the whole baked sheet is, for sliding the wanted cell into view. */
+const CONE_ARC_SHEET_W = CONE_ARCS.cellW * CONE_ARCS.radii.length;
 
 /**
  * How long a whole cast stays on the field: the wave's journey to the far
@@ -1451,17 +1425,24 @@ const coneZoneSheet = StyleSheet.create({
     height: PLAY_H,
     pointerEvents: 'none',
   },
-  // A set of pixels that light up together, and the only thing that is
-  // animated. Sized by its own contents rather than stretched over the field,
-  // so a swell grows the line about its own middle.
-  group: {
+  // One strike line: a window onto its cell of the baked sheet. This is the
+  // only thing that animates, and there are eight of them.
+  arc: {
     position: 'absolute',
+    width: CONE_ARCS.cellW,
+    height: CONE_ARCS.cellH,
+    overflow: 'hidden',
   },
-  // Just the square. It never animates: it is carried by its group.
-  cell: {
+  // The sheet inside that window, slid so the wanted cell shows.
+  arcSheet: {
     position: 'absolute',
-    width: CONE_ZONE.cell,
-    height: CONE_ZONE.cell,
+    top: 0,
+    width: CONE_ARC_SHEET_W,
+    height: CONE_ARCS.cellH,
+    // Square pixels stay square. The lines are pixel art and the layer is
+    // rotated to the cast, which is exactly where a browser would otherwise
+    // smooth them into mush.
+    imageRendering: 'pixelated',
   },
   ...(Object.fromEntries(
     Array.from({ length: CONE_DELAY_BUCKETS }, (_, i) => [
@@ -1495,175 +1476,59 @@ const CONE_DAMAGE_RIDES_WAVE = true;
 /** A blow the wave is carrying but has not delivered yet. */
 type PendingConeHit = { mobId: number; amount: number; at: number };
 
-type ConeZoneCell = { left: number; top: number; color: string; bucket: number; arc: boolean };
 /**
- * Pixels that light up at the same moment, gathered under one animated
- * wrapper -- in practice one strike line, since a line is exactly the set of
- * pixels the front reaches together.
+ * One cast's zone: where he stood, which way he faced, and when the ground
+ * should answer.
  *
- * The wrapper is sized to its own pixels rather than to the field, which
- * matters for more than tidiness: a transform scales about an element's
- * centre, so a field-sized wrapper would swell the whole screen, while this
- * one swells the arc about its own middle, which is what it should do.
+ * That is the whole record now. It used to carry four hundred and twenty
+ * hand-placed squares; the strike lines are a baked sheet, so all that is
+ * left is the geometry. `startAt` holds the lines back until the pose reaches
+ * its 13th picture -- a timer rather than a watch on the animation itself, so
+ * a cast made on the run, where the pose is skipped entirely, still lights
+ * the ground it hit.
  */
-type ConeZoneGroup = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  hop: number;
-  bucket: number;
-  cells: { left: number; top: number; color: string }[];
-};
-/**
- * One cast's zone. The cells are worked out at the moment of the cast -- from
- * where he stood and which way he faced then -- but `startAt` holds them back
- * until the pose reaches its 13th picture. It is a timer rather than a watch
- * on the animation itself, so a cast made on the run, where the pose is
- * skipped entirely, still lights the ground it hit.
- */
-type ConeZone = { id: number; groups: ConeZoneGroup[]; startAt: number };
+type ConeZone = { id: number; x: number; y: number; angleDeg: number; startAt: number };
 
 /**
- * Which pixels of the field lie inside the cone about to be cast.
+ * The wave: eight baked lines laid out along the cast and lit in turn.
  *
- * The test is the cone's own: within range, and within the half-angle of the
- * cast direction -- the same two questions fireCone asks of every mob, so
- * what lights up is what gets hit.
+ * The container is placed at the knight and turned to face the cast, so each
+ * line only has to know how far out it belongs -- and since a line's distance
+ * is also what decides when the front reaches it, the delay class and the
+ * position come from the same number.
+ *
+ * Its props never change after mount, so React never reconciles it again, and
+ * only eight elements are ever animated.
  */
-function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneGroup[] {
-  const { cell, arcColors, edgeColors, fillColors } = CONE_ZONE;
-  const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
-  const cosHalf = Math.cos(halfRad);
-  const tanHalf = Math.tan(halfRad);
-  const ang = (angleDeg * Math.PI) / 180;
-  const dirX = Math.cos(ang);
-  const dirY = Math.sin(ang);
-  const cells: ConeZoneCell[] = [];
-  for (let top = 0; top < PLAY_H; top += cell) {
-    for (let left = 0; left < SCREEN_W; left += cell) {
-      const dx = left + cell / 2 - ox;
-      const dy = top + cell / 2 - oy;
-      const len = Math.hypot(dx, dy);
-      if (len < 1 || len > CONE_RANGE) continue;
-      if ((dx / len) * dirX + (dy / len) * dirY < cosHalf) continue;
-      // How far in from the nearer straight edge this pixel sits, measured
-      // across the wedge: zero on the edge itself, growing toward the axis.
-      const along = dx * dirX + dy * dirY;
-      const lateral = Math.abs(dy * dirX - dx * dirY);
-      const inFromEdge = along * tanHalf - lateral;
-      const onEdge = inFromEdge <= CONE_ZONE.edgeBand;
-      // On one of the strike lines: a ring of constant distance, which is
-      // the shape of the front itself, so the whole arc is reached at once.
-      const onArc = len % CONE_ZONE.arcGap < cell;
-      const density = onArc
-        ? CONE_ZONE.arcDensity
-        : onEdge
-          ? CONE_ZONE.edgeDensity
-          : Math.max(
-              CONE_ZONE.fillFar,
-              CONE_ZONE.fillNear - (CONE_ZONE.fillNear - CONE_ZONE.fillFar) * (len / CONE_ZONE.fillFalloff)
-            );
-      if (Math.random() > density) continue;
-      const palette = onArc ? arcColors : onEdge ? edgeColors : fillColors;
-      cells.push({
-        left,
-        top,
-        arc: onArc,
-        color: palette[Math.floor(Math.random() * palette.length)],
-        bucket: Math.min(
-          CONE_DELAY_BUCKETS - 1,
-          Math.round((len / CONE_ZONE.sweepSpeed) * 1000 / CONE_ZONE.delayStepMs)
-        ),
-      });
-    }
-  }
-  // A cast along the field's diagonal covers far more ground than one into a
-  // corner. Thinning keeps the worst case as cheap as the ordinary one -- and
-  // it spares the strike lines, because thinning those would break up the one
-  // thing the eye is meant to follow.
-  let kept = cells;
-  if (cells.length > CONE_ZONE.maxCells) {
-    const lines = cells.filter((c) => c.arc);
-    const rest = cells.filter((c) => !c.arc);
-    const keep = Math.max(0, (CONE_ZONE.maxCells - lines.length) / rest.length);
-    kept = lines.concat(rest.filter(() => Math.random() < keep));
-  }
-
-  // Gather them into the sets that light up together. Keyed by the moment
-  // the front arrives, so a whole strike line falls into one group -- which
-  // is the point: one animated layer per line instead of one per pixel.
-  // Arcs are kept apart from the scatter around them so the two can leap
-  // differently.
-  const byMoment = new Map<string, ConeZoneCell[]>();
-  for (const c of kept) {
-    const key = `${c.bucket}:${c.arc ? 'l' : 's'}`;
-    const bag = byMoment.get(key);
-    if (bag) bag.push(c);
-    else byMoment.set(key, [c]);
-  }
-
-  const groups: ConeZoneGroup[] = [];
-  for (const [key, bag] of byMoment) {
-    let minLeft = Infinity;
-    let minTop = Infinity;
-    let maxLeft = -Infinity;
-    let maxTop = -Infinity;
-    for (const c of bag) {
-      if (c.left < minLeft) minLeft = c.left;
-      if (c.top < minTop) minTop = c.top;
-      if (c.left > maxLeft) maxLeft = c.left;
-      if (c.top > maxTop) maxTop = c.top;
-    }
-    const isLine = key.endsWith('l');
-    groups.push({
-      left: minLeft,
-      top: minTop,
-      // Given a real size, so a swell grows the line about its own middle. A
-      // box with no size takes its corner as the origin, which would shove
-      // the line sideways instead of expanding it.
-      width: maxLeft - minLeft + CONE_ZONE.cell,
-      height: maxTop - minTop + CONE_ZONE.cell,
-      bucket: bag[0].bucket,
-      // The lines leap highest -- they are the blow. The scatter keeps its
-      // feet nearer the ground so the line stays the thing being watched.
-      hop: isLine
-        ? CONE_EDGE_HOPS + Math.floor(Math.random() * (CONE_HOPS.length - CONE_EDGE_HOPS))
-        : Math.floor(Math.random() * CONE_EDGE_HOPS),
-      cells: bag.map((c) => ({ left: c.left - minLeft, top: c.top - minTop, color: c.color })),
-    });
-  }
-  return groups;
-}
-
-/**
- * The carpet. Its props never change after mount, so React never reconciles
- * it again -- the compositor owns every pixel until the loop drops the entry.
- */
-const ConeZoneFx = memo(function ConeZoneFx({ groups }: { groups: ConeZoneGroup[] }) {
+const ConeZoneFx = memo(function ConeZoneFx({ zone }: { zone: ConeZone }) {
   return (
-    <View style={coneZoneSheet.layer}>
-      {groups.map((g, gi) => (
-        // The animation lives here, on the group, and this is the only thing
-        // the compositor has to work on every frame. The squares inside are
-        // painted once and then carried along.
-        <View
-          key={gi}
-          style={[
-            coneZoneSheet.group,
-            coneHopStyles[`h${g.hop}`],
-            coneZoneSheet[`d${g.bucket}`],
-            { left: g.left, top: g.top, width: g.width, height: g.height },
-          ]}
-        >
-          {g.cells.map((c, i) => (
-            <View
-              key={i}
-              style={[coneZoneSheet.cell, { left: c.left, top: c.top, backgroundColor: c.color }]}
-            />
-          ))}
-        </View>
-      ))}
+    <View
+      pointerEvents="none"
+      style={{ position: 'absolute', left: zone.x, top: zone.y, transform: [{ rotate: `${zone.angleDeg}deg` }] }}
+    >
+      {CONE_ARCS.radii.map((radius, i) => {
+        const bucket = Math.min(
+          CONE_DELAY_BUCKETS - 1,
+          Math.round(((radius / CONE_ZONE.sweepSpeed) * 1000) / CONE_ZONE.delayStepMs)
+        );
+        // Dealt by distance rather than at random, so the leaps rise as the
+        // wave travels instead of jumping about.
+        const hop = CONE_EDGE_HOPS + (i % (CONE_HOPS.length - CONE_EDGE_HOPS));
+        return (
+          <View
+            key={i}
+            style={[
+              coneZoneSheet.arc,
+              coneHopStyles[`h${hop}`],
+              coneZoneSheet[`d${bucket}`],
+              // Right edge on the arc's own radius, centred across the cone.
+              { left: radius - CONE_ARCS.cellW, top: -CONE_ARCS.cellH / 2 },
+            ]}
+          >
+            <Image source={CONE_ARC_SHEET} style={[coneZoneSheet.arcSheet, { left: -i * CONE_ARCS.cellW }]} />
+          </View>
+        );
+      })}
     </View>
   );
 });
@@ -3257,13 +3122,14 @@ export default function App() {
     // Ours: the cast pose. The skill's own work below stays exactly as it was.
     pendingCastAnimRef.current = 'rupture';
     // Ours too: the zone lit up on the ground, toward the aimed point.
-    const zoneGroups = buildConeZone(
-      p.pos.x,
-      p.pos.y,
-      (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI
-    );
     setConeZones((prev) =>
-      prev.concat({ id: ++coneZoneIdCounter, groups: zoneGroups, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
+      prev.concat({
+        id: ++coneZoneIdCounter,
+        x: p.pos.x,
+        y: p.pos.y,
+        angleDeg: (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI,
+        startAt: Date.now() + RUPTURE_ZONE_DELAY_MS,
+      })
     );
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
@@ -3304,9 +3170,14 @@ export default function App() {
       const dir = directionFromFacing(p.facing);
       const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
       // Ours too: the zone lit up on the ground, aimed the same way.
-      const zoneGroups = buildConeZone(p.pos.x, p.pos.y, (Math.atan2(dir.y, dir.x) * 180) / Math.PI);
       setConeZones((prev) =>
-        prev.concat({ id: ++coneZoneIdCounter, groups: zoneGroups, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
+        prev.concat({
+          id: ++coneZoneIdCounter,
+          x: p.pos.x,
+          y: p.pos.y,
+          angleDeg: (Math.atan2(dir.y, dir.x) * 180) / Math.PI,
+          startAt: Date.now() + RUPTURE_ZONE_DELAY_MS,
+        })
       );
       const result = fireCone(
         p.pos,
@@ -5066,7 +4937,7 @@ export default function App() {
             what starts its animation -- so the wait costs nothing until it
             is due. */}
         {coneZones.map((z) =>
-          z.startAt <= Date.now() ? <ConeZoneFx key={`czone-${z.id}`} groups={z.groups} /> : null
+          z.startAt <= Date.now() ? <ConeZoneFx key={`czone-${z.id}`} zone={z} /> : null
         )}
 
         {groundItems.map((it) => {

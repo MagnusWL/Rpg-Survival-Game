@@ -284,18 +284,34 @@ af dem er selve stregerne. Færre buer (96 px imellem i stedet for 52), kant og
 dither næsten væk. Det blev både billigere *og* renere — nu er ni tiendedele
 af det tegnede dét, øjet skal følge.
 
-**Men det var ikke nok — Nicolai mistede stadig ~150 fps.** Den afgørende
-indsigt: browseren betaler ikke pr. pixel, den betaler pr. **animeret lag**.
-Hvert element med en kørende animation sammensættes for sig, hver frame.
-Så pixlerne er nu samlet i **grupper efter hvornår bølgefronten når dem** —
-hvilket i praksis vil sige én gruppe pr. streg — og det er *grupperne*, der
-animerer. Pixlerne indeni males én gang og bæres med gratis.
+**Men det var ikke nok — Nicolai mistede stadig ~150 fps**, og hans dom var
+rigtig: *"vi kan ikke sidde og skræddersy vores animationer sådan her."*
+Så stregerne er nu **bagt til et sprite-ark**, ligesom ridderen og zombierne.
 
-**428 animerede lag → 48 i værste fald** (typisk 15-30). Samme antal pixels,
-samme udseende. To små følger: en streg springer nu som helhed i stedet for
-pixel for pixel (usynligt ved 2 px), og svulmningen er skruet ned fra 2,4× til
-~1,25×, fordi en hel bue der vokser 2,4× ville sprænge ud af keglen. Grupperne
-får en rigtig størrelse, så svulmningen vokser fra midten og ikke fra hjørnet.
+`tools/build-cone-fx.mjs` (`npm run build:fx`) tegner de 8 buer én gang og
+skriver `assets/sprites/fx/cone-arcs.png` + en lille JSON med cellemål og
+radier. Spillet placerer celle *i* med sin højrekant på radius *i* langs
+kastretningen og drejer hele beholderen — så bølgens rejse koster ingenting;
+det er otte billeder, der tændes efter tur.
+
+| | før | nu |
+|---|---|---|
+| elementer pr. kast | 428 | **17** |
+| animerede lag | 428 | **8** |
+| på disken | — | 7 KB |
+| i hukommelsen | — | 0,95 MB |
+
+**Hvorfor stregen og ikke hele kilen:** udfoldet er keglen 789 × 650 px, så en
+film af den er enten 40 MB eller så få billeder, at bølgen kravler. En streg
+er tynd, der er otte, og rejsen er gratis.
+
+**Byg om:** ret tallene øverst i `build-cone-fx.mjs` (buernes afstand, tæthed,
+farver) og kør `npm run build:fx`. Geometrien skal matche `CONE_ZONE` og
+`ABILITY2_HALF_ANGLE_DEG` i App.tsx — de få tal står dubleret med vilje og med
+en advarsel i scriptet.
+
+Tabt undervejs: kanten og ditheren mellem stregerne (var 5-24 pixels), og
+variationen fra kast til kast. Prikkerne er bagt, så alle kast er ens.
 
 **Den rigtige løsning, hvis det stadig er for tungt — "bagning":** vi behøver
 ikke at *tegne* noget. Et byggescript kan **regne effekten ud på forhånd** med

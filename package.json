@@ -31,6 +31,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "build:sprites": "node tools/build-sprites.mjs",
+    "build:fx": "node tools/build-cone-fx.mjs",
     "build:sounds": "node tools/build-sounds.mjs",
     "build:music": "node tools/build-music.mjs",
     "build:eq": "node tools/build-eq-tool.mjs",
