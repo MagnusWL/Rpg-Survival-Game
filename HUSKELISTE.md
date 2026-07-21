@@ -64,7 +64,7 @@ Web-udgaven af blomsten er IKKE bygget (Defold-æraen først).
 
 ---
 
-## Ny bane-baggrund bag test-knap (22. juli, afventer F5)
+## Ny bane-baggrund bag test-knap (22. juli — Nicolai: "ser godt ud")
 
 `Raw_Assets/Grafik/Baner/Bane 1.png` (2400×1792, i virkeligheden en JPEG med
 png-navn) er møllet til `defold-port/assets/sprites/bane1.jpg` i den gamle
