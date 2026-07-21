@@ -25,16 +25,19 @@ local RANK_DIST = { 130, 245, 360 }
 -- design's own angles and its new names; the children flank their parent
 -- farther out. Angles in degrees, design convention (0 = right, 90 = down).
 -- This table is the one place to reskin names and icons.
+-- wave: which tap of the Awakening core brings the skill into the star -
+-- 1 the roots, 2 the active children, 3 the passives. Each wave happens to
+-- land 120 degrees apart, a clean three-pointed star every time.
 local FLOWER = {
-	ranged      = { icon = "airblade",     name = "Air Blade",    angle = -90,  ring = 0.6 },
-	cone        = { icon = "judgement",    name = "Judgement",    angle = 30,   ring = 0.6 },
-	summon      = { icon = "ancestor",     name = "Ancestor",     angle = 150,  ring = 0.6 },
-	push        = { icon = "shieldcharge", name = "Push",         angle = -125, ring = 1.0 },
-	pierce      = { icon = "impale",       name = "Pierce",       angle = -55,  ring = 1.0 },
-	burn        = { icon = "hellfire",     name = "Burn",         angle = -5,   ring = 1.0 },
-	cdreduce    = { icon = "whirlwind",    name = "Haste",        angle = 65,   ring = 1.0 },
-	fireball    = { icon = "meteor",       name = "Fireball",     angle = 115,  ring = 1.0 },
-	summonregen = { icon = "bloodpact",    name = "Summon Regen", angle = 185,  ring = 1.0 },
+	ranged      = { icon = "airblade",     name = "Air Blade",    angle = -90,  ring = 0.6, wave = 1 },
+	cone        = { icon = "judgement",    name = "Judgement",    angle = 30,   ring = 0.6, wave = 1 },
+	summon      = { icon = "ancestor",     name = "Ancestor",     angle = 150,  ring = 0.6, wave = 1 },
+	push        = { icon = "shieldcharge", name = "Push",         angle = -125, ring = 1.0, wave = 2 },
+	pierce      = { icon = "impale",       name = "Pierce",       angle = -55,  ring = 1.0, wave = 3 },
+	burn        = { icon = "hellfire",     name = "Burn",         angle = -5,   ring = 1.0, wave = 2 },
+	cdreduce    = { icon = "whirlwind",    name = "Haste",        angle = 65,   ring = 1.0, wave = 3 },
+	fireball    = { icon = "meteor",       name = "Fireball",     angle = 115,  ring = 1.0, wave = 2 },
+	summonregen = { icon = "bloodpact",    name = "Summon Regen", angle = 185,  ring = 1.0, wave = 3 },
 }
 local ORDER = { "ranged", "cone", "summon", "push", "pierce", "burn", "cdreduce", "fireball", "summonregen" }
 local ROMAN = { "I", "II", "III", "IV" }
@@ -72,16 +75,15 @@ end
 
 local function v4(c, a) return vmath.vector4(c[1], c[2], c[3], a or 1) end
 
--- The design's growth logic: the tree blooms in waves from the core. Roots
--- appear at the unfurl; a child stays out of sight until its parent is
--- owned, then sprouts from the centre like the prototype's awakenings.
--- (The gate itself is still the game's parent rule - only the theatre of
--- WHEN a skill enters the star follows the standalone.)
-local function skill_shown(self, sid, m)
-	if not self.revealed then return false end
-	local parent = skills.SKILL_PARENT[sid]
-	if not parent then return true end
-	return m and (m.skill_levels[parent] or 0) >= 1 or false
+-- The standalone's growth logic, whole: the core IS the awakening. Each tap
+-- brings the next wave into the star - roots, then the active children,
+-- then the passives - and self.awakening counts how many taps have landed.
+-- The taps are free; the html's gold prices on awakening II/III are a
+-- gameplay decision that belongs to Magnus. Buying is still gated by the
+-- game's parent rule, so a child can arrive in the star before it can be
+-- bought - it sits dim until its root is owned.
+local function skill_shown(self, sid)
+	return self.awakening >= FLOWER[sid].wave
 end
 
 local function is_equipped(m, sid)
@@ -161,9 +163,9 @@ local VP = { x0 = 10, x1 = W - 10, y0 = 100, y1 = 730 }
 local function refit(self, animate)
 	local m = session.meta
 	local vis = { { x = DCX, y = DCY, r = 44 } }
-	if self.revealed then
+	if self.awakening >= 1 then
 		for _, sid in ipairs(ORDER) do
-			if skill_shown(self, sid, m) then
+			if skill_shown(self, sid) then
 				local p = skill_pos(sid)
 				vis[#vis + 1] = { x = p.x, y = p.y, r = 39 }
 				if self.expanded[sid] then
@@ -263,13 +265,13 @@ end
 
 local function build_desired(self)
 	local out = {}
-	if not self.revealed then return out end
+	if self.awakening < 1 then return out end
 	local m = session.meta
 	if not m then return out end
 	for i, sid in ipairs(ORDER) do
-		-- A skill not yet in the star has no strand either: on reset its
-		-- vine leaves desired and retracts instead of vanishing mid-air.
-		if skill_shown(self, sid, m) then
+		-- A skill not yet awakened has no strand either: on reset its vine
+		-- leaves desired and retracts instead of vanishing mid-air.
+		if skill_shown(self, sid) then
 			local di = i - 1 -- the design's 0-based index drives seeds and delays
 			local p = skill_pos(sid)
 			local lit = is_equipped(m, sid)
@@ -369,7 +371,7 @@ end
 -- ===== Build ===============================================================
 
 local function enter_reset(self)
-	self.revealed = false
+	self.awakening = 0
 	self.expanded = {}
 	self.eq_t = nil
 	self.flash_t = 0
@@ -394,6 +396,7 @@ end
 function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.ms = 0
+	self.awakening = 0
 	self.pool = {}
 	self.pool_used = 0
 	self.pods = {}
@@ -502,11 +505,13 @@ function update(self, dt)
 	vines.update(self.ms, math.min(dt * 1000, 50))
 	render_vines(self)
 
-	-- The core.
+	-- The core: it pulses and asks for taps until the third awakening, the
+	-- standalone's own arc.
+	local CORE_SUB = { [0] = "TAP TO UNFURL", "TAP TO AWAKEN II", "TAP TO AWAKEN III" }
 	sync_pod(self.core, {
 		root = true, owned = true, name = "Awakening",
-		sub = not self.revealed and "TAP TO UNFURL" or nil,
-		pulse = not self.revealed,
+		sub = CORE_SUB[self.awakening],
+		pulse = self.awakening < 3,
 	})
 
 	-- Every skill and rank pod, shown or hidden by the same state that
@@ -518,7 +523,7 @@ function update(self, dt)
 		local parent = skills.SKILL_PARENT[sid]
 		local unlocked = not parent or (m.skill_levels[parent] or 0) >= 1
 		local lit = is_equipped(m, sid)
-		if skill_shown(self, sid, m) then
+		if skill_shown(self, sid) then
 			show_pod(self, sid, pod, i <= 3 and 0.9 or 1.1)
 			sync_pod(pod, {
 				lit = lit, owned = owned, available = not owned and unlocked,
@@ -532,7 +537,7 @@ function update(self, dt)
 		for j = 1, 3 do
 			local rpod = self.pods[sid .. "_r" .. j]
 			local rkey = sid .. "_r" .. j
-			if self.revealed and self.expanded[sid] and level >= j then
+			if skill_shown(self, sid) and self.expanded[sid] and level >= j then
 				show_pod(self, rkey, rpod, j == 1 and 0.82 or 0.28)
 				sync_pod(rpod, {
 					lit = lit, owned = level > j, available = level == j,
@@ -547,7 +552,7 @@ function update(self, dt)
 
 	-- Chrome.
 	gui.set_text(self.gold_text, tostring(m.gold))
-	if not self.revealed then
+	if self.awakening < 1 then
 		gui.set_text(self.hint, "Tap the core to unfurl the tree")
 	elseif next(self.expanded) then
 		gui.set_text(self.hint, "Tap ranks to unlock - tap a skill to equip")
@@ -593,8 +598,15 @@ function on_input(self, action_id, action)
 	end
 
 	if pod_hit(self, "core", action.x, action.y) then
-		if not self.revealed then
-			self.revealed = true
+		-- Each tap on the core is the next awakening: roots, actives,
+		-- passives - the standalone's own three-step bloom.
+		if self.awakening < 3 then
+			self.awakening = self.awakening + 1
+			if self.awakening == 2 then
+				flash(self, "SECOND AWAKENING")
+			elseif self.awakening == 3 then
+				flash(self, "THIRD AWAKENING")
+			end
 			refit(self, true)
 		end
 		return true

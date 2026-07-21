@@ -57,9 +57,18 @@ en dag have designets GULD-opvågninger (800/1600 g i kernen), er det en
 gameplay-ændring → Magnus-snak. NB: goto findes ikke i Lua 5.1 (HTML5-
 builds) — brug if, ikke goto continue.
 
+**Tredje runde (22. juli, efter "det føltes meget bedre"): kernen ER
+opvågningen nu, som i standalone'en.** Tryk 1 = de tre rødder, tryk 2 =
+SECOND AWAKENING (de tre aktive børn: Fireball/Burn/Push), tryk 3 = THIRD
+AWAKENING (de tre passive). self.awakening (0-3) erstatter revealed; hver
+bølge lander som en 120°-stjerne (flanke-vinklerne gav to perfekte
+trekanter). Trykkene er GRATIS — html'ens 800/1600 g på opvågning II/III
+er gameplay → Magnus-snak, står stadig åben. Et barn kan derfor stå i
+stjernen FØR dets rod er købt: det står dæmpet, køb flasher UNLOCK X FIRST
+(spillets forældre-gate urørt).
+
 **MANGLER (F5-test):**
-1. Menu → Skills: skull-kerne, tap → KUN de tre rødder folder ud; køb en rod
-   → dens to børn skyder ud fra kernen.
+1. Menu → Skills: tap kernen tre gange → rødder, aktive, passive i bølger.
 2. Køb/equip-runde: køb rod (5g), udfold, køb Rank II-IV, equip/unequip —
    glød, visnende vines ved unequip, flydende genvækst ved re-equip.
 3. NEAREST-filteret: kig på SPILLET (ridder, zombier, menu-cover, intro) —
