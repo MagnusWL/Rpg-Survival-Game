@@ -256,6 +256,37 @@ ur (pause fryser dem midt i faldet). Tal til øjnene: `CORPSE_LINGER` /
 
 ---
 
+## Hvad spillet vejer (målt 21. juli)
+
+To helt forskellige tal, og kun det ene er et problem:
+
+| | på disken | udpakket i hukommelsen |
+|---|---|---|
+| ridderens ark (20 stk.) | 3,7 MB | **150,0 MB** |
+| zombie-ark (7 stk.) | 0,8 MB | 52,5 MB |
+| intro-billeder | 0,8 MB | 18,0 MB |
+| lyd + musik | 10,6 MB | (strømmer) |
+| resten | 1,2 MB | 39,6 MB |
+| **i alt** | **17,1 MB** | **260,1 MB** |
+
+**Disken er ingenting** — 17 MB er en bagatel. **Hukommelsen er det knappe.**
+Et billede pakkes helt ud til rå pixels for at kunne vises: hver pixel fylder
+4 bytes uanset hvor godt filen lod sig pakke. Derfor er keglens ark 164 gange
+større i hukommelsen end på disken (det er næsten kun gennemsigtighed).
+
+**Elefanten er ridderen: 150 MB.** Tyve ark à 1920×1024 — ti animationer plus
+ti lysmasker til rim-lyset, og lysmaskerne alene er 75 MB. De monteres alle
+samtidig med vilje (kilde-skift midt i kampen gav hak), men det er en pris,
+der først viser sig på en telefon. **Ikke undersøgt endnu.** Muligt spor:
+lysmaskerne kunne være meget mindre end arkene, eller kun den aktive kunne
+være monteret.
+
+Konklusionen for effekter: at bytte hukommelse for frames er rigtigt, men
+budgettet er ikke uendeligt. Regnens ~4 MB for at fjerne 230 permanente lag
+er en fremragende handel. Nye 150-MB-poster er det ikke.
+
+---
+
 ## Hvordan vi laver effekter fremover (aftalt 21. juli)
 
 Nicolai spurgte om det ville være lettere at **tegne** effekterne. Svaret er
