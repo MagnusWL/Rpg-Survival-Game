@@ -3,7 +3,10 @@
 -- first sight of the menu.
 local layout = require("game.layout")
 local session = require("game.session")
+local skills = require("game.skills")
 local ui = require("game.ui")
+local skill_tip_ui = require("main.gui.skill_tooltip_ui")
+local skill_icon_ui = require("main.gui.skill_icon_ui")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 
@@ -35,8 +38,7 @@ local KB_FROM_SCALE, KB_TO_SCALE = 1.2, 1.26
 local KB_FROM_Y, KB_TO_Y = 70, -70
 local KB_SECONDS = 5.6 -- the card's five plus the web's cross-dissolve tail
 
--- Intro schedule (IntroSequence.tsx): logo, then three story cards.
-local LOGO_MS = 2.0
+-- Intro schedule (IntroSequence.tsx): three story cards, no logo card.
 local CARD_MS = 5.0
 
 local function build_intro(self)
@@ -67,27 +69,18 @@ local function build_intro(self)
 		gui.set_enabled(fxn, true)
 	end
 	self.intro_nodes.kb_started = false
-	self.intro_nodes.logo = ui.text(W / 2, H / 2, "EMOJI AUTOBATTLER", 26, { 0.494, 0.086, 0.063 })
-	ui.set_alpha(self.intro_nodes.logo, 0)
 	self.intro_t = 0
 end
 
 local function intro_alpha_at(self, t)
-	-- Returns per-element alphas for a simple crossfade schedule.
-	local logo_end = LOGO_MS + 0.7
-	if t < LOGO_MS then
-		return 1, 0, 0, 0
-	elseif t < logo_end then
-		local k = (t - LOGO_MS) / 0.7
-		return 1 - k, k, 0, 0
-	end
-	local ct = t - logo_end
-	if ct < CARD_MS then
-		return 0, 1, 0, 0
-	elseif ct < CARD_MS * 2 then
-		return 0, 0, 1, 0
-	elseif ct < CARD_MS * 3 then
-		return 0, 0, 0, 1
+	-- Returns per-card alphas for a simple crossfade schedule, straight into
+	-- the first story card -- there is no logo card ahead of it any more.
+	if t < CARD_MS then
+		return 1, 0, 0
+	elseif t < CARD_MS * 2 then
+		return 0, 1, 0
+	elseif t < CARD_MS * 3 then
+		return 0, 0, 1
 	end
 	return nil -- done
 end
@@ -131,23 +124,32 @@ function init(self)
 		end)
 	end)
 
-	-- Minor links row under the plaque.
-	local link_y = by - bh / 2 - 24
-	self.continue_text = ui.text(W / 2 - 110, link_y, "Continue", 13, { 1, 1, 1 }, gui.PIVOT_W)
-	ui.button(self.buttons, self.continue_text, function()
-		if session.runs_loaded and #session.saved_runs > 0 then
-			session.actions.open_continue()
-		end
-	end)
-	self.skills_text = ui.text(W / 2 - 20, link_y, "Skills", 13, { 1, 1, 1 }, gui.PIVOT_W)
-	ui.button(self.buttons, self.skills_text, function() session.actions.open_skilltree() end)
-	self.test_text = ui.text(W / 2 + 55, link_y, "Test run", 13, { 1, 1, 1 }, gui.PIVOT_W)
-	ui.button(self.buttons, self.test_text, function() session.actions.start_test_run() end)
+	-- The three minor actions as a stacked column of plaquettes under the big
+	-- plaque: dark slabs with a thin lit edge, in the button art's spirit.
+	local function menu_button(y, handler)
+		local edge = ui.box(W / 2, y, 190, 40, { 0.494, 0.086, 0.063 }, 0.9)
+		local body = ui.box(W / 2, y, 184, 34, { 0.078, 0.055, 0.047 }, 0.95)
+		local label = ui.text(W / 2, y, "", 12, { 0.878, 0.831, 0.729 })
+		ui.button(self.buttons, body, handler)
+		return { edge = edge, body = body, label = label }
+	end
+	-- The Continue button's old slot now shows the loadout instead: the
+	-- three equipped skills, in the same circular design the skill tree and
+	-- the quick-cast bar use -- dark disc, orange ring, icon on top.
+	local col_top = by - bh / 2 - 30
+	self.loadout_icons = {}
+	for i = 1, 3 do
+		local x = W / 2 + (i - 2) * 46
+		local handle = skill_icon_ui.build(x, col_top, 40, 26)
+		skill_icon_ui.set_enabled(handle, false)
+		self.loadout_icons[i] = handle
+	end
+	self.skills_btn = menu_button(col_top - 48, function() session.actions.open_skilltree() end)
 
 	-- Settings gear, its own corner.
-	self.gear = ui.box(W - 29, H - 29, 34, 34, { 0.067, 0.067, 0.133 }, 0.7)
+	self.gear = ui.button_frame(W - 29, H - 29, 34, 34, "btn_steel")
 	ui.button(self.buttons, self.gear, function() session.overlay = "settings" end)
-	self.gear_label = ui.text(W - 29, H - 29, "*", 18, { 1, 1, 1 })
+	self.gear_label = ui.tex_box(W - 29, H - 29, 24, 24, "cog")
 
 	-- The tear film, hidden until the plaque is pressed. Its own atlas, so it
 	-- cannot use ui.tex_box (which is married to the "ui" texture). Created
@@ -162,31 +164,42 @@ function init(self)
 
 	-- Settings overlay (shared shape with the in-game one).
 	self.settings = require("main.gui.settings_overlay").build(self.buttons)
+	-- Tap a loadout icon to see the skill's description and per-level stats.
+	self.skill_tip = skill_tip_ui.build()
 
 	if not session.intro_done then build_intro(self) end
 end
 
 function update(self, dt)
-	local has_saves = session.runs_loaded and #session.saved_runs > 0
-	gui.set_text(self.continue_text, has_saves and ("Continue (" .. #session.saved_runs .. ")") or "Continue")
-	ui.set_alpha(self.continue_text, has_saves and 1 or 0.4)
-	gui.set_text(self.skills_text, ("Skills (%dg)"):format(session.meta and session.meta.gold or 0))
+	gui.set_text(self.skills_btn.label, ("Skills (%dg)"):format(session.meta and session.meta.gold or 0))
+
+	-- The chosen loadout, kept live so returning from the skill menu shows
+	-- the change at once.
+	local m = session.meta
+	if m then
+		local icon_map = require("main.gui.skilltree_icons")
+		for i, handle in ipairs(self.loadout_icons) do
+			local sid = m.loadout[i]
+			skill_icon_ui.set_enabled(handle, sid ~= nil)
+			if sid then
+				gui.play_flipbook(handle.icon, icon_map[sid])
+			end
+		end
+	end
 
 	require("main.gui.settings_overlay").sync(self.settings)
 
 	-- The story, over the top of a menu already built and waiting.
 	if self.intro_nodes then
 		self.intro_t = self.intro_t + dt
-		local logo_a, c1, c2, c3 = intro_alpha_at(self, self.intro_t)
-		if logo_a == nil then
+		local c1, c2, c3 = intro_alpha_at(self, self.intro_t)
+		if c1 == nil then
 			for _, n in pairs(self.intro_nodes.cards) do gui.delete_node(n) end
 			gui.delete_node(self.intro_nodes.black)
-			gui.delete_node(self.intro_nodes.logo)
 			self.intro_nodes = nil
 			session.intro_done = true
 		else
-			ui.set_alpha(self.intro_nodes.logo, logo_a)
-			ui.set_alpha(self.intro_nodes.black, math.max(logo_a, c1, c2, c3))
+			ui.set_alpha(self.intro_nodes.black, math.max(c1, c2, c3))
 			ui.set_alpha(self.intro_nodes.cards[1], c1)
 			ui.set_alpha(self.intro_nodes.cards[2], c2)
 			ui.set_alpha(self.intro_nodes.cards[3], c3)
@@ -211,19 +224,27 @@ function on_input(self, action_id, action)
 	if self.tearing then return true end
 	if action_id == hash("touch") and action.pressed then
 		-- A tap during the story advances it a step, as the React intro does:
-		-- logo to first card, card to card, last card to the menu.
+		-- card to card, then the last card to the menu.
 		if self.intro_nodes then
-			local logo_end = LOGO_MS + 0.7
-			if self.intro_t < logo_end then
-				self.intro_t = logo_end
-			else
-				local card = math.floor((self.intro_t - logo_end) / CARD_MS)
-				self.intro_t = logo_end + (card + 1) * CARD_MS
-			end
+			local card = math.floor(self.intro_t / CARD_MS)
+			self.intro_t = (card + 1) * CARD_MS
 			return true
 		end
 		if session.overlay == "settings" then
 			return require("main.gui.settings_overlay").input(self.settings, action)
+		end
+		if skill_tip_ui.input(self.skill_tip, action) then return true end
+		local m = session.meta
+		if m then
+			for i, pod in ipairs(self.loadout_icons) do
+				local sid = m.loadout[i]
+				if sid and gui.pick_node(pod.disc, action.x, action.y) then
+					local p = gui.get_position(pod.disc)
+					local level = m.skill_levels[sid] or 1
+					skill_tip_ui.show(self.skill_tip, sid, level, m.skill_xp[sid] or 0, skills.skill_xp_to_next(level), p.x, p.y)
+					return true
+				end
+			end
 		end
 		return ui.hit(self.buttons, action.x, action.y)
 	end

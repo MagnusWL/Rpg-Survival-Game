@@ -25,3 +25,27 @@ images {
 images {
   image: "/assets/sprites/prim/ring.png"
 }
+images {
+  image: "/assets/sprites/prim/cog.png"
+}
+images {
+  image: "/assets/sprites/prim/ring_thin.png"
+}
+images {
+  image: "/assets/sprites/prim/arrow_up.png"
+}
+images {
+  image: "/assets/sprites/prim/panel_tex.png"
+}
+images {
+  image: "/assets/sprites/prim/btn_steel.png"
+}
+images {
+  image: "/assets/sprites/prim/btn_gold.png"
+}
+images {
+  image: "/assets/sprites/prim/btn_red.png"
+}
+images {
+  image: "/assets/sprites/prim/btn_blue.png"
+}

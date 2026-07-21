@@ -2,10 +2,11 @@
 -- ported logic with assertions and prints a summary the build pipeline can
 -- check in the engine log.
 local combat = require("game.combat")
-local items = require("game.items")
 local skills = require("game.skills")
+local upgrades = require("game.upgrades")
 local meta_mod = require("game.meta")
 local sim = require("game.sim")
+local session = require("game.session")
 
 local M = {}
 
@@ -26,10 +27,6 @@ end
 
 function M.run()
 	math.randomseed(42)
-
-	-- xp / leveling
-	check("xp_for_level(1)", combat.xp_for_level(1) == 40)
-	check("xp_for_level(5)", combat.xp_for_level(5) == 140)
 
 	-- wave math
 	check("mob_count wave 3", combat.mob_count_for_wave(3) == 7)
@@ -72,21 +69,40 @@ function M.run()
 	check("die clamps", combat.anim_column(combat.ANIMS.die, 99) == 14)
 	check("run wraps", combat.anim_column(combat.ANIMS.run, 15 / 16 + 1 / 16) == 1)
 
-	-- items
-	local it = items.make_item("dmg", 3)
-	check("item bonus", items.item_bonus(it) == 6)
-	check("tooltip", items.item_tooltip(it):find("Blade") ~= nil)
-	local eq = { it, false, items.make_item("dmg", 2) }
-	check("equipped bonus sums", items.equipped_bonus(eq, "dmg") == 10)
-	check("equipped bonus other kind", items.equipped_bonus(eq, "mana") == 0)
+	-- upgrades: value/describe/bonus summation, including the former passives
+	local up1 = { kind = "dmg", tier = 3 }
+	check("upgrade value", upgrades.value(up1) == 6)
+	check("upgrade describe", upgrades.describe(up1):find("Blade") ~= nil)
+	local bonus = upgrades.bonuses({
+		up1, { kind = "dmg", tier = 2 }, { kind = "health", tier = 1 },
+		{ kind = "haste", tier = 2 }, { kind = "summonregen", tier = 1 }, { kind = "pierce", tier = 3 },
+	})
+	check("upgrade bonuses sum same kind", bonus.dmg == 10)
+	check("upgrade bonuses other kind", bonus.health == 8)
+	check("upgrade bonuses untouched kind", bonus.atkspd == 0)
+	check("upgrade bonuses haste (ex-passive)", near(bonus.haste, 0.1))
+	check("upgrade bonuses summonregen (ex-passive)", bonus.summonregen == 2)
+	check("upgrade bonuses pierce (ex-passive)", bonus.pierce == 3)
+	local offers = upgrades.roll_offers(5)
+	check("three offers", #offers == 3)
+	local kinds = {}
+	for _, o in ipairs(offers) do kinds[o.kind] = true end
+	local distinct = 0
+	for _ in pairs(kinds) do distinct = distinct + 1 end
+	check("offers are distinct kinds", distinct == 3)
 
-	-- skills
+	-- skills: catalog and per-skill xp curve. No passives here any more --
+	-- Haste/Summon Regen/Pierce moved to game.upgrades.
 	check("cone range", near(skills.CONE_RANGE, math.sqrt(390 ^ 2 + 686 ^ 2)))
-	check("skill cost lvl1", skills.skill_level_cost(1) == 5)
-	check("skill cost lvl4", skills.skill_level_cost(4) == 20)
 	check("ability1 lvl3", skills.ability1_stats(3).hp == 50 and skills.ability1_stats(3).damage == 10)
 	check("burn pct lvl4", skills.burn_explode_percent(4) == 1.0)
-	check("haste pct lvl2", skills.cooldown_reduce_percent(2) == 0.3)
+	check("xp to next lvl1", skills.skill_xp_to_next(1) == 150)
+	check("xp to next lvl4 (maxed)", skills.skill_xp_to_next(4) == nil)
+	local no_passives = true
+	for _, sid in ipairs(skills.ALL_SKILLS) do
+		if sid == "pierce" or sid == "cdreduce" or sid == "summonregen" then no_passives = false end
+	end
+	check("no passive skills remain in the tree", no_passives)
 
 	-- fire_cone: mob dead ahead is hit, mob behind is not
 	local mobs = {
@@ -98,20 +114,27 @@ function M.run()
 	check("cone hits ahead only", #hits == 1 and hits[1].id == 1)
 	check("cone damage math", near(hits[1].amount, 10 + 100 * 0.1))
 
-	-- meta defaults and sanitize
+	-- meta defaults: every skill starts owned at rank 1, no locked skills
 	local dm = meta_mod.default_meta()
-	check("default roots owned", dm.skill_levels.summon == 1 and dm.skill_levels.cone == 1 and dm.skill_levels.ranged == 1)
+	local all_rank1 = true
+	for _, sid in ipairs(skills.ALL_SKILLS) do
+		if dm.skill_levels[sid] ~= 1 then all_rank1 = false end
+	end
+	check("every skill starts at rank 1", all_rank1)
 	check("default loadout", #dm.loadout == 3)
+
 	local sanitized = meta_mod.sanitize_meta({
 		gold = 12,
-		skill_levels = { summon = 2, pierce = 1, bogus = 9 },
-		loadout = { "summon", "pierce", "fireball" }, -- pierce is passive, fireball unowned
-		passive = "pierce",
+		skill_levels = { summon = 2, burn = 0 }, -- burn predates the always-owned rule
+		skill_xp = { summon = 40 },
+		loadout = { "summon", "fireball" },
 	})
 	check("sanitize gold", sanitized.gold == 12)
-	check("sanitize drops passive from loadout", #sanitized.loadout == 1 and sanitized.loadout[1] == "summon")
-	check("sanitize keeps passive", sanitized.passive == "pierce")
-	check("sanitize drops unknown", sanitized.skill_levels.bogus == nil)
+	check("sanitize keeps summon level", sanitized.skill_levels.summon == 2)
+	check("sanitize bumps locked skill to rank 1", sanitized.skill_levels.burn == 1)
+	check("sanitize keeps loadout",
+		#sanitized.loadout == 2 and sanitized.loadout[1] == "summon" and sanitized.loadout[2] == "fireball")
+	check("sanitize keeps skill xp", sanitized.skill_xp.summon == 40)
 	check("gold for waves", meta_mod.gold_for_waves_cleared(4) == 10)
 	check("gold for zero waves", meta_mod.gold_for_waves_cleared(0) == 0)
 
@@ -122,7 +145,7 @@ function M.run()
 
 	-- sim: fresh state walks through the entrance and draws
 	local gs = meta_mod.build_fresh_state(dm)
-	local s = sim.new(gs, { run_id = "test", is_test_run = true })
+	local s = sim.new(gs, { run_id = "test", is_test_run = true, skill_levels = dm.skill_levels, skill_xp = dm.skill_xp })
 	check("player starts entering", s.player.intro_phase == "enter")
 	for _ = 1, 600 do sim.update(s, 1 / 60) end
 	check("intro completes", s.player.intro_phase == "done")
@@ -133,7 +156,7 @@ function M.run()
 	end
 	check("draw sound fired", saw_draw)
 
-	-- sim: wave spawns and can be fought
+	-- sim: wave spawns and clearing it offers an upgrade choice
 	sim.start_next_wave(s)
 	check("wave counter", s.wave == 1)
 	check("wave queued", #s.wave_queues == 1)
@@ -143,33 +166,101 @@ function M.run()
 		if #s.loot_owed == 0 and not s.wave_active then break end
 	end
 	check("wave 1 cleared", s.highest_wave_cleared == 1)
-	check("loot dropped or picked", (#s.ground_items > 0)
-		or (s.equipped[1] and true or false) or (s.player.hp > 0))
 	check("player survived wave 1", s.player.hp > 0)
-	check("xp gained", s.player.xp > 0 or s.player.level > 1)
+	check("upgrade offer queued on clear", #s.pending_upgrade_offers == 1 and #s.pending_upgrade_offers[1] == 3)
 
-	-- sim: cone cast queues wave-riding hits
+	-- sim: movement is withheld until the offer is answered, then resumes
+	local before = s.player.target
+	sim.tap_field(s, 10, 10)
+	check("move withheld while offer pending", s.player.target == before)
+	sim.choose_upgrade(s, 1)
+	check("offer answered", #s.pending_upgrade_offers == 0)
+	check("upgrade recorded", #s.upgrades == 1)
+	sim.tap_field(s, 10, 10)
+	check("move accepted once answered", s.player.target ~= nil and s.player.target.x == 10)
+
+	-- sim: cone cast queues wave-riding hits, and kills with it level the skill
 	local gs2 = meta_mod.build_fresh_state(dm)
-	local s2 = sim.new(gs2, { is_test_run = true })
+	local skill_levels2, skill_xp2 = {}, {}
+	for k, v in pairs(dm.skill_levels) do skill_levels2[k] = v end
+	for k, v in pairs(dm.skill_xp) do skill_xp2[k] = v end
+	local s2 = sim.new(gs2, { is_test_run = true, skill_levels = skill_levels2, skill_xp = skill_xp2 })
+	-- Cone alone in slot 1, nothing else equipped -- so the ordinary auto-
+	-- attack stays a short-range sword swing and cannot reach the mob first
+	-- and steal credit for the kill from the cone's own delayed hit.
+	s2.abilities = {
+		{ skill = "cone", level = skill_levels2.cone, cooldown = 0 },
+		{ skill = nil, level = 0, cooldown = 0 },
+		{ skill = nil, level = 0, cooldown = 0 },
+	}
 	for _ = 1, 600 do sim.update(s2, 1 / 60) end
 	s2.mobs[#s2.mobs + 1] = combat.spawn_mob("melee", 1)
 	s2.mobs[1].pos = { x = s2.player.pos.x, y = s2.player.pos.y - 200 }
+	s2.mobs[1].hp = 1 -- dies the instant the cone lands
+	s2.mobs[1].max_hp = 1
 	s2.player.facing = 6 -- north, toward the mob
-	local slot
-	for k = 1, 3 do
-		if s2.abilities[k].skill == "cone" then slot = k end
-	end
-	check("cone equipped by default", slot ~= nil)
-	local mana_before = s2.player.mana
-	sim.press_ability(s2, slot)
-	check("cone spent mana", s2.player.mana == mana_before - skills.SKILL_META.cone.mana)
+	check("cone equipped by default", s2.abilities[1].skill == "cone")
+	sim.press_ability(s2, 1)
 	check("cone hit queued, not landed", #s2.cone_hits == 1 and s2.mobs[1].hp == s2.mobs[1].max_hp)
 	check("cone zone added", #s2.cone_zones == 1)
-	local mref = s2.mobs[1]
-	local hp_before = mref.hp
+	local xp_before = s2.skill_xp.cone
 	for _ = 1, 120 do sim.update(s2, 1 / 60) end
 	sim.take_events(s2)
-	check("cone hit delivered by wave", mref.hp < hp_before)
+	check("cone kill landed", #s2.mobs == 0)
+	check("cone kill granted skill xp", s2.skill_xp.cone > xp_before)
+
+	-- sim: wave-clear itself grants xp to every equipped skill, not only the
+	-- one that gets kills -- half the progress comes from clearing waves.
+	local skill_levels7, skill_xp7 = {}, {}
+	for k, v in pairs(dm.skill_levels) do skill_levels7[k] = v end
+	for k, v in pairs(dm.skill_xp) do skill_xp7[k] = v end
+	local s7 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true, skill_levels = skill_levels7, skill_xp = skill_xp7 })
+	s7.player.intro_phase = "done"
+	s7.player.target = nil
+	s7.abilities = {
+		{ skill = "summon", level = 1, cooldown = 0 },
+		{ skill = "cone", level = 1, cooldown = 0 },
+		{ skill = nil, level = 0, cooldown = 0 },
+	}
+	s7.loot_owed = { 1 }
+	local before_summon, before_cone = s7.skill_xp.summon, s7.skill_xp.cone
+	sim.update(s7, 1 / 60)
+	check("wave clear grants xp to equipped summon with no kill", s7.skill_xp.summon > before_summon)
+	check("wave clear grants xp to equipped cone with no kill", s7.skill_xp.cone > before_cone)
+	check("wave clear does not touch an unequipped skill", s7.skill_xp.burn == 0)
+
+	-- sim: pierce is a travelling shot, not a splash -- it damages the first
+	-- enemy in its path, keeps flying in the same direction, and only
+	-- damages a second enemy once it actually reaches it, sequentially.
+	local s9 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	s9.player.intro_phase = "done"
+	s9.player.target = nil
+	-- A fixed, already-on-field position -- make_player() otherwise starts
+	-- him below the bottom edge, and the mobs below would be placed relative
+	-- to that off-screen spot instead of where he actually ends up once the
+	-- next update() clamps him onto the field.
+	s9.player.pos = { x = 195, y = 400 }
+	-- No Ranged skill equipped, so pierce alone drives the auto-attack.
+	s9.abilities = { { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	s9.upgrades = { { kind = "pierce", tier = 2 } } -- +2 pierce
+	local near_mob = combat.spawn_mob("melee", 1)
+	local far_mob = combat.spawn_mob("melee", 1)
+	near_mob.pos = { x = s9.player.pos.x, y = s9.player.pos.y - 100 }
+	far_mob.pos = { x = s9.player.pos.x, y = s9.player.pos.y - 220 }
+	near_mob.hp, near_mob.max_hp = 50, 50
+	far_mob.hp, far_mob.max_hp = 50, 50
+	s9.mobs = { near_mob, far_mob }
+	sim.update(s9, 1 / 60) -- fires the shot
+	check("pierce shot created as a travelling projectile", #s9.projectiles == 1 and s9.projectiles[1].piercing)
+	-- Run just long enough to cross the near mob (needs to close a ~86 px
+	-- gap: 100 px start minus its own radius) but short of the far one's
+	-- ~206 px gap.
+	for _ = 1, 10 do sim.update(s9, 1 / 60) end
+	check("pierce hits the near enemy first", near_mob.hp < 50)
+	check("pierce has not reached the far enemy yet", far_mob.hp == 50)
+	-- Give it the rest of the distance to reach the far mob too.
+	for _ = 1, 30 do sim.update(s9, 1 / 60) end
+	check("pierce goes on to hit the far enemy afterward", far_mob.hp < 50)
 
 	-- sim: burn explosion chain
 	local s3 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -188,11 +279,12 @@ function M.run()
 	sim.update(s3, 1 / 60)
 	check("burn blast damaged neighbour", s3.mobs[1] ~= nil and s3.mobs[1].hp <= 200 - a.max_hp)
 
-	-- sim: push shoves and damages everyone
+	-- sim: push shoves and damages everyone, using upgrades instead of items
 	local s4 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	s4.player.intro_phase = "done"
 	s4.player.target = nil
 	s4.abilities = { { skill = "push", level = 2, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	s4.upgrades = { { kind = "dmg", tier = 5 } }
 	local m1 = combat.spawn_mob("melee", 1)
 	m1.pos = { x = s4.player.pos.x + 30, y = s4.player.pos.y }
 	s4.mobs = { m1 }
@@ -200,22 +292,35 @@ function M.run()
 	check("push damaged", m1.hp < m1.max_hp)
 	check("push shoved", m1.knock.x > 0)
 
+	-- sim: no mana anywhere -- abilities are cooldown-gated only
+	local s4b = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	check("player state has no mana field", s4b.player.mana == nil)
+	check("player state has no level/xp fields", s4b.player.level == nil and s4b.player.xp == nil)
+
 	-- save/load roundtrip (uses the real save file path)
 	local test_meta = meta_mod.default_meta()
 	test_meta.gold = 77
 	test_meta.skill_levels.summon = 3
+	test_meta.skill_xp.summon = 42
 	meta_mod.persist_meta(test_meta)
 	local loaded = meta_mod.load_meta()
 	check("meta roundtrip gold", loaded.gold == 77)
-	check("meta roundtrip level", loaded.skill_levels.summon == 3)
+	check("meta roundtrip skill level", loaded.skill_levels.summon == 3)
+	check("meta roundtrip skill xp", loaded.skill_xp.summon == 42)
 	meta_mod.persist_meta(meta_mod.default_meta()) -- leave a clean default behind
 
-	local runs = { { id = "r1", saved_at = 1, wave = 3, level = 4, xp = 1, xp_to_next = 100, hp = 50, max_hp = 100, mana = 10, abilities = meta_mod.make_abilities(dm.loadout, dm.skill_levels), passive = nil, equipped = { false, false, false }, bag = { false, false, false, false, false, false, false, false, false }, materials = 0 } }
+	local runs = {
+		{
+			id = "r1", saved_at = 1, wave = 3, hp = 50, max_hp = 100,
+			abilities = meta_mod.make_abilities(dm.loadout, dm.skill_levels),
+			upgrades = { { kind = "health", tier = 2 } },
+		},
+	}
 	meta_mod.persist_runs(runs)
 	local loaded_runs = meta_mod.load_runs()
 	check("runs roundtrip", #loaded_runs == 1 and loaded_runs[1].wave == 3)
 	local restored = meta_mod.build_state_from_save(loaded_runs[1])
-	check("state from save", restored.player.level == 4 and restored.player.hp == 50 and restored.wave == 3)
+	check("state from save", restored.player.hp == 50 and restored.wave == 3 and #restored.upgrades == 1)
 	meta_mod.persist_runs({})
 
 	-- sim: dying plays the fall, then reports game over exactly once
@@ -234,7 +339,7 @@ function M.run()
 	check("die timer delays game over", saw_over and s5.game_over)
 	check("die anim chosen", s5.player.anim == "die")
 
-	-- sim: clearing a wave with a run id emits an autosave
+	-- sim: clearing a wave with a run id emits an autosave with upgrades
 	local s6 = sim.new(meta_mod.build_fresh_state(dm), { run_id = "r-save", is_test_run = false })
 	s6.player.intro_phase = "done"
 	s6.player.target = nil
@@ -250,6 +355,19 @@ function M.run()
 		if saw_save then break end
 	end
 	check("autosave after wave clear", saw_save ~= nil and saw_save.wave == 1 and saw_save.id == "r-save")
+	check("autosave carries upgrades field", saw_save.upgrades ~= nil)
+
+	-- session: a pending upgrade choice pauses the field, same as an overlay
+	local s8 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	session.sim = s8
+	session.overlay = nil
+	session.tooltip = nil
+	check("session runs while nothing is pending", not session.paused())
+	s8.pending_upgrade_offers = { upgrades.roll_offers(1) }
+	check("session pauses on a pending upgrade offer", session.paused())
+	s8.pending_upgrade_offers = {}
+	check("session resumes once answered", not session.paused())
+	session.sim = nil
 
 	print(("PORT TESTS: %d passed, %d failed"):format(passed, failed))
 	return failed == 0

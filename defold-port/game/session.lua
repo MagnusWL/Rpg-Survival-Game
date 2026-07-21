@@ -41,7 +41,11 @@ function M.commit_meta(next_meta)
 end
 
 function M.paused()
-	return M.overlay ~= nil or M.tooltip ~= nil
+	if M.overlay ~= nil or M.tooltip ~= nil then return true end
+	-- The wave-clear choice pauses the field too, the same as any overlay --
+	-- it just isn't one, since it opens itself rather than being toggled.
+	if M.sim and #M.sim.pending_upgrade_offers > 0 then return true end
+	return false
 end
 
 -- Bank this run's gold once (1 per wave cleared: 1+2+...+N).
@@ -64,6 +68,16 @@ function M.delete_run(id)
 	end
 	M.saved_runs = next_runs
 	meta_mod.persist_runs(next_runs)
+end
+
+-- A skill ranked up in the field: fold the new level/xp back into the
+-- account meta so it persists across runs, same as gold does.
+function M.apply_skill_progress(skill, level, xp)
+	local m = M.meta
+	if not m then return end
+	m.skill_levels[skill] = level
+	m.skill_xp[skill] = xp
+	M.commit_meta(m)
 end
 
 function M.store_run(save)

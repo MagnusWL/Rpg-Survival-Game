@@ -1,0 +1,10 @@
+font: "/main/fonts/Cinzel.ttf"
+material: "/builtins/fonts/font-df.material"
+size: 28
+antialias: 1
+alpha: 1.0
+shadow_alpha: 0.55
+shadow_blur: 1
+shadow_x: 1.0
+shadow_y: -1.0
+output_format: TYPE_DISTANCE_FIELD

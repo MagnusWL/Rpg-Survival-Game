@@ -1,7 +1,7 @@
 script: "/main/gui/skilltree.gui_script"
 fonts {
   name: "default_font"
-  font: "/builtins/fonts/default.font"
+  font: "/main/fonts/game.font"
 }
 textures {
   name: "ui"
@@ -17,3 +17,9 @@ textures {
 }
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 4096
+layers {
+  name: "base"
+}
+layers {
+  name: "overlay"
+}

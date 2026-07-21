@@ -3,18 +3,44 @@
 -- floating texts, aim preview, rain and ripples), and the overlays.
 local layout = require("game.layout")
 local combat = require("game.combat")
-local items = require("game.items")
 local skills = require("game.skills")
+local upgrades = require("game.upgrades")
 local session = require("game.session")
 local effects = require("game.effects")
 local settings_overlay = require("main.gui.settings_overlay")
 local ui = require("game.ui")
+local skill_icon_ui = require("main.gui.skill_icon_ui")
+local upgrade_icons = require("main.gui.upgrade_icons")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 local PLAY_H = layout.PLAY_H
 local BAR_WIDTH = 80
 
 local function gy(sim_y) return layout.to_world_y(sim_y) end
+
+-- The HP bar's colour over its own fraction: green at full, sliding through
+-- yellow and orange as it drains, red near empty.
+local HP_COLOR_STOPS = {
+	{ 1.00, { 0.298, 0.686, 0.314 } },
+	{ 0.66, { 0.95, 0.85, 0.2 } },
+	{ 0.33, { 0.95, 0.55, 0.15 } },
+	{ 0.00, { 0.937, 0.196, 0.196 } },
+}
+local function hp_bar_color(frac)
+	frac = math.max(0, math.min(1, frac))
+	for i = 1, #HP_COLOR_STOPS - 1 do
+		local hi, lo = HP_COLOR_STOPS[i], HP_COLOR_STOPS[i + 1]
+		if frac <= hi[1] and frac >= lo[1] then
+			local t = (frac - lo[1]) / (hi[1] - lo[1])
+			local a, b = lo[2], hi[2]
+			return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t }
+		end
+	end
+	return HP_COLOR_STOPS[#HP_COLOR_STOPS][2]
+end
+
+-- The same faces the skill tree wears, on the quick-cast buttons.
+local SKILL_ICON = require("main.gui.skilltree_icons")
 
 -- ---- pools ----------------------------------------------------------------
 
@@ -51,65 +77,77 @@ function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.buttons = {}
 
-	-- Top bar.
-	self.top_bar = ui.box(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
-	self.exit_btn = ui.box(44, H - 25, 72, 26, { 0.718, 0.11, 0.11 }, 1)
-	self.exit_text = ui.text(44, H - 25, "Exit run", 10, { 1, 1, 1 })
-	self.wave_text = ui.text(W - 210, H - 25, "Wave 1", 12, { 1, 1, 1 })
-	self.gear_btn = ui.box(W - 160, H - 25, 30, 26, { 0.216, 0.278, 0.31 }, 1)
-	self.gear_text = ui.text(W - 160, H - 25, "S", 11, { 1, 1, 1 })
-	self.mobstats_btn = ui.box(W - 108, H - 25, 66, 26, { 0.216, 0.278, 0.31 }, 1)
-	self.mobstats_text = ui.text(W - 108, H - 25, "Mob Stats", 9, { 1, 1, 1 })
-	self.wave_btn = ui.box(W - 38, H - 25, 62, 26, { 0.298, 0.686, 0.314 }, 1)
-	self.wave_btn_text = ui.text(W - 38, H - 25, "Start 1", 9, { 1, 1, 1 })
-
-	-- Quick-cast bar strip + bag button.
-	local qc_y = layout.HUD_HEIGHT + layout.QUICK_CAST_BAR_HEIGHT / 2
-	self.qc_bar = ui.box(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
-	self.bag_btn = ui.box(28, qc_y + 14, 40, 40, { 0.216, 0.278, 0.31 }, 1)
-	self.bag_text = ui.text(28, qc_y + 14, "Bag", 10, { 1, 1, 1 })
-	self.bag_badge = ui.text(44, qc_y + 28, "", 9, { 1, 0.835, 0.31 })
-	self.qc_slots = {}
-	for i = 1, 3 do
-		local x = W / 2 + (i - 2) * 80
-		local btn = ui.box(x, qc_y + 22, 56, 56, { 0.3, 0.3, 0.3 }, 1)
-		local icon = ui.text(x, qc_y + 22, "", 16, { 1, 1, 1 })
-		local mana_badge = ui.text(x + 20, qc_y + 40, "", 9, { 0.7, 0.9, 1 })
-		local cd_text = ui.text(x, qc_y + 22, "", 16, { 1, 1, 1 })
-		local label = ui.text(x, qc_y - 12, "", 9, { 0.85, 0.85, 0.9 })
-		self.qc_slots[i] = { btn = btn, icon = icon, mana = mana_badge, cd = cd_text, label = label }
-	end
-	self.passive_chip = ui.box(W / 2 + 160, qc_y + 18, 34, 34, { 0.3, 0.3, 0.3 }, 1)
-	self.passive_icon = ui.text(W / 2 + 160, qc_y + 18, "", 11, { 1, 1, 1 })
-
-	-- HUD bars.
-	local hud_y = layout.HUD_HEIGHT / 2
-	self.hud_bg = ui.box(W / 2, hud_y, W, layout.HUD_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
-	self.hud = {}
-	local labels = { "Lv", "HP", "MP" }
-	local fills = { { 1, 0.835, 0.31 }, { 0.937, 0.325, 0.314 }, { 0.259, 0.647, 0.961 } }
-	for i = 1, 3 do
-		local x = 20 + (i - 1) * (BAR_WIDTH + 45)
-		local label = ui.text(x, hud_y + 14, labels[i], 10, { 1, 1, 1 }, gui.PIVOT_W)
-		local value = ui.text(x + BAR_WIDTH + 20, hud_y + 14, "", 9, { 0.85, 0.85, 0.9 }, gui.PIVOT_E)
-		local bg = ui.box(x + BAR_WIDTH / 2, hud_y, BAR_WIDTH, 8, { 0, 0, 0 }, 1)
-		local fill = ui.box(x, hud_y, BAR_WIDTH, 8, fills[i], 1)
-		gui.set_pivot(fill, gui.PIVOT_W)
-		gui.set_position(fill, vmath.vector3(x - BAR_WIDTH / 2 + BAR_WIDTH / 2, hud_y, 0))
-		gui.set_position(fill, vmath.vector3(x, hud_y, 0))
-		gui.set_position(bg, vmath.vector3(x + BAR_WIDTH / 2, hud_y, 0))
-		gui.set_position(fill, vmath.vector3(x, hud_y, 0))
-		self.hud[i] = { label = label, value = value, bg = bg, fill = fill, x = x }
-	end
-	self.stats_text = ui.text(20, hud_y - 18, "", 10, { 0.85, 0.85, 0.9 }, gui.PIVOT_W)
-	self.tech_text = ui.text(W - 10, layout.PLAY_TOP - 12, "", 9, { 0.6, 1, 0.6 }, gui.PIVOT_E)
-
-	-- Field overlays.
-	self.range_ring = ui.tex_box(0, 0, 10, 10, "ring")
+	-- Field overlays, created first so every later node (bars, hud, the top
+	-- strip) draws on top of them -- the range ring in particular sits under
+	-- everything, including the field's own damage numbers and hit flashes.
+	self.range_ring = ui.tex_box(0, 0, 10, 10, "ring_thin")
 	ui.set_alpha(self.range_ring, 0.25)
 
 	self.aim_cone = ui.box(0, 0, 10, 10, { 1, 0.541, 0.314 }, 0.28)
 	gui.set_enabled(self.aim_cone, false)
+
+	-- Top bar.
+	self.top_bar = ui.box(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	ui.grain(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT)
+	-- Carved-frame button look everywhere: red for the destructive exit,
+	-- steel for the neutral gear/mob-stats toggles, gold for the primary
+	-- start-wave action -- same four textures used on every button in the
+	-- game, one look per action kind rather than per screen.
+	self.exit_btn = ui.button_frame(44, H - 25, 72, 26, "btn_red")
+	self.exit_text = ui.text(44, H - 25, "Exit run", 10, { 1, 1, 1 })
+	self.wave_text = ui.text(W - 210, H - 25, "Wave 1", 12, { 1, 1, 1 })
+	self.gear_btn = ui.button_frame(W - 160, H - 25, 30, 26, "btn_steel")
+	self.gear_text = ui.tex_box(W - 160, H - 25, 20, 20, "cog")
+	self.mobstats_btn = ui.button_frame(W - 108, H - 25, 66, 26, "btn_steel")
+	self.mobstats_text = ui.text(W - 108, H - 25, "Mob Stats", 9, { 1, 1, 1 })
+	self.wave_btn = ui.button_frame(W - 38, H - 25, 62, 26, "btn_gold")
+	self.wave_btn_text = ui.text(W - 38, H - 25, "Start 1", 9, { 1, 1, 1 })
+
+	-- HUD: HP alone now, spanning the width where three columns used to sit.
+	-- Built before the quick-cast bar so its background can never draw over
+	-- the quick-cast bar's own text (Defold GUI stacks by creation order,
+	-- and the two strips sit close enough that the old order clipped the
+	-- bottom of the quick-cast labels under the HUD's opaque panel).
+	local hud_y = layout.HUD_HEIGHT / 2
+	self.hud_bg = ui.box(W / 2, hud_y, W, layout.HUD_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	ui.grain(W / 2, hud_y, W, layout.HUD_HEIGHT)
+	local hp_w = W - 40
+	local hp_x = 20
+	local hp_h = 20 -- doubled from the original 10
+	self.hp_bg = ui.box(hp_x + hp_w / 2, hud_y + 6, hp_w, hp_h, { 0, 0, 0 }, 1)
+	self.hp_fill = ui.box(hp_x, hud_y + 6, hp_w, hp_h, { 0.298, 0.686, 0.314 }, 1)
+	gui.set_pivot(self.hp_fill, gui.PIVOT_W)
+	-- "HP 82/100", centred inside the bar itself rather than as separate
+	-- labels above it.
+	self.hp_text = ui.text(hp_x + hp_w / 2, hud_y + 6, "", 11, { 1, 1, 1 })
+	self.stats_text = ui.text(hp_x, hud_y - 16, "", 10, { 0.85, 0.85, 0.9 }, gui.PIVOT_W)
+	self.tech_text = ui.text(W - 10, layout.PLAY_TOP - 12, "", 9, { 0.6, 1, 0.6 }, gui.PIVOT_E)
+
+	-- Quick-cast bar strip + upgrades button.
+	local qc_y = layout.HUD_HEIGHT + layout.QUICK_CAST_BAR_HEIGHT / 2
+	self.qc_bar = ui.box(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	ui.grain(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT)
+	-- Same skill-face look as an upgrade card (dark disc, light-blue ring),
+	-- since this button is the door to the Upgrades screen.
+	self.bag_btn = ui.tex_box(28, qc_y + 14, 44, 44, "ring")
+	gui.set_color(self.bag_btn, vmath.vector4(skill_icon_ui.LIGHT_BLUE[1], skill_icon_ui.LIGHT_BLUE[2], skill_icon_ui.LIGHT_BLUE[3], 1))
+	self.bag_disc = ui.tex_box(28, qc_y + 14, 39, 39, "circle")
+	gui.set_color(self.bag_disc, vmath.vector4(skill_icon_ui.DISC[1], skill_icon_ui.DISC[2], skill_icon_ui.DISC[3], 1))
+	self.bag_icon = ui.tex_box(28, qc_y + 14, 22, 22, "arrow_up")
+	self.bag_badge = ui.text(44, qc_y + 28, "", 9, { 1, 0.835, 0.31 })
+	self.qc_slots = {}
+	for i = 1, 3 do
+		local x = W / 2 + (i - 2) * 80
+		-- Same circular design as the skill tree and the menu's loadout
+		-- preview: dark disc, orange ring, icon on top -- no more per-skill
+		-- background colour, one look everywhere a skill's face shows up.
+		local icon_ui = skill_icon_ui.build(x, qc_y + 22, 56, 44)
+		local cd_text = ui.text(x, qc_y + 22, "", 16, { 1, 1, 1 })
+		local label = ui.text(x, qc_y - 12, "", 9, { 0.85, 0.85, 0.9 })
+		-- The skill's own rank and kill/wave xp toward the next one.
+		local progress = ui.text(x, qc_y - 22, "", 7, { 0.7, 0.9, 1 })
+		self.qc_slots[i] = { icon_ui = icon_ui, cd = cd_text, label = label, progress = progress }
+	end
 
 	self.pool_hp = make_pool(function()
 		local bg = ui.box(0, 0, 10, 4, { 0, 0, 0 }, 1)
@@ -130,11 +168,6 @@ function init(self)
 		gui.set_color(n, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
 		return n
 	end)
-	self.pool_item = make_pool(function(e)
-		local box = ui.box(0, 0, items.ITEM_SIZE, items.ITEM_SIZE, items.ITEM_DEFS[e.item.kind].color, 1)
-		local text = ui.text(0, 0, tostring(e.item.level), 10, { 0.106, 0.106, 0.169 })
-		return { box = box, text = text }
-	end)
 	self.pool_text = make_pool(function(e)
 		return ui.text(0, 0, e.text, 11, e.color)
 	end)
@@ -153,23 +186,26 @@ function init(self)
 	end
 	self.clock = 0
 
-	-- Overlays.
+	-- Overlays. Every one of these lives on the "overlay" gui layer so it
+	-- always draws above the field/HUD -- Defold has no way to reorder nodes
+	-- after the fact, and these panels are mostly built once here in init(),
+	-- well before the gameplay chrome that would otherwise stack on top.
 	self.settings = settings_overlay.build()
 	self.overlay_nodes = {} -- rebuilt per overlay open
 	self.dragging = nil
-	self.tooltip_box = ui.box(0, 0, 240, 46, { 0, 0, 0 }, 0.9)
-	self.tooltip_text = ui.text(0, 0, "", 10, { 1, 1, 1 })
+	self.tooltip_box = ui.overlay(ui.box(0, 0, 240, 46, { 0, 0, 0 }, 0.9))
+	self.tooltip_text = ui.overlay(ui.text(0, 0, "", 10, { 1, 1, 1 }))
 	gui.set_line_break(self.tooltip_text, true)
 	gui.set_size(self.tooltip_text, vmath.vector3(900, 200, 0))
 	gui.set_enabled(self.tooltip_box, false)
 	gui.set_enabled(self.tooltip_text, false)
 
 	-- Game over.
-	self.go_shade = ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75)
-	self.go_text = ui.text(W / 2, H / 2 + 40, "Game Over", 26, { 1, 1, 1 })
-	self.go_gold = ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 })
-	self.go_btn = ui.box(W / 2, H / 2 - 60, 140, 44, { 0.298, 0.686, 0.314 }, 1)
-	self.go_btn_text = ui.text(W / 2, H / 2 - 60, "Main Menu", 13, { 1, 1, 1 })
+	self.go_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75))
+	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "Game Over", 26, { 1, 1, 1 }))
+	self.go_gold = ui.overlay(ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 }))
+	self.go_btn = ui.overlay(ui.button_frame(W / 2, H / 2 - 60, 140, 44, "btn_gold"))
+	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Main Menu", 13, { 1, 1, 1 }))
 end
 
 -- ---- overlays --------------------------------------------------------------
@@ -177,64 +213,88 @@ end
 local function clear_overlay(self)
 	for _, n in ipairs(self.overlay_nodes) do gui.delete_node(n) end
 	self.overlay_nodes = {}
-	self.inv_slots = nil
 	self.mobstats_built = nil
+	self.upgrades_built = nil
+	self.upgrades_clip = nil
+	self.upgrades_content = nil
+	self.upgrades_max_scroll = nil
+	self.upgrades_scroll = nil
+	self.upg_drag = nil
 end
 
+-- Every dynamically-built overlay node (upgrades list, mob stats) goes on
+-- the overlay layer too, same reasoning as the static ones above.
 local function add(self, n)
+	ui.overlay(n)
 	self.overlay_nodes[#self.overlay_nodes + 1] = n
 	return n
 end
 
-local function build_inventory(self)
+-- The "Upgrades" screen: everything picked this run, read-only (there is
+-- nothing to swap -- every pick stays for the rest of the run). Rows are
+-- compressed and, once there are more than fit, the list scrolls: rows sit
+-- under a clipped viewport whose content node slides with a drag.
+local UPG_ROW_H = 30
+local UPG_PANEL_H = 360
+local UPG_VIEW_TOP_GAP = 56 -- header (title) height inside the panel
+local UPG_VIEW_BOTTOM_GAP = 14
+
+local function build_upgrades_list(self)
 	clear_overlay(self)
 	local s = session.sim
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.box(W / 2, H / 2, W - 40, 380, { 0.1, 0.1, 0.18 }, 1))
-	add(self, ui.text(W / 2, H / 2 + 165, "Inventory", 16, { 1, 1, 1 }))
-	add(self, ui.text(W / 2 - (W - 80) / 2, H / 2 + 130, "Equipped", 11, { 0.8, 0.8, 0.85 }, gui.PIVOT_W))
-	self.inv_slots = {}
-	for i = 1, items.EQUIP_SLOTS do
-		local x = W / 2 - 90 + (i - 1) * 90
-		local slot = add(self, ui.box(x, H / 2 + 85, 72, 60, { 0.18, 0.18, 0.28 }, 1))
-		local name = add(self, ui.text(x, H / 2 + 95, "", 10, { 1, 1, 1 }))
-		local lvl = add(self, ui.text(x, H / 2 + 75, "", 11, { 1, 1, 1 }))
-		self.inv_slots[#self.inv_slots + 1] = { key = "equip-" .. i, slot = slot, name = name, lvl = lvl }
-	end
-	add(self, ui.text(W / 2 - (W - 80) / 2, H / 2 + 35, "Bag", 11, { 0.8, 0.8, 0.85 }, gui.PIVOT_W))
-	for i = 1, items.BAG_SLOTS do
-		local col = (i - 1) % 3
-		local row = math.floor((i - 1) / 3)
-		local x = W / 2 - 90 + col * 90
-		local y = H / 2 - 5 - row * 70
-		local slot = add(self, ui.box(x, y, 72, 60, { 0.18, 0.18, 0.28 }, 1))
-		local name = add(self, ui.text(x, y + 10, "", 10, { 1, 1, 1 }))
-		local lvl = add(self, ui.text(x, y - 10, "", 11, { 1, 1, 1 }))
-		self.inv_slots[#self.inv_slots + 1] = { key = "bag-" .. i, slot = slot, name = name, lvl = lvl }
-	end
-end
+	local panel_top = H / 2 + UPG_PANEL_H / 2
+	add(self, ui.box(W / 2, H / 2, W - 40, UPG_PANEL_H, { 0.1, 0.1, 0.18 }, 1))
+	add(self, ui.grain(W / 2, H / 2, W - 40, UPG_PANEL_H, 0.16))
+	add(self, ui.text(W / 2, panel_top - 24, "Upgrades", 16, { 1, 1, 1 }))
 
-local function sync_inventory(self)
-	local s = session.sim
-	if not self.inv_slots then return end
-	for _, sl in ipairs(self.inv_slots) do
-		local item
-		if sl.key:sub(1, 6) == "equip-" then
-			item = s.equipped[tonumber(sl.key:sub(7))]
-		else
-			item = s.bag[tonumber(sl.key:sub(5))]
-		end
-		if item then
-			local def = items.ITEM_DEFS[item.kind]
-			gui.set_color(sl.slot, vmath.vector4(def.color[1], def.color[2], def.color[3], 1))
-			gui.set_text(sl.name, def.name)
-			gui.set_text(sl.lvl, tostring(item.level))
-		else
-			gui.set_color(sl.slot, vmath.vector4(0.18, 0.18, 0.28, 1))
-			gui.set_text(sl.name, "")
-			gui.set_text(sl.lvl, "")
-		end
+	if #s.upgrades == 0 then
+		add(self, ui.text(W / 2, H / 2, "None picked yet -- clear a wave for a choice.", 10, { 0.75, 0.75, 0.8 }))
+		self.upgrades_max_scroll = 0
+		self.upgrades_clip = nil
+		self.upgrades_built = true
+		return
 	end
+
+	-- The viewport: a clip mask sized to the panel's row area, with a
+	-- content node inside it that carries every row and slides to scroll.
+	local vp_y0 = H / 2 - UPG_PANEL_H / 2 + UPG_VIEW_BOTTOM_GAP
+	local vp_y1 = panel_top - UPG_VIEW_TOP_GAP
+	local vp_cx, vp_cy = W / 2, (vp_y0 + vp_y1) / 2
+	local vp_w, vp_h = W - 56, vp_y1 - vp_y0
+
+	-- Only the clip node is tracked for cleanup: Defold deletes a node's
+	-- whole child subtree with it, so registering the content node and every
+	-- row underneath it too would try to delete them a second time.
+	local clip = gui.new_box_node(vmath.vector3(vp_cx, vp_cy, 0), vmath.vector3(vp_w, vp_h, 0))
+	gui.set_color(clip, vmath.vector4(0, 0, 0, 0))
+	gui.set_clipping_mode(clip, gui.CLIPPING_MODE_STENCIL)
+	gui.set_clipping_visible(clip, false)
+	add(self, clip)
+
+	local content = gui.new_box_node(vmath.vector3(0, 0, 0), vmath.vector3(1, 1, 0))
+	gui.set_color(content, vmath.vector4(0, 0, 0, 0))
+	ui.overlay(content)
+	gui.set_parent(content, clip)
+
+	local row_y = vp_h / 2 - UPG_ROW_H / 2 -- top row, in content-local space
+	for _, up in ipairs(s.upgrades) do
+		local icon_ui = skill_icon_ui.build(-vp_w / 2 + 16, row_y, 24, 15, upgrade_icons[up.kind], skill_icon_ui.LIGHT_BLUE)
+		local text = ui.text(-vp_w / 2 + 34, row_y, upgrades.describe(up), 9, { 1, 1, 1 }, gui.PIVOT_W)
+		for _, n in ipairs({ icon_ui.rim, icon_ui.disc, icon_ui.icon, text }) do
+			ui.overlay(n)
+			gui.set_parent(n, content)
+		end
+		row_y = row_y - UPG_ROW_H
+	end
+
+	local content_h = #s.upgrades * UPG_ROW_H
+	self.upgrades_max_scroll = math.max(0, content_h - vp_h)
+	self.upgrades_clip = { cx = vp_cx, cy = vp_cy, w = vp_w, h = vp_h }
+	self.upgrades_content = content
+	self.upgrades_scroll = 0
+	gui.set_position(content, vmath.vector3(0, 0, 0))
+	self.upgrades_built = true
 end
 
 local function build_mobstats(self)
@@ -243,6 +303,7 @@ local function build_mobstats(self)
 	local shown_wave = s.wave_active and s.wave or s.wave + 1
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
 	add(self, ui.box(W / 2, H / 2, W - 40, 260, { 0.1, 0.1, 0.18 }, 1))
+	add(self, ui.grain(W / 2, H / 2, W - 40, 260, 0.16))
 	add(self, ui.text(W / 2, H / 2 + 105, ("Mob Stats · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
 	local y = H / 2 + 55
 	for _, row in ipairs(combat.wave_composition(shown_wave)) do
@@ -256,32 +317,81 @@ local function build_mobstats(self)
 	self.mobstats_built = true
 end
 
-local function build_skills_overlay(self)
-	clear_overlay(self)
-	local s = session.sim
-	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.box(W / 2, H / 2, W - 40, 300, { 0.1, 0.1, 0.18 }, 1))
-	add(self, ui.text(W / 2, H / 2 + 125, "Equipped skills", 15, { 1, 1, 1 }))
-	local y = H / 2 + 75
-	for k = 1, 3 do
-		local ab = s.abilities[k]
-		if ab.skill then
-			local meta = skills.SKILL_META[ab.skill]
-			add(self, ui.box(W / 2 - 130, y, 30, 30, meta.color, 1))
-			add(self, ui.text(W / 2 - 105, y + 8, ("%s · Lv %d/%d"):format(meta.label, ab.level, skills.ABILITY_MAX_LEVEL), 12, { 1, 1, 1 }, gui.PIVOT_W))
-			local sub = meta.cast == "passive" and "Passive" or ("%d MP · %ds CD"):format(meta.mana, meta.cooldown)
-			add(self, ui.text(W / 2 - 105, y - 9, sub, 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
-			y = y - 56
-		end
+-- The wave-clear choice: three cards, pick one, it follows you for the rest
+-- of the run. Shown automatically whenever a choice is owed -- movement is
+-- withheld until it is answered (game.sim.tap_field), so there is no menu to
+-- open, only a decision to make.
+-- How long the panel takes to fade in, and how much longer after that
+-- before a tap is honoured -- so the choice that follows a wave clear (which
+-- often lands right on the heels of a frantic last swing) is never the
+-- victim of a stray tap still in flight.
+local CHOICE_FADE_IN = 0.35
+local CHOICE_ARM_DELAY = 1.0
+
+local function clear_choice(self)
+	if self.choice_nodes then
+		for _, n in ipairs(self.choice_nodes) do gui.delete_node(n) end
 	end
-	if s.passive then
-		local meta = skills.SKILL_META[s.passive.skill]
-		add(self, ui.box(W / 2 - 130, y, 30, 30, meta.color, 1))
-		add(self, ui.text(W / 2 - 105, y + 8, ("%s · Lv %d/%d"):format(meta.label, s.passive.level, skills.ABILITY_MAX_LEVEL), 12, { 1, 1, 1 }, gui.PIVOT_W))
-		add(self, ui.text(W / 2 - 105, y - 9, "Passive", 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
-		y = y - 56
+	self.choice_nodes = nil
+	self.choice_cards = nil
+	self.choice_alpha_nodes = nil
+	self.choice_offer_ref = nil
+	self.choice_t = nil
+end
+
+local function build_choice(self, offers)
+	clear_choice(self)
+	local nodes, cards, alpha_nodes = {}, {}, {}
+	-- Each entry remembers its own resting alpha, so fading in scales toward
+	-- that instead of flattening the backdrop's translucency to opaque.
+	local function add_c(n, target_alpha)
+		ui.overlay(n)
+		nodes[#nodes + 1] = n
+		alpha_nodes[#alpha_nodes + 1] = { node = n, target = target_alpha or 1 }
+		return n
 	end
-	add(self, ui.text(W / 2, y, "Buy, level and equip skills from the main menu.", 10, { 0.75, 0.75, 0.8 }))
+	add_c(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.6), 0.6)
+	add_c(ui.text(W / 2, H / 2 + 190, "Choose an upgrade", 16, { 1, 1, 1 }))
+	local card_h = 100
+	for i, offer in ipairs(offers) do
+		local y = H / 2 + 80 - (i - 1) * (card_h + 14)
+		local def = upgrades.DEFS[offer.kind]
+		local box = add_c(ui.box(W / 2, y, W - 60, card_h, { 0.1, 0.1, 0.18 }, 1))
+		-- Every upgrade wears the same face a skill would: dark disc, ring
+		-- border, icon on top -- light blue rather than the skills' orange,
+		-- so an upgrade still reads as its own kind of thing at a glance.
+		local icon_ui = skill_icon_ui.build(W / 2 - (W - 60) / 2 + 22, y, 34, 22, upgrade_icons[offer.kind], skill_icon_ui.LIGHT_BLUE)
+		add_c(icon_ui.rim)
+		add_c(icon_ui.disc)
+		add_c(icon_ui.icon)
+		add_c(ui.text(W / 2 - (W - 60) / 2 + 48, y + 14, def.name, 13, { 1, 1, 1 }, gui.PIVOT_W))
+		add_c(ui.text(W / 2 - (W - 60) / 2 + 48, y - 12, upgrades.describe(offer), 11, { 0.85, 0.85, 0.9 }, gui.PIVOT_W))
+		cards[#cards + 1] = { box = box, index = i }
+	end
+	-- Start invisible; sync_choice fades every node in together over time.
+	for _, e in ipairs(alpha_nodes) do ui.set_alpha(e.node, 0) end
+	self.choice_nodes = nodes
+	self.choice_cards = cards
+	self.choice_alpha_nodes = alpha_nodes
+	self.choice_t = 0
+end
+
+local function sync_choice(self, s, dt)
+	local offers = s.pending_upgrade_offers
+	if #offers == 0 then
+		clear_choice(self)
+		return
+	end
+	local current = offers[1]
+	if self.choice_offer_ref ~= current then
+		build_choice(self, current)
+		self.choice_offer_ref = current
+	end
+	self.choice_t = self.choice_t + dt
+	local t = math.min(1, self.choice_t / CHOICE_FADE_IN)
+	for _, e in ipairs(self.choice_alpha_nodes) do ui.set_alpha(e.node, e.target * t) end
+	-- Cards only start picking up taps once armed, well after the fade ends.
+	self.choice_armed = self.choice_t >= CHOICE_ARM_DELAY
 end
 
 -- ---- update ----------------------------------------------------------------
@@ -296,23 +406,17 @@ local function sync_hud(self, s)
 	gui.set_enabled(self.exit_btn, not s.game_over)
 	gui.set_enabled(self.exit_text, not s.game_over)
 
-	local hp_bonus = items.equipped_bonus(s.equipped, "health")
-	local mana_bonus = items.equipped_bonus(s.equipped, "mana")
-	local dmg_bonus = items.equipped_bonus(s.equipped, "dmg")
-	local atkspd_bonus = items.equipped_bonus(s.equipped, "atkspd")
+	local bonus = upgrades.bonuses(s.upgrades)
+	local hp_bonus = bonus.health
+	local dmg_bonus = bonus.dmg
+	local atkspd_bonus = bonus.atkspd
 	local max_hp = p.max_hp + hp_bonus
-	local max_mana = combat.MANA_MAX + mana_bonus
 
-	local rows = {
-		{ label = ("Lv %d"):format(p.level), value = ("%d/%d"):format(p.xp, p.xp_to_next), frac = p.xp / p.xp_to_next },
-		{ label = "HP", value = ("%d/%d"):format(math.floor(p.hp + 0.5), math.floor(max_hp + 0.5)), frac = p.hp / max_hp },
-		{ label = "MP", value = ("%d/%d"):format(math.floor(p.mana + 0.5), math.floor(max_mana + 0.5)), frac = p.mana / max_mana },
-	}
-	for i, row in ipairs(rows) do
-		gui.set_text(self.hud[i].label, row.label)
-		gui.set_text(self.hud[i].value, row.value)
-		gui.set_size(self.hud[i].fill, vmath.vector3(BAR_WIDTH * math.max(0, math.min(1, row.frac)), 8, 0))
-	end
+	local hp_frac = max_hp > 0 and p.hp / max_hp or 0
+	gui.set_text(self.hp_text, ("HP %d/%d"):format(math.floor(p.hp + 0.5), math.floor(max_hp + 0.5)))
+	gui.set_size(self.hp_fill, vmath.vector3((W - 40) * math.max(0, math.min(1, hp_frac)), 20, 0))
+	local c = hp_bar_color(hp_frac)
+	gui.set_color(self.hp_fill, vmath.vector4(c[1], c[2], c[3], 1))
 
 	local ranged_lvl = 0
 	for k = 1, 3 do
@@ -327,45 +431,39 @@ local function sync_hud(self, s)
 		local slot = self.qc_slots[i]
 		local ab = s.abilities[i]
 		local show = ab.skill ~= nil and ab.level > 0
-		for _, n in pairs({ slot.btn, slot.icon, slot.mana, slot.cd, slot.label }) do
+		skill_icon_ui.set_enabled(slot.icon_ui, show)
+		for _, n in pairs({ slot.cd, slot.label, slot.progress }) do
 			gui.set_enabled(n, show)
 		end
 		if show then
 			local meta = skills.SKILL_META[ab.skill]
-			local can_cast = ab.cooldown <= 0 and p.mana >= meta.mana
-			gui.set_color(slot.btn, vmath.vector4(meta.color[1], meta.color[2], meta.color[3], can_cast and 1 or 0.45))
-			gui.set_text(slot.icon, meta.label:sub(1, 4))
-			gui.set_text(slot.mana, tostring(meta.mana))
+			local can_cast = ab.cooldown <= 0
+			skill_icon_ui.set_alpha(slot.icon_ui, can_cast and 1 or 0.55)
+			gui.play_flipbook(slot.icon_ui.icon, SKILL_ICON[ab.skill])
 			gui.set_text(slot.cd, ab.cooldown > 0 and tostring(math.ceil(ab.cooldown)) or "")
 			gui.set_text(slot.label, meta.label)
+			local needed = skills.skill_xp_to_next(ab.level)
+			if needed then
+				gui.set_text(slot.progress, ("Lv%d  %d/%d"):format(ab.level, s.skill_xp[ab.skill] or 0, needed))
+			else
+				gui.set_text(slot.progress, ("Lv%d  MAX"):format(ab.level))
+			end
 		end
 	end
-	local pv = s.passive
-	gui.set_enabled(self.passive_chip, pv ~= nil)
-	gui.set_enabled(self.passive_icon, pv ~= nil)
-	if pv then
-		local meta = skills.SKILL_META[pv.skill]
-		gui.set_color(self.passive_chip, vmath.vector4(meta.color[1], meta.color[2], meta.color[3], 1))
-		gui.set_text(self.passive_icon, meta.label:sub(1, 2))
-	end
 
-	local bag_count = 0
-	for _, it in ipairs(s.bag) do
-		if it then bag_count = bag_count + 1 end
-	end
-	gui.set_text(self.bag_badge, bag_count > 0 and tostring(bag_count) or "")
+	gui.set_text(self.bag_badge, #s.upgrades > 0 and tostring(#s.upgrades) or "")
 end
 
 local function sync_field(self, s)
 	local p = s.player
 
 	-- Range ring around the knight.
-	local pierce_lvl = (s.passive and s.passive.skill == "pierce") and s.passive.level or 0
+	local pierce_bonus = upgrades.bonuses(s.upgrades).pierce
 	local ranged_lvl = 0
 	for k = 1, 3 do
 		if s.abilities[k].skill == "ranged" then ranged_lvl = s.abilities[k].level end
 	end
-	local range = (ranged_lvl > 0 or pierce_lvl > 0) and combat.RANGED_ATTACK_RANGE or combat.PLAYER_ATTACK_RANGE
+	local range = (ranged_lvl > 0 or pierce_bonus > 0) and combat.RANGED_ATTACK_RANGE or combat.PLAYER_ATTACK_RANGE
 	gui.set_position(self.range_ring, vmath.vector3(p.pos.x, gy(p.pos.y), 0))
 	gui.set_size(self.range_ring, vmath.vector3(range * 2, range * 2, 0))
 
@@ -399,12 +497,18 @@ local function sync_field(self, s)
 		gui.set_color(n.fill, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
 	end)
 
-	-- Projectiles interpolate from creation to arrival.
+	-- Ordinary shots interpolate from creation to arrival; a piercing shot
+	-- carries its own live position, since it keeps travelling past however
+	-- many enemies it has already gone through.
 	pool_sync(self.pool_proj, s.projectiles, function(n, e)
-		local t = math.min(1, (s.now - e.created_at) / e.duration)
-		local x = e.from.x + (e.to.x - e.from.x) * t
-		local y = e.from.y + (e.to.y - e.from.y) * t
-		gui.set_position(n, vmath.vector3(x, gy(y), 0))
+		if e.piercing then
+			gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+		else
+			local t = math.min(1, (s.now - e.created_at) / e.duration)
+			local x = e.from.x + (e.to.x - e.from.x) * t
+			local y = e.from.y + (e.to.y - e.from.y) * t
+			gui.set_position(n, vmath.vector3(x, gy(y), 0))
+		end
 	end)
 
 	pool_sync(self.pool_flash, s.hit_flashes, function(n, e)
@@ -423,15 +527,6 @@ local function sync_field(self, s)
 		gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
 		gui.set_size(n, vmath.vector3(size, size, 0))
 		ui.set_alpha(n, 0.55 * (1 - t))
-	end)
-
-	local ground = {}
-	for _, it in ipairs(s.ground_items) do
-		ground[#ground + 1] = { id = it.item.id, item = it.item, pos = it.pos }
-	end
-	pool_sync(self.pool_item, ground, function(n, e)
-		gui.set_position(n.box, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
-		gui.set_position(n.text, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
 	end)
 
 	pool_sync(self.pool_text, s.floating_texts, function(n, e)
@@ -480,15 +575,13 @@ function update(self, dt)
 	sync_hud(self, s)
 	sync_field(self, s)
 	sync_weather(self, dt)
+	sync_choice(self, s, dt)
 	settings_overlay.sync(self.settings)
 
-	if session.overlay == "inventory" then
-		if not self.inv_slots then build_inventory(self) end
-		sync_inventory(self)
+	if session.overlay == "upgrades" then
+		if not self.upgrades_built then build_upgrades_list(self) end
 	elseif session.overlay == "mobstats" then
 		if not self.mobstats_built then build_mobstats(self) end
-	elseif session.overlay == "skills" then
-		if #self.overlay_nodes == 0 then build_skills_overlay(self) end
 	elseif #self.overlay_nodes > 0 then
 		clear_overlay(self)
 	end
@@ -545,52 +638,53 @@ function on_input(self, action_id, action)
 		if action.pressed then settings_overlay.input(self.settings, action) end
 		return true
 	end
-	if session.overlay ~= nil then
-		if action.pressed then
-			-- Inventory: tap a slot -> tooltip; drag between slots.
-			if session.overlay == "inventory" and self.inv_slots then
-				for _, sl in ipairs(self.inv_slots) do
-					if gui.pick_node(sl.slot, action.x, action.y) then
-						self.drag_from = sl.key
-						self.drag_moved = false
-						self.drag_x, self.drag_y = action.x, action.y
-						return true
-					end
+	-- The wave-clear choice answers before anything else can happen -- but
+	-- not before it has faded in and armed, so the swing that cleared the
+	-- wave can never land on a card by accident.
+	if self.choice_cards and action.pressed then
+		if self.choice_armed then
+			local sim = require("game.sim")
+			for _, c in ipairs(self.choice_cards) do
+				if gui.pick_node(c.box, action.x, action.y) then
+					sim.choose_upgrade(s, c.index)
+					return true
 				end
 			end
+		end
+		return true -- swallow taps elsewhere on the card screen
+	end
+	-- The Upgrades list scrolls by drag rather than dismissing on the first
+	-- touch; only a tap that never moved counts as "close this".
+	if session.overlay == "upgrades" and self.upgrades_clip then
+		local vp = self.upgrades_clip
+		local inside = action.x >= vp.cx - vp.w / 2 and action.x <= vp.cx + vp.w / 2
+			and action.y >= vp.cy - vp.h / 2 and action.y <= vp.cy + vp.h / 2
+		if action.pressed then
+			if inside and self.upgrades_max_scroll > 0 then
+				self.upg_drag = { y = action.y, scroll = self.upgrades_scroll, moved = false }
+			else
+				session.overlay = nil
+				clear_overlay(self)
+			end
+			return true
+		elseif self.upg_drag then
+			-- y increases upward here; dragging the finger up (dy > 0) reveals
+			-- later rows, so scroll grows and the content slides down (-scroll).
+			local dy = action.y - self.upg_drag.y
+			if math.abs(dy) > 4 then self.upg_drag.moved = true end
+			local new_scroll = math.max(0, math.min(self.upgrades_max_scroll, self.upg_drag.scroll + dy))
+			self.upgrades_scroll = new_scroll
+			gui.set_position(self.upgrades_content, vmath.vector3(0, -new_scroll, 0))
+			if action.released then self.upg_drag = nil end
+			return true
+		end
+		return true
+	end
+	if session.overlay ~= nil then
+		if action.pressed then
 			session.overlay = nil
 			session.tooltip = nil
 			clear_overlay(self)
-		elseif self.drag_from then
-			if not action.released then
-				if math.abs(action.x - self.drag_x) + math.abs(action.y - self.drag_y) > items.INV_DRAG_THRESHOLD then
-					self.drag_moved = true
-				end
-			else
-				local from = self.drag_from
-				self.drag_from = nil
-				local function slot_get(key)
-					local idx = tonumber(key:match("%d+"))
-					if key:sub(1, 6) == "equip-" then return s.equipped, idx end
-					return s.bag, idx
-				end
-				if self.drag_moved and self.inv_slots then
-					for _, sl in ipairs(self.inv_slots) do
-						if gui.pick_node(sl.slot, action.x, action.y) and sl.key ~= from then
-							local fa, fi = slot_get(from)
-							local ta, ti = slot_get(sl.key)
-							fa[fi], ta[ti] = ta[ti] or false, fa[fi] or false
-							break
-						end
-					end
-				elseif not self.drag_moved then
-					local fa, fi = slot_get(from)
-					local item = fa[fi]
-					if item then
-						session.tooltip = { text = items.item_tooltip(item), y = H / 2 + 220 }
-					end
-				end
-			end
 		end
 		return true
 	end
@@ -620,11 +714,12 @@ function on_input(self, action_id, action)
 		end
 		-- Quick-cast bar.
 		if gui.pick_node(self.bag_btn, action.x, action.y) then
-			session.overlay = "inventory"
+			session.overlay = "upgrades"
 			return true
 		end
 		for i = 1, 3 do
-			if gui.is_enabled(self.qc_slots[i].btn, true) and gui.pick_node(self.qc_slots[i].btn, action.x, action.y) then
+			local disc = self.qc_slots[i].icon_ui.disc
+			if gui.is_enabled(disc, true) and gui.pick_node(disc, action.x, action.y) then
 				local sim = require("game.sim")
 				sim.press_ability(s, i)
 				return true

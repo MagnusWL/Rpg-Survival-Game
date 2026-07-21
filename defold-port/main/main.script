@@ -23,7 +23,12 @@ local function begin_run(game_state, run_id, is_test)
 	session.gold_banked = false
 	session.last_run_gold = 0
 	session.game_over_shown = false
-	session.sim = sim.new(game_state, { run_id = run_id, is_test_run = is_test })
+	-- Per-skill rank/xp is account-wide, so the sim starts from a snapshot
+	-- of the meta and every change flows straight back into it.
+	session.sim = sim.new(game_state, {
+		run_id = run_id, is_test_run = is_test,
+		skill_levels = session.meta.skill_levels, skill_xp = session.meta.skill_xp,
+	})
 	msg.post("world#world", "run_started")
 	show_screen("game")
 end
@@ -119,6 +124,8 @@ function update(self, dt)
 				session.delete_run(session.current_run_id)
 			end
 			session.game_over_shown = true
+		elseif ev.type == "skill_progress" then
+			session.apply_skill_progress(ev.skill, ev.level, ev.xp)
 		elseif ev.type == "coins" then
 			-- The coin sack is benched in the source (COINSACK_ENABLED = false);
 			-- the kill's coin event is kept so a future sack can hook in.

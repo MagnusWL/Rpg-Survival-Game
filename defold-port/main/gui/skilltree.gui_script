@@ -1,58 +1,52 @@
 -- The skill tree as the CRUEL flower: an Awakening core in the centre, the
--- game's three roots as the inner star, their children on the outer ring,
--- and levels 2-4 as chained rank pods growing outward along each vine.
+-- game's three roots as the inner star, their one active child each on the
+-- outer ring. Every skill starts owned at rank 1; rank 2-4 is earned in the
+-- field (see game.sim's grant_skill_kill_xp / grant_wave_clear_xp) and shown
+-- as a line under the skill's own name rather than as separate rank pods --
+-- there is nothing left to buy there. Passives (Haste, Summon Regen, Pierce)
+-- have moved to game.upgrades and no longer live in this tree.
 --
--- Look, layout numbers and every timing come from the designer's handoff
--- (Raw_Assets/Grafik/Animation skilltree/.../handoff-blomst); the blood
--- vines are its own engine, vendored verbatim in vendor/vines.lua. Buying
--- and equipping follow the exact rules of the old list screen -- gold,
--- parent gating, level costs, 3 actives + 1 passive -- restated here with
--- flash messages on refusal.
+-- Look and layout numbers come from the designer's handoff (Raw_Assets/
+-- Grafik/Animation skilltree/.../handoff-blomst); the blood vines are its
+-- own engine, vendored verbatim in vendor/vines.lua.
 local layout = require("game.layout")
 local session = require("game.session")
 local skills = require("game.skills")
 local ui = require("game.ui")
 local vines = require("vendor.vines")
+local skill_tip_ui = require("main.gui.skill_tooltip_ui")
+local skill_icon_ui = require("main.gui.skill_icon_ui")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 
 -- ===== The flower, in the handoff's design space (1280x1120, y down) =====
 local DCX, DCY = 640, 560
 local STAR_RADIUS = 400
-local RANK_DIST = { 130, 245, 360 }
 
 -- What each real skill wears and where it sits. The three roots keep the
--- design's own angles and its new names; the children flank their parent
--- farther out. Angles in degrees, design convention (0 = right, 90 = down).
--- This table is the one place to reskin names and icons.
--- wave: which tap of the Awakening core brings the skill into the star -
--- 1 the roots, 2 the active children, 3 the passives. Each wave happens to
--- land 120 degrees apart, a clean three-pointed star every time.
+-- design's own angles and its new names; the one active child per tree flanks
+-- its parent farther out. Angles in degrees, design convention (0 = right,
+-- 90 = down). wave: which tap of the Awakening core brings the skill into
+-- the star -- 1 the roots, 2 their children.
 local FLOWER = {
-	ranged      = { icon = "airblade",     name = "Air Blade",    angle = -90,  ring = 0.6, wave = 1 },
-	cone        = { icon = "judgement",    name = "Judgement",    angle = 30,   ring = 0.6, wave = 1 },
-	summon      = { icon = "ancestor",     name = "Ancestor",     angle = 150,  ring = 0.6, wave = 1 },
-	push        = { icon = "shieldcharge", name = "Push",         angle = -125, ring = 1.0, wave = 2 },
-	pierce      = { icon = "impale",       name = "Pierce",       angle = -55,  ring = 1.0, wave = 3 },
-	burn        = { icon = "hellfire",     name = "Burn",         angle = -5,   ring = 1.0, wave = 2 },
-	cdreduce    = { icon = "whirlwind",    name = "Haste",        angle = 65,   ring = 1.0, wave = 3 },
-	fireball    = { icon = "meteor",       name = "Fireball",     angle = 115,  ring = 1.0, wave = 2 },
-	summonregen = { icon = "bloodpact",    name = "Summon Regen", angle = 185,  ring = 1.0, wave = 3 },
+	ranged   = { icon = "airblade",     name = "Air Blade", angle = -90,  ring = 0.6, wave = 1 },
+	cone     = { icon = "judgement",    name = "Judgement", angle = 30,   ring = 0.6, wave = 1 },
+	summon   = { icon = "ancestor",     name = "Ancestor",  angle = 150,  ring = 0.6, wave = 1 },
+	push     = { icon = "shieldcharge", name = "Push",      angle = -125, ring = 1.0, wave = 2 },
+	burn     = { icon = "hellfire",     name = "Burn",      angle = -5,   ring = 1.0, wave = 2 },
+	fireball = { icon = "meteor",       name = "Fireball",  angle = 115,  ring = 1.0, wave = 2 },
 }
-local ORDER = { "ranged", "cone", "summon", "push", "pierce", "burn", "cdreduce", "fireball", "summonregen" }
-local ROMAN = { "I", "II", "III", "IV" }
+local ORDER = { "ranged", "cone", "summon", "push", "burn", "fireball" }
+local MAX_AWAKENING = 2
 
 -- Palette, from the handoff's data-props defaults.
 local LIT = { 0.612, 0.106, 0.086 }        -- vine lit        #9c1b16
 local OFF = { 0.290, 0.165, 0.141 }        -- vine off        #4a2a24
 local GLOW = { 0.941, 0.722, 0.251 }       -- equipped glow   #f0b840
 local GLOW_LIGHT = { 0.962, 0.819, 0.513 } -- shade(GLOW, 0.35)
-local RIM_AVAIL = { 0.420, 0.361, 0.220 }  -- buyable         #6b5c38
 local RIM_OWNED = { 0.271, 0.239, 0.200 }  -- owned, resting  #453d33
-local RIM_LOCKED = { 0.227, 0.208, 0.165 } -- parent missing  #3a352a
 local DISC = { 0.055, 0.047, 0.031 }
 local NAME_OWNED = { 0.663, 0.620, 0.514 } -- #a99e83
-local NAME_DIM = { 0.561, 0.518, 0.404 }   -- #8f8467
 local SUB_DIM = { 0.478, 0.435, 0.322 }    -- #7a6f52
 local COST_GOLD = { 0.941, 0.784, 0.376 }  -- #f0c860
 
@@ -65,29 +59,16 @@ local function skill_pos(sid)
 	return { x = DCX + r * math.cos(a), y = DCY + r * math.sin(a) }
 end
 
--- Ranks continue outward on the ray from the core through the skill,
--- each link grown from the last (the handoff's chain layout).
-local function rank_pos(sid, j)
-	local p = skill_pos(sid)
-	local ang = math.atan2(p.y - DCY, p.x - DCX)
-	return { x = p.x + RANK_DIST[j] * math.cos(ang), y = p.y + RANK_DIST[j] * math.sin(ang) }
-end
-
 local function v4(c, a) return vmath.vector4(c[1], c[2], c[3], a or 1) end
 
--- The standalone's growth logic, whole: the core IS the awakening. Each tap
--- brings the next wave into the star - roots, then the active children,
--- then the passives - and self.awakening counts how many taps have landed.
--- The taps are free; the html's gold prices on awakening II/III are a
--- gameplay decision that belongs to Magnus. Buying is still gated by the
--- game's parent rule, so a child can arrive in the star before it can be
--- bought - it sits dim until its root is owned.
+-- The core IS the awakening. Each tap brings the next wave into the star --
+-- roots, then their children -- and self.awakening counts how many taps have
+-- landed. Free taps; there is nothing left to buy.
 local function skill_shown(self, sid)
 	return self.awakening >= FLOWER[sid].wave
 end
 
 local function is_equipped(m, sid)
-	if skills.is_passive_skill(sid) then return m.passive == sid end
 	for _, s in ipairs(m.loadout) do
 		if s == sid then return true end
 	end
@@ -104,7 +85,7 @@ local function tex(texture, x, y, size, anim)
 	return n
 end
 
--- A pod: circular framed icon with name, sub line and cost badge, grouped
+-- A pod: circular framed icon with name and a rank/xp line beneath, grouped
 -- under one invisible container so a single scale/alpha/enable drives it.
 -- x, y in design space (y down); the container flips to gui space.
 local function make_pod(self, x, y, size, icon_px, icon)
@@ -124,11 +105,8 @@ local function make_pod(self, x, y, size, icon_px, icon)
 	pod.disc = child(tex("ui", 0, 0, size - 5, "circle"))
 	gui.set_color(pod.disc, v4(DISC, 1))
 	pod.icon = child(tex("skilltree", 0, 0, icon_px, icon))
-	pod.name = child(ui.text(0, -size / 2 - 12, "", 13, NAME_DIM))
+	pod.name = child(ui.text(0, -size / 2 - 12, "", 13, NAME_OWNED))
 	pod.sub = child(ui.text(0, -size / 2 - 27, "", 8, SUB_DIM))
-	pod.cost_bg = child(ui.box(size / 2 + 4, size / 2 + 2, 40, 16, { 0.110, 0.090, 0.063 }, 0.95))
-	pod.cost_coin = child(tex("skilltree", size / 2 - 10, size / 2 + 2, 11, "coin"))
-	pod.cost_text = child(ui.text(size / 2 + 8, size / 2 + 2, "", 9, COST_GOLD))
 	gui.set_enabled(c, false)
 	return pod
 end
@@ -161,22 +139,12 @@ end
 local VP = { x0 = 10, x1 = W - 10, y0 = 100, y1 = 730 }
 
 local function refit(self, animate)
-	local m = session.meta
 	local vis = { { x = DCX, y = DCY, r = 44 } }
 	if self.awakening >= 1 then
 		for _, sid in ipairs(ORDER) do
 			if skill_shown(self, sid) then
 				local p = skill_pos(sid)
 				vis[#vis + 1] = { x = p.x, y = p.y, r = 39 }
-				if self.expanded[sid] then
-					local level = m and (m.skill_levels[sid] or 0) or 0
-					for j = 1, 3 do
-						if level >= j then
-							local q = rank_pos(sid, j)
-							vis[#vis + 1] = { x = q.x, y = q.y, r = 28 }
-						end
-					end
-				end
 			end
 		end
 	end
@@ -202,66 +170,34 @@ local function refit(self, animate)
 	end
 end
 
--- ===== State actions (the old screen's rules, with flash messages) ========
+-- ===== State actions ========================================================
 
 local function flash(self, msg)
 	gui.set_text(self.flash_text, msg)
 	self.flash_t = 1.6
 end
 
-local function try_buy(self, skill)
-	local m = session.meta
-	local level = m.skill_levels[skill] or 0
-	if level >= skills.ABILITY_MAX_LEVEL then return end
-	local parent = skills.SKILL_PARENT[skill]
-	if parent and (m.skill_levels[parent] or 0) < 1 then
-		flash(self, "UNLOCK " .. FLOWER[parent].name:upper() .. " FIRST")
-		return
-	end
-	local cost = skills.skill_level_cost(level + 1)
-	if m.gold < cost then
-		flash(self, "NOT ENOUGH GOLD")
-		return
-	end
-	m.gold = m.gold - cost
-	m.skill_levels[skill] = level + 1
-	session.commit_meta(m)
-	if level == 0 then
-		flash(self, FLOWER[skill].name:upper() .. " UNLOCKED")
-	else
-		flash(self, "RANK " .. ROMAN[level + 1] .. " UNLOCKED")
-	end
-	-- Every purchase can change what the star holds - a first level lets
-	-- children sprout, a rank extends a chain - so the camera always refits.
-	refit(self, true)
-end
-
 local function toggle_equip(self, skill)
 	local m = session.meta
-	if (m.skill_levels[skill] or 0) < 1 then return end
-	if skills.is_passive_skill(skill) then
-		m.passive = m.passive ~= skill and skill or nil
+	local i = nil
+	for k, s in ipairs(m.loadout) do
+		if s == skill then i = k end
+	end
+	if i then
+		table.remove(m.loadout, i)
 	else
-		local i = nil
-		for k, s in ipairs(m.loadout) do
-			if s == skill then i = k end
+		if #m.loadout >= skills.MAX_EQUIPPED then
+			flash(self, "ONLY " .. skills.MAX_EQUIPPED .. " SKILLS CAN BE EQUIPPED")
+			return
 		end
-		if i then
-			table.remove(m.loadout, i)
-		else
-			if #m.loadout >= skills.MAX_EQUIPPED then
-				flash(self, "ONLY " .. skills.MAX_EQUIPPED .. " SKILLS CAN BE EQUIPPED")
-				return
-			end
-			m.loadout[#m.loadout + 1] = skill
-		end
+		m.loadout[#m.loadout + 1] = skill
 	end
 	session.commit_meta(m)
-	-- Equip-regrow: rank vines resume fluidly instead of replaying growth.
-	self.eq_t = { sid = skill, t = self.ms }
 end
 
 -- ===== The vine field ======================================================
+-- Just the root-to-skill strand now -- there is no rank chain to grow
+-- outward any more, ranks being an xp readout rather than separate nodes.
 
 local function build_desired(self)
 	local out = {}
@@ -275,30 +211,11 @@ local function build_desired(self)
 			local di = i - 1 -- the design's 0-based index drives seeds and delays
 			local p = skill_pos(sid)
 			local lit = is_equipped(m, sid)
-			-- Every skill's vine grows from the core, as the standalone
-			-- draws them - the parent bond gates WHEN a child sprouts into
-			-- the star, not WHERE its vine comes from.
 			out[#out + 1] = {
 				key = "o_" .. sid, ax = DCX, ay = DCY, bx = p.x, by = p.y,
 				seed = di * 13 + 3, delay = (di < 3 and 0 or 120), dur = 900,
 				thick = 4 + (di % 3), sag = 8 + di * 4, lit = lit,
 			}
-			if self.expanded[sid] and lit then
-				local level = m.skill_levels[sid] or 0
-				local fast = self.eq_t and self.eq_t.sid == sid and (self.ms - self.eq_t.t) < 800 or false
-				for j = 1, 3 do
-					if level >= j then
-						local q = rank_pos(sid, j)
-						local pv = j > 1 and rank_pos(sid, j - 1) or p
-						out[#out + 1] = {
-							key = "u_" .. sid .. "_" .. j, ax = pv.x, ay = pv.y, bx = q.x, by = q.y,
-							seed = di * 7 + (j - 1) * 17 + 40, delay = (j == 1 and 420 or 0), dur = 520,
-							after = j > 1 and ("u_" .. sid .. "_" .. (j - 1)) or ("o_" .. sid),
-							thick = 3, sag = 3 + (j - 1) * 2, lit = lit, fast = fast,
-						}
-					end
-				end
-			end
 		end
 	end
 	return out
@@ -349,22 +266,12 @@ end
 -- ===== Per-frame pod dressing =============================================
 
 local function sync_pod(pod, opts)
-	local rim
-	if opts.root or opts.lit then rim = GLOW
-	elseif opts.available then rim = RIM_AVAIL
-	elseif opts.owned then rim = RIM_OWNED
-	else rim = RIM_LOCKED end
-	gui.set_color(pod.rim, v4(rim, 1))
-	ui.set_alpha(pod.icon, opts.lit and 1 or (opts.owned and 0.62 or (opts.available and 0.85 or 0.5)))
+	gui.set_color(pod.rim, v4(opts.lit and GLOW or RIM_OWNED, 1))
+	ui.set_alpha(pod.icon, opts.lit and 1 or 0.75)
 	gui.set_text(pod.name, opts.name)
-	gui.set_color(pod.name, v4(opts.lit and GLOW_LIGHT or (opts.owned and NAME_OWNED or NAME_DIM), 1))
+	gui.set_color(pod.name, v4(opts.lit and GLOW_LIGHT or NAME_OWNED, 1))
 	gui.set_text(pod.sub, opts.sub or "")
 	gui.set_color(pod.sub, v4(opts.lit and GLOW_LIGHT or SUB_DIM, 1))
-	local badge = opts.cost ~= nil
-	gui.set_enabled(pod.cost_bg, badge)
-	gui.set_enabled(pod.cost_coin, badge)
-	gui.set_enabled(pod.cost_text, badge)
-	if badge then gui.set_text(pod.cost_text, tostring(opts.cost)) end
 	gui.set_enabled(pod.pulse, (opts.pulse or opts.lit) and true or false)
 end
 
@@ -372,8 +279,6 @@ end
 
 local function enter_reset(self)
 	self.awakening = 0
-	self.expanded = {}
-	self.eq_t = nil
 	self.flash_t = 0
 	gui.set_enabled(self.flash_bg, false)
 	gui.set_enabled(self.flash_text, false)
@@ -401,7 +306,6 @@ function init(self)
 	self.pool_used = 0
 	self.pods = {}
 	self.shown = {}
-	self.expanded = {}
 
 	-- Backdrop: the CRUEL cover under a heavy dusk, as the handoff frames it.
 	local cover_s = math.max(W / 941, H / 1672)
@@ -426,7 +330,7 @@ function init(self)
 	gui.set_visible(self.vine_layer, false)
 	gui.set_parent(self.vine_layer, self.tree)
 
-	-- The core, then every skill pod, then every rank pod (draw order).
+	-- The core, then every skill pod (draw order).
 	self.core = make_pod(self, DCX, DCY, 88, 58, "skull")
 	gui.set_enabled(self.core.root, true)
 	self.shown.core = true
@@ -434,37 +338,30 @@ function init(self)
 		local p = skill_pos(sid)
 		self.pods[sid] = make_pod(self, p.x, p.y, 78, 50, FLOWER[sid].icon)
 	end
-	for _, sid in ipairs(ORDER) do
-		for j = 1, 3 do
-			local q = rank_pos(sid, j)
-			self.pods[sid .. "_r" .. j] = make_pod(self, q.x, q.y, 56, 38, FLOWER[sid].icon)
-		end
-	end
 
 	-- Header chrome, fixed to the screen.
 	ui.box(W / 2, H - 45, W, 90, { 0.024, 0.027, 0.024 }, 0.82)
 	self.title = ui.text(W / 2, H - 38, "SKILL TREE", 24, { 0.847, 0.824, 0.753 })
 	self.hint = ui.text(W / 2, H - 64, "", 12, { 0.541, 0.498, 0.384 })
-	self.back = ui.box(33, H - 33, 38, 38, { 0.176, 0.157, 0.110 }, 1)
+	self.back = ui.button_frame(33, H - 33, 38, 38, "btn_steel")
 	ui.text(33, H - 32, "<", 18, { 0.788, 0.725, 0.541 })
 	self.gold_pill = ui.box(W - 56, H - 27, 84, 26, { 0.110, 0.090, 0.063 }, 1)
 	local hdr_coin = tex("skilltree", W - 86, H - 27, 17, "coin")
 	self.gold_text = ui.text(W - 74, H - 27, "", 15, COST_GOLD, gui.PIVOT_W)
 
-	-- Loadout bar: three active slots and the passive, fixed to the screen.
+	-- Loadout bar: the three active slots, fixed to the screen. Same circular
+	-- design as the pods above and the menu's preview and the quick-cast bar
+	-- in a run: dark disc, orange ring, icon on top.
 	ui.box(W / 2, 55, W, 110, { 0.024, 0.027, 0.024 }, 0.88)
 	self.loadout_caption = ui.text(W / 2, 96, "", 10, { 0.435, 0.749, 0.580 })
 	self.slots = {}
-	local slot_x = { W / 2 - 88, W / 2 - 30, W / 2 + 28, W / 2 + 88 }
-	ui.box(W / 2 + 58, 48, 2, 44, { 0.247, 0.290, 0.227 }, 0.7)
-	for i = 1, 4 do
+	local slot_x = { W / 2 - 60, W / 2, W / 2 + 60 }
+	for i = 1, 3 do
 		local x = slot_x[i]
-		local rimbox = ui.box(x, 48, 52, 52, GLOW, 1)
-		local inner = ui.box(x, 48, 48, 48, { 0.063, 0.051, 0.035 }, 1)
-		local icon = tex("skilltree", x, 48, 34, "coin")
-		local diamond = ui.box(x, 48, 16, 16, i == 4 and { 0.290, 0.353, 0.416 } or { 0.184, 0.290, 0.227 }, 1)
+		local handle = skill_icon_ui.build(x, 48, 52, 34)
+		local diamond = ui.box(x, 48, 16, 16, { 0.184, 0.290, 0.227 }, 1)
 		gui.set_rotation(diamond, vmath.quat_rotation_z(math.rad(45)))
-		self.slots[i] = { rimbox = rimbox, inner = inner, icon = icon, diamond = diamond, cur = nil }
+		self.slots[i] = { icon_ui = handle, diamond = diamond, cur = nil }
 	end
 
 	-- Flash toast, above everything.
@@ -473,6 +370,10 @@ function init(self)
 	gui.set_enabled(self.flash_bg, false)
 	gui.set_enabled(self.flash_text, false)
 	self.flash_t = 0
+
+	-- Tap a filled loadout slot to see the skill's description and per-level
+	-- stats, its current rank picked out.
+	self.skill_tip = skill_tip_ui.build()
 
 	-- First activation runs the same reset as every return visit.
 	self.armed = true
@@ -505,73 +406,52 @@ function update(self, dt)
 	vines.update(self.ms, math.min(dt * 1000, 50))
 	render_vines(self)
 
-	-- The core: it pulses and asks for taps until the third awakening, the
-	-- standalone's own arc.
-	local CORE_SUB = { [0] = "TAP TO UNFURL", "TAP TO AWAKEN II", "TAP TO AWAKEN III" }
+	-- The core: it pulses and asks for taps until every wave has landed.
+	local CORE_SUB = { [0] = "TAP TO UNFURL" }
 	sync_pod(self.core, {
-		root = true, owned = true, name = "Awakening",
+		lit = true, name = "Awakening",
 		sub = CORE_SUB[self.awakening],
-		pulse = self.awakening < 3,
+		pulse = self.awakening < MAX_AWAKENING,
 	})
 
-	-- Every skill and rank pod, shown or hidden by the same state that
-	-- drives the vines, popped on first sight with the design's delays.
+	-- Every skill pod, shown or hidden by the same state that drives the
+	-- vines, popped on first sight with the design's delays. Rank and xp sit
+	-- right under the name -- there is nothing left to unlock in a chain.
 	for i, sid in ipairs(ORDER) do
 		local pod = self.pods[sid]
-		local level = m.skill_levels[sid] or 0
-		local owned = level > 0
-		local parent = skills.SKILL_PARENT[sid]
-		local unlocked = not parent or (m.skill_levels[parent] or 0) >= 1
-		local lit = is_equipped(m, sid)
 		if skill_shown(self, sid) then
 			show_pod(self, sid, pod, i <= 3 and 0.9 or 1.1)
-			sync_pod(pod, {
-				lit = lit, owned = owned, available = not owned and unlocked,
-				name = FLOWER[sid].name,
-				sub = self.expanded[sid] and (lit and "EQUIPPED" or "TAP TO EQUIP") or nil,
-				cost = (not owned and unlocked) and skills.skill_level_cost(1) or nil,
-			})
+			local level = m.skill_levels[sid] or 1
+			local needed = skills.skill_xp_to_next(level)
+			local sub = needed
+				and ("Lv %d  %d/%d"):format(level, m.skill_xp[sid] or 0, needed)
+				or ("Lv %d  MAX"):format(level)
+			sync_pod(pod, { lit = is_equipped(m, sid), name = FLOWER[sid].name, sub = sub })
 		else
 			hide_pod(self, sid, pod)
-		end
-		for j = 1, 3 do
-			local rpod = self.pods[sid .. "_r" .. j]
-			local rkey = sid .. "_r" .. j
-			if skill_shown(self, sid) and self.expanded[sid] and level >= j then
-				show_pod(self, rkey, rpod, j == 1 and 0.82 or 0.28)
-				sync_pod(rpod, {
-					lit = lit, owned = level > j, available = level == j,
-					name = "Rank " .. ROMAN[j + 1],
-					cost = level == j and skills.skill_level_cost(j + 1) or nil,
-				})
-			else
-				hide_pod(self, rkey, rpod)
-			end
 		end
 	end
 
 	-- Chrome.
 	gui.set_text(self.gold_text, tostring(m.gold))
-	if self.awakening < 1 then
+	if self.awakening < MAX_AWAKENING then
 		gui.set_text(self.hint, "Tap the core to unfurl the tree")
-	elseif next(self.expanded) then
-		gui.set_text(self.hint, "Tap ranks to unlock - tap a skill to equip")
 	else
-		gui.set_text(self.hint, "Tap a skill to grow its branch")
+		gui.set_text(self.hint, "Tap a skill to equip it")
 	end
 	gui.set_text(self.loadout_caption, ("EQUIPPED - %d/%d"):format(#m.loadout, skills.MAX_EQUIPPED))
 
-	-- Loadout slots: three actives, then the passive in its own frame.
-	for i = 1, 4 do
+	-- Loadout slots.
+	for i = 1, 3 do
 		local slot = self.slots[i]
-		local sid = i <= 3 and m.loadout[i] or m.passive
+		local sid = m.loadout[i]
 		if sid ~= slot.cur then
 			slot.cur = sid
-			if sid then gui.play_flipbook(slot.icon, FLOWER[sid].icon) end
+			if sid then gui.play_flipbook(slot.icon_ui.icon, FLOWER[sid].icon) end
 		end
-		gui.set_enabled(slot.icon, sid ~= nil)
+		gui.set_enabled(slot.icon_ui.icon, sid ~= nil)
 		gui.set_enabled(slot.diamond, sid == nil)
-		gui.set_color(slot.rimbox, sid and v4(GLOW, 1) or vmath.vector4(0.12, 0.16, 0.13, 1))
+		skill_icon_ui.set_lit(slot.icon_ui, sid ~= nil)
 	end
 end
 
@@ -586,27 +466,33 @@ function on_input(self, action_id, action)
 	if session.screen ~= "skilltree" then return false end
 	if action_id ~= hash("touch") or not action.pressed then return false end
 
+	if skill_tip_ui.input(self.skill_tip, action) then return true end
+
 	if gui.pick_node(self.back, action.x, action.y) then
 		session.actions.back_to_menu()
 		return true
 	end
-	for i = 1, 4 do
-		if gui.pick_node(self.slots[i].inner, action.x, action.y) then
-			if not self.slots[i].cur then flash(self, "EQUIP A SKILL") end
+	for i = 1, 3 do
+		if gui.pick_node(self.slots[i].icon_ui.disc, action.x, action.y) then
+			local sid = self.slots[i].cur
+			if not sid then
+				flash(self, "EQUIP A SKILL")
+			else
+				local m = session.meta
+				local p = gui.get_position(self.slots[i].icon_ui.disc)
+				local level = m and m.skill_levels[sid] or 1
+				local xp = m and m.skill_xp[sid] or 0
+				skill_tip_ui.show(self.skill_tip, sid, level, xp, skills.skill_xp_to_next(level), p.x, p.y)
+			end
 			return true
 		end
 	end
 
 	if pod_hit(self, "core", action.x, action.y) then
-		-- Each tap on the core is the next awakening: roots, actives,
-		-- passives - the standalone's own three-step bloom.
-		if self.awakening < 3 then
+		-- Each tap on the core is the next awakening: roots, then children.
+		if self.awakening < MAX_AWAKENING then
 			self.awakening = self.awakening + 1
-			if self.awakening == 2 then
-				flash(self, "SECOND AWAKENING")
-			elseif self.awakening == 3 then
-				flash(self, "THIRD AWAKENING")
-			end
+			if self.awakening == MAX_AWAKENING then flash(self, "SECOND AWAKENING") end
 			refit(self, true)
 		end
 		return true
@@ -616,29 +502,10 @@ function on_input(self, action_id, action)
 	if not m then return true end
 	for _, sid in ipairs(ORDER) do
 		if pod_hit(self, sid, action.x, action.y) then
-			local level = m.skill_levels[sid] or 0
-			if level < 1 then
-				try_buy(self, sid)
-			elseif not self.expanded[sid] then
-				self.expanded[sid] = true
-				refit(self, true)
-			else
-				toggle_equip(self, sid)
-			end
+			toggle_equip(self, sid)
 			return true
-		end
-		for j = 1, 3 do
-			if pod_hit(self, sid .. "_r" .. j, action.x, action.y) then
-				if (m.skill_levels[sid] or 0) == j then try_buy(self, sid) end
-				return true
-			end
 		end
 	end
 
-	-- A tap on the ground folds every open branch back in.
-	if next(self.expanded) then
-		self.expanded = {}
-		refit(self, true)
-	end
 	return true
 end
