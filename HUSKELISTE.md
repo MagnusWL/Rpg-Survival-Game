@@ -6,7 +6,65 @@ Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
 
 ---
 
-## I GANG LIGE NU: RESCUE HER-rivningen ind i Defold (afbrudt ved compact)
+## I GANG LIGE NU: skilltræ-blomsten (afventer F5)
+
+Nicolais handoff (`Raw_Assets/Grafik/Animation skilltree/Pixel skills menu
+design/handoff-blomst/`) er syet ind som portens nye skilltree-skærm —
+**designets look og motor, spillets rigtige regler og tal.**
+
+**Nøglefund:** designets tre gratis start-skills ER spillets tre rødder med
+nye navne — beskrivelserne matcher ordret. Navnemapping (i FLOWER-tabellen i
+skilltree.gui_script, ét sted at rette):
+ranged→**Air Blade** (airblade), cone→**Judgement** (judgement),
+summon→**Ancestor** (ancestor); børnene beholder spilnavne med lånte ikoner:
+fireball→meteor, burn→hellfire, push→shieldcharge, summonregen→bloodpact,
+cdreduce/Haste→whirlwind, pierce→impale. Interne id'er urørte (gemte
+skill_levels virker stadig). Reserve-ikoner (bonewall, chain, plague,
+gravevortex, frostnova, doom, nightswarm, raisedead, soulharvest, ricochet,
+cleave) ligger med i atlasset til fremtidens skills.
+
+**Hvad der er bygget:**
+- `defold-port/vendor/vines.lua` — designerens blod-vine-motor, byte-identisk
+  kopi (vendor-reglen). Kald-kontrakt: `desired_sync` FØR `update` hver frame.
+- `defold-port/main/tiles/skilltree.atlas` (23 ikoner 128×128) +
+  `skilltree_bg.atlas` (jordtegningen) + kopier under
+  `defold-port/assets/sprites/skilltree/`.
+- `skilltree.gui_script` totalt omskrevet: Awakening-kerne i midten (tap =
+  unfurl-ritualet, hver gang man går ind), rødderne som indre stjerne (0.6×),
+  børnene på ydre ring (1.0×, flankerer forælderen ±35°), niveau 2-4 som
+  kædede rang-bælge (130/245/360 ud ad strålen). Vines under bælgene, pool
+  på 2600 box-nodes, blokstørrelse følger SKÆRMEN (2 px / kamera-skala) så
+  antallet er bundet. Kamera-fit på synlige noder, OUTQUAD 0.5 s.
+- Købs-/equip-reglerne er de GAMLE (gold, forældre-gate, niveaupriser
+  5/10/15/20, 3 aktive + 1 passiv) — kun omsagt med flash-beskeder.
+  Tap-flow som designet: ukøbt→køb, købt→udfold gren, udfoldet→equip.
+  Chevron øverst = tilbage til menu; tap på jorden = fold grene sammen.
+- `game.project`: NEAREST-filter globalt (designerens README-krav for skarpe
+  ikoner) — **rammer HELE spillets sprites**, se F5-punkt 3.
+- Bevis uden Defold: Lua-syntaks parset OK; vine-motoren kørt 570 frames i
+  Lua-VM med blomstens præcise strenge — 21/21 strenge fuldvoksede, visning
+  og fast-regrow virker, max 1909 blokke < 2600-loftet.
+
+**MANGLER (F5-test):**
+1. Menu → Skills: skull-kerne, tap → 9 skills folder ud med vines.
+2. Køb/equip-runde: køb rod (5g), udfold, køb Rank II-IV, equip/unequip —
+   glød, visnende vines ved unequip, flydende genvækst ved re-equip.
+3. NEAREST-filteret: kig på SPILLET (ridder, zombier, menu-cover, intro) —
+   ser noget hårdt/forkert ud, fjernes [graphics]-blokken i game.project
+   (én blok, ren revert).
+4. Navnelæsbarhed: skilt-tekster er designets størrelser og kan være små på
+   fuld udzoomning — sig til, så skruer vi op.
+5. Lyd mangler helt i skærmen (køb-klik? equip-lyd? vine-hvisken?) — Nicolais
+   afdeling, pladsen er klar.
+
+**Åbent efter design:** slot-tap i bunden gør ingenting (designets zoomTo var
+udefineret i prototypen); beskrivelses-tekster fra den gamle liste vises ikke
+(designet har ingen plads til dem — de findes stadig i skills.lua).
+Web-udgaven af blomsten er IKKE bygget (Defold-æraen først).
+
+---
+
+## RESCUE HER-rivningen ind i Defold (syet, afventer F5)
 
 Nicolais spørgsmål "er et spritesheet ikke bedre end en film?" er allerede
 svaret: **optagelsen ER et spritesheet.** Motoren tegner billederne én gang
@@ -36,8 +94,10 @@ imens. Vigtig detalje fundet i main.script: menuen genstartes IKKE ved
 hjemkomst fra et run (kun enable/disable) — derfor stiller slut-callbacken
 plaquen tilbage og skjuler filmen FØR start_new_run, i samme frame som
 skærmskiftet skjuler menuen. Continue/Test run starter stadig straks.
-Lyd: uændret parity med web — stilhed ved trykket, klikket falder ved
-spilstart når filmen er færdig. Vil Nicolai have en riv-lyd, leverer han én.**
+Lyd (rettet 22. juli efter Nicolais øre): de fire menu-press-dele slås an
+VED TRYKKET som webbens leaveMenu gør — klikket flyttet ud af start_new_run
+(main.script, én linje, animationsbegrundet). Vil Nicolai have en riv-lyd
+oveni, leverer han én.**
 
 **MANGLER:**
 1. Nicolai F5-tester: rivning → spilstart når filmen er færdig (~1,3 s).
@@ -78,6 +138,9 @@ til defold-port.
 - `defold-port/assets/sprites/` — portens **egne kopier**, almindelige
   128-gitre. **Defolds tile sources kræver faste 128-celler — giv den
   ALDRIG pakkede ark.** Pakning i Defold = Magnus's teksturkomprimering.
+- `defold-port/vendor/` — designerens motorer i Defold-æraen, ordret
+  (lige nu: vines.lua fra skilltræ-handoff'en). Samme regel som web'ens
+  vendor/: vi retter aldrig i dem.
 
 **Arkivet:** `arkiv/` i roden (sporet, med README der logger hvad/hvornår/
 hvorfor) til udgåede kode-ting; `arkiv/lokalt/` (ignoreret) til lokale

@@ -19,6 +19,10 @@ clear_color_green = 0.106
 clear_color_blue = 0.169
 clear_color_alpha = 1
 
+[graphics]
+default_texture_min_filter = nearest
+default_texture_mag_filter = nearest
+
 [sprite]
 max_count = 16384
 

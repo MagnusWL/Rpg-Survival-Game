@@ -1,0 +1,71 @@
+images {
+  image: "/assets/sprites/skilltree/icons/airblade.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/ancestor.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/bloodpact.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/bonewall.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/chain.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/cleave.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/coin.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/doom.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/frostnova.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/gravevortex.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/hellfire.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/impale.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/judgement.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/lock.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/meteor.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/nightswarm.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/plague.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/raisedead.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/ricochet.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/shieldcharge.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/skull.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/soulharvest.png"
+}
+images {
+  image: "/assets/sprites/skilltree/icons/whirlwind.png"
+}
+margin: 2
+extrude_borders: 2
