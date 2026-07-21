@@ -56,3 +56,6 @@ yarn-error.*
 # they embed the audio and the ground, so there is no reason to version them.
 tools/eq-preview.html
 tools/rain-preview.html
+
+# Local-only archive: never in git; the tracked arkiv/ entries are enough.
+/arkiv/lokalt/
