@@ -289,6 +289,12 @@ kan smøre skarpe kanter).
 **Venter på:** Magnus's bekræftelse + tidshorisont. Derefter bygger Claude
 optage-værktøjet (en side der kører hvert kit og gemmer canvas-billeder).
 
+**Rundturen er testet** (21. juli): Magnus kørte `Melee.png` gennem Defold, og
+udgaven er **pixel-identisk** med kilden — 0 afvigelser af 7,9 mio. px, ingen
+resampling, ingen premultiply, intet farveskift. Kun PNG'en er pakket om (11%
+mindre fil). Vejen ind i Defold er **kilderne i `Grafik/`** (ensartet gitter =
+Defolds tile source-format), ikke vores pakkede web-atlasser.
+
 ---
 
 ## Hvad spillet vejer (målt 21. juli)
