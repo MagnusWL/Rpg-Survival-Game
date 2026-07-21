@@ -323,9 +323,13 @@ mod 1,97 mio. pixels pr. ark før. Det er præcis den udgift, Magnus beskrev som
 zombierne mere end hukommelse: Magnus har netop sat dem til at **skifte kilde
 direkte**, hvilket betaler afkodningen igen hver gang.
 
-Én pris tilføjet, ikke bevist gratis: rammens størrelse ændrer sig nu pr.
-billede (før fast 128), så browseren omberegner layout ~16 gange/sek for
-ridderens 20 monterede lag. Ikke målbart i tallene, men ikke modbevist.
+**Prisen jeg tilføjede, nu målt:** rammens størrelse ændrer sig pr. billede
+(før fast 128), så browseren omberegner layout. Isoleret i en test med 20 lag
+opdateret hver frame: **0,142 → 0,237 ms, altså 0,095 ms ekstra = 0,57% af et
+60 fps-budget.** Og det er det pessimistiske tal — ridderen skifter billede
+10-24 gange i sekundet, ikke 60, så i praksis omkring 0,025 ms. Reelt, men
+uden betydning. (Måling i det *kørende* spil mislykkedes: 6 rAF-frames på 6
+sekunder, altså frossen rude — tallene derfra kasseret.)
 
 ---
 
