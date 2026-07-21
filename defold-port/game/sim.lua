@@ -4,8 +4,8 @@
 -- Time inside the sim is state.now, seconds of simulated time.
 local layout = require("game.layout")
 local combat = require("game.combat")
-local items = require("game.items")
 local skills = require("game.skills")
+local upgrades = require("game.upgrades")
 
 local M = {}
 
@@ -33,10 +33,14 @@ function M.new(game_state, opts)
 		now = 0,
 		player = game_state.player,
 		abilities = game_state.abilities,
-		passive = game_state.passive,
-		equipped = game_state.equipped,
-		bag = game_state.bag,
-		materials = game_state.materials,
+		upgrades = game_state.upgrades or {},
+		-- Choices owed to the player: one set of three offers per cleared
+		-- wave, answered oldest first.
+		pending_upgrade_offers = {},
+		-- Per-skill progression, mirrored from the account meta at run start;
+		-- every change is also emitted as an event for the meta to persist.
+		skill_levels = opts.skill_levels or {},
+		skill_xp = opts.skill_xp or {},
 		wave = game_state.wave,
 		mobs = {},
 		allies = {},
@@ -95,12 +99,10 @@ local function equipped_level_of(s, skill)
 end
 M.equipped_level_of = equipped_level_of
 
+-- Haste is now a stacking upgrade rather than a passive skill; clamped so a
+-- pile of them cannot reach a zero or negative cooldown.
 local function cd_scale(s)
-	local pv = s.passive
-	if pv and pv.skill == "cdreduce" then
-		return 1 - skills.cooldown_reduce_percent(pv.level)
-	end
-	return 1
+	return math.max(0.1, 1 - upgrades.bonuses(s.upgrades).haste)
 end
 
 -- Queue the cone's blows onto the travelling wave (or land at once when the
@@ -130,17 +132,18 @@ end
 function M.cast_cone_aimed(s, slot, point)
 	local p = s.player
 	local ab = s.abilities[slot]
-	local cost = skills.SKILL_META.cone.mana
 	s.aiming_slot = nil
 	s.aim_point = nil
-	if s.die_timer ~= nil or ab.skill ~= "cone" or p.mana < cost then return end
+	if s.die_timer ~= nil or ab.skill ~= "cone" then return end
 	s.pending_cast_anim = "rupture"
+	-- The cast plants him: a cone loosed on the move stops the walk so the
+	-- pose (and the shockwave under it) fire from where he stood.
+	p.target = nil
 	add_cone_zone(s, p.pos, math.atan2(point.y - p.pos.y, point.x - p.pos.x) * 180 / math.pi)
 	local hits = skills.fire_cone(p.pos, point, s.mobs,
 		skills.ability2_base_damage(ab.level), skills.ability2_damage_percent(ab.level),
 		skills.CONE_RANGE, skills.ABILITY2_HALF_ANGLE_DEG)
 	queue_cone_hits(s, hits, p.pos)
-	p.mana = p.mana - cost
 	ab.cooldown = skills.SKILL_META.cone.cooldown * cd_scale(s)
 end
 
@@ -150,15 +153,14 @@ function M.press_ability(s, slot)
 	local p = s.player
 	local skill = ab.skill
 	if not skill or ab.level <= 0 or ab.cooldown > 0 then return end
-	if skills.SKILL_META[skill].cast == "passive" then return end
-	local cost = skills.SKILL_META[skill].mana
-	if p.mana < cost then return end
 
 	if skill == "summon" then
 		s.pending_cast_anim = "ancestor"
 		s.allies = combat.make_allies_for_level(ab.level, p.pos, skills.ability1_stats)
 	elseif skill == "cone" then
 		s.pending_cast_anim = "rupture"
+		-- Same rule as the aimed cast: casting the cone stops the walk.
+		p.target = nil
 		local dir = combat.direction_from_facing(p.facing)
 		local aim = { x = p.pos.x + dir.x * skills.CONE_RANGE, y = p.pos.y + dir.y * skills.CONE_RANGE }
 		add_cone_zone(s, p.pos, math.atan2(dir.y, dir.x) * 180 / math.pi)
@@ -190,6 +192,7 @@ function M.press_ability(s, slot)
 			end
 			if dmg > 0 then
 				m.hp = m.hp - dmg
+				m.last_hit_skill = "fireball"
 				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = s.now }
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(dmg + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, s.now)
 			end
@@ -213,7 +216,7 @@ function M.press_ability(s, slot)
 			radius = 18, color = skills.SKILL_META.burn.color, created_at = s.now,
 		}
 	elseif skill == "push" then
-		local dmg_bonus = items.equipped_bonus(s.equipped, "dmg")
+		local dmg_bonus = upgrades.bonuses(s.upgrades).dmg
 		local ranged_lvl = equipped_level_of(s, "ranged")
 		local atk_dmg = combat.PLAYER_BASE_DAMAGE + skills.ability3_damage_bonus(ranged_lvl) + dmg_bonus
 		local dmg = skills.push_damage_percent(ab.level) * atk_dmg
@@ -225,6 +228,7 @@ function M.press_ability(s, slot)
 			s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = s.now }
 			s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(dmg + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, s.now)
 			m.hp = m.hp - dmg
+			m.last_hit_skill = "push"
 			m.knock = { x = dx / d * skills.PUSH_SPEED, y = dy / d * skills.PUSH_SPEED }
 		end
 		s.skill_marks[#s.skill_marks + 1] = {
@@ -233,7 +237,6 @@ function M.press_ability(s, slot)
 		}
 	end
 
-	p.mana = p.mana - cost
 	ab.cooldown = skills.SKILL_META[skill].cooldown * cd_scale(s)
 end
 
@@ -253,7 +256,76 @@ function M.tap_field(s, x, y)
 		return
 	end
 	if s.player.intro_phase ~= "done" then return end
+	if #s.pending_upgrade_offers > 0 then return end -- must answer the offer first
 	s.player.target = { x = x, y = y }
+end
+
+-- Answer the oldest pending upgrade offer, picking one of its three choices.
+-- The other two are discarded; the pick is permanent for the run.
+function M.choose_upgrade(s, choice_index)
+	local offers = s.pending_upgrade_offers
+	if #offers == 0 then return end
+	local set = offers[1]
+	local picked = set[choice_index]
+	if not picked then return end
+	table.remove(offers, 1)
+	s.upgrades[#s.upgrades + 1] = picked
+end
+
+-- Per-skill progression, from two income streams so a skill still ranks up
+-- even if it never personally lands a kill: half from landing kills with it
+-- equipped, half from simply clearing waves with it equipped. Gold only ever
+-- buys rank 1 in the tree; every rank after that is earned here. Levels are
+-- account-wide, so a levelled skill stays levelled next run.
+local KILL_XP = 20
+local WAVE_CLEAR_XP = 20
+
+local function is_skill_equipped(s, sid)
+	for k = 1, 3 do
+		if s.abilities[k].skill == sid then return true end
+	end
+	return false
+end
+
+local function add_skill_xp(s, sid, amount, pos)
+	local level = s.skill_levels[sid] or 0
+	if level <= 0 or level >= skills.ABILITY_MAX_LEVEL then return end
+	local needed = skills.skill_xp_to_next(level)
+	if not needed then return end
+	s.skill_xp[sid] = (s.skill_xp[sid] or 0) + amount
+	local leveled = false
+	while s.skill_xp[sid] >= needed and level < skills.ABILITY_MAX_LEVEL do
+		s.skill_xp[sid] = s.skill_xp[sid] - needed
+		level = level + 1
+		leveled = true
+		needed = skills.skill_xp_to_next(level)
+		if not needed then break end
+	end
+	if leveled then
+		s.skill_levels[sid] = level
+		for k = 1, 3 do
+			if s.abilities[k].skill == sid then s.abilities[k].level = level end
+		end
+		if pos then
+			s.floating_texts[#s.floating_texts + 1] =
+				combat.make_floating_text(skills.SKILL_META[sid].label .. " Lv " .. level, pos, { 1, 0.835, 0.31 }, s.now)
+		end
+	end
+	emit(s, { type = "skill_progress", skill = sid, level = s.skill_levels[sid], xp = s.skill_xp[sid] })
+end
+
+local function grant_skill_kill_xp(s, sid, pos)
+	if not is_skill_equipped(s, sid) then return end
+	add_skill_xp(s, sid, KILL_XP, pos)
+end
+
+-- Every equipped active skill earns its wave-clear share, regardless of
+-- whether it personally landed a blow this wave.
+local function grant_wave_clear_xp(s)
+	for k = 1, 3 do
+		local sid = s.abilities[k].skill
+		if sid then add_skill_xp(s, sid, WAVE_CLEAR_XP, s.player.pos) end
+	end
 end
 
 -- One tick. Everything in App.tsx's step(), in the same order.
@@ -263,73 +335,75 @@ function M.update(s, dt)
 	local now = s.now
 	local p = s.player
 
-	local eq = s.equipped
-	local dmg_bonus = items.equipped_bonus(eq, "dmg")
-	local atkspd_bonus = items.equipped_bonus(eq, "atkspd")
-	local mana_bonus = items.equipped_bonus(eq, "mana")
-	local manaregen_bonus = items.equipped_bonus(eq, "manaregen")
-	local hp_bonus = items.equipped_bonus(eq, "health")
-	local hpregen_bonus = items.equipped_bonus(eq, "healthregen")
-	local effective_max_mana = combat.MANA_MAX + mana_bonus
+	local bonus = upgrades.bonuses(s.upgrades)
+	local dmg_bonus = bonus.dmg
+	local atkspd_bonus = bonus.atkspd
+	local hp_bonus = bonus.health
+	local hpregen_bonus = bonus.healthregen
 
 	local damage_to_player = 0
 
-	-- Resolve in-flight projectiles: damage lands only on arrival.
+	-- Resolve in-flight projectiles. Two kinds:
+	--  - the ordinary shot: a straight line from->to, damage lands the
+	--    instant it arrives (unchanged from before).
+	--  - a piercing shot: keeps travelling in a straight line after hitting
+	--    its first target, and damages each further enemy its path actually
+	--    crosses, until it has hit `1 + pierce` of them or leaves the field.
+	--    Pierce is a count of enemies gone through, not a splash radius.
 	local still_flying = {}
 	for _, pr in ipairs(s.projectiles) do
-		if now - pr.created_at >= pr.duration then
+		if pr.piercing then
+			pr.pos.x = pr.pos.x + pr.dir.x * pr.speed * dt
+			pr.pos.y = pr.pos.y + pr.dir.y * pr.speed * dt
+			local hit = nil
+			for _, m in ipairs(s.mobs) do
+				if m.hp > 0 and not pr.hit_ids[m.id] and combat.dist(pr.pos, m.pos) <= m.radius then
+					hit = m
+					break
+				end
+			end
+			local spent = false
+			if hit then
+				pr.hit_ids[hit.id] = true
+				hit.hp = hit.hp - pr.damage
+				hit.last_hit_skill = pr.skill
+				combat.hurt_mob(hit, pr.from)
+				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), hit.pos, combat.DAMAGE_TEXT_COLOR, now)
+				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = hit.pos.x, y = hit.pos.y }, created_at = now }
+				if pr.pierce_left <= 0 then
+					spent = true
+				else
+					pr.pierce_left = pr.pierce_left - 1
+				end
+			end
+			local off_field = pr.pos.x < -60 or pr.pos.x > SCREEN_W + 60 or pr.pos.y < -60 or pr.pos.y > PLAY_H + 60
+			if not spent and not off_field then
+				still_flying[#still_flying + 1] = pr
+			end
+		elseif now - pr.created_at >= pr.duration then
 			if pr.friendly and pr.target_kind == "mob" then
-				local hit_positions = {}
 				local target
 				for _, m in ipairs(s.mobs) do
 					if m.id == pr.target_id then target = m break end
 				end
+				local pos = pr.to
 				if target and target.hp > 0 then
 					target.hp = target.hp - pr.damage
+					target.last_hit_skill = pr.skill
 					combat.hurt_mob(target, pr.from)
-					hit_positions[#hit_positions + 1] = { x = target.pos.x, y = target.pos.y }
+					pos = { x = target.pos.x, y = target.pos.y }
 				end
-				if (pr.pierce or 0) > 0 then
-					local dx = pr.to.x - pr.from.x
-					local dy = pr.to.y - pr.from.y
-					local len = math.sqrt(dx * dx + dy * dy)
-					if len == 0 then len = 1 end
-					local ux, uy = dx / len, dy / len
-					local extras = {}
-					for _, m in ipairs(s.mobs) do
-						if m.hp > 0 and m.id ~= pr.target_id then
-							local rx = m.pos.x - pr.from.x
-							local ry = m.pos.y - pr.from.y
-							local along = rx * ux + ry * uy
-							local perp = math.abs(rx * uy - ry * ux)
-							if along > 0 and perp <= skills.PIERCE_WIDTH + m.radius then
-								extras[#extras + 1] = { m = m, along = along }
-							end
-						end
-					end
-					table.sort(extras, function(a, b) return a.along < b.along end)
-					for i = 1, math.min(pr.pierce, #extras) do
-						local m = extras[i].m
-						m.hp = m.hp - pr.damage
-						combat.hurt_mob(m, pr.from)
-						hit_positions[#hit_positions + 1] = { x = m.pos.x, y = m.pos.y }
-					end
-				end
-				if #hit_positions == 0 then hit_positions[1] = { x = pr.to.x, y = pr.to.y } end
-				for _, pos in ipairs(hit_positions) do
-					s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pos, combat.DAMAGE_TEXT_COLOR, now)
-					s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = pos, created_at = now }
-				end
+				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pos, combat.DAMAGE_TEXT_COLOR, now)
+				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = pos, created_at = now }
 			elseif not pr.friendly and pr.target_kind == "player" then
 				damage_to_player = damage_to_player + pr.damage
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pr.to, combat.TAKEN_TEXT_COLOR, now)
+				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = pr.to.x, y = pr.to.y }, created_at = now }
 			elseif not pr.friendly and pr.target_kind == "ally" then
 				for _, a in ipairs(s.allies) do
 					if a.id == pr.target_id then a.hp = a.hp - pr.damage break end
 				end
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pr.to, combat.TAKEN_TEXT_COLOR, now)
-			end
-			if not (pr.friendly and pr.target_kind == "mob") then
 				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = pr.to.x, y = pr.to.y }, created_at = now }
 			end
 		else
@@ -362,53 +436,26 @@ function M.update(s, dt)
 		p.pos.y = math.max(combat.PLAYER_RADIUS, math.min(PLAY_H - combat.PLAYER_RADIUS, p.pos.y))
 	end
 
-	p.mana = math.min(effective_max_mana, p.mana + (combat.MANA_REGEN_PER_SEC + manaregen_bonus) * dt)
 	if s.die_timer == nil then
 		p.hp = math.min(p.max_hp + hp_bonus, p.hp + hpregen_bonus * dt)
 	end
 	p.attack_cooldown = math.max(0, p.attack_cooldown - dt)
 	p.haste_timer = math.max(0, p.haste_timer - dt)
 
-	-- Ground item pickup (walk into it) -> first free equipped slot, else bag.
-	local remaining_items = {}
-	for _, it in ipairs(s.ground_items) do
-		if now - it.created_at < items.ITEM_DESPAWN then
-			local picked = false
-			if combat.dist(p.pos, it.pos) <= items.ITEM_PICKUP_RADIUS then
-				for i = 1, items.EQUIP_SLOTS do
-					if not s.equipped[i] then
-						s.equipped[i] = it.item
-						picked = true
-						break
-					end
-				end
-				if not picked then
-					for i = 1, items.BAG_SLOTS do
-						if not s.bag[i] then
-							s.bag[i] = it.item
-							picked = true
-							break
-						end
-					end
-				end
-			end
-			if not picked then remaining_items[#remaining_items + 1] = it end
-		end
-	end
-	s.ground_items = remaining_items
-
-	local passive_now = s.passive
 	local ability3_level = equipped_level_of(s, "ranged")
-	local pierce_level = (passive_now and passive_now.skill == "pierce") and passive_now.level or 0
-	local ally_regen = (passive_now and passive_now.skill == "summonregen") and skills.summon_regen_per_sec(passive_now.level) or 0
-	local is_ranged_attack = ability3_level > 0 or pierce_level > 0
-	local pierce_extra = skills.pierce_target_count(pierce_level)
+	-- Pierce is a stacking upgrade now rather than a passive skill; its
+	-- extra-targets count is the summed bonus directly (no per-level curve).
+	local pierce_extra = bonus.pierce
+	local ally_regen = bonus.summonregen
+	local is_ranged_attack = ability3_level > 0 or pierce_extra > 0
 	local player_attack_range = is_ranged_attack and combat.RANGED_ATTACK_RANGE or combat.PLAYER_ATTACK_RANGE
 	local player_damage = combat.PLAYER_BASE_DAMAGE + skills.ability3_damage_bonus(ability3_level) + dmg_bonus
 	local attack_cooldown_duration = (combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)) / (1 + atkspd_bonus)
 	local attack_anim_speed = math.max(1, combat.anim_duration(combat.ANIMS.attack) / attack_cooldown_duration)
-
-	local xp_gain = 0
+	-- Which skill (if any) a plain auto-attack answers to, for kill xp: the
+	-- Ranged skill, if equipped, is what a basic attack answers to now that
+	-- Pierce is an upgrade rather than a skill of its own.
+	local player_atk_skill = ability3_level > 0 and "ranged" or nil
 
 	-- Mob AI.
 	for _, m in ipairs(s.mobs) do
@@ -416,7 +463,10 @@ function M.update(s, dt)
 		m.anim_time = m.anim_time + dt
 		m.flash_time = math.max(0, m.flash_time - dt)
 		m.hurt_gap = math.max(0, m.hurt_gap - dt)
-		if (m.burn_dps or 0) > 0 and m.hp > 0 then m.hp = m.hp - m.burn_dps * dt end
+		if (m.burn_dps or 0) > 0 and m.hp > 0 then
+			m.hp = m.hp - m.burn_dps * dt
+			m.last_hit_skill = "burn"
+		end
 
 		-- The shove from the last blow, bleeding off. Held inside the field.
 		if m.knock.x ~= 0 or m.knock.y ~= 0 then
@@ -547,19 +597,43 @@ function M.update(s, dt)
 			end
 			if target then
 				attack_targets[#attack_targets + 1] = { x = target.pos.x, y = target.pos.y }
-				still_flying[#still_flying + 1] = {
-					id = next_id("projectile"),
-					from = { x = p.pos.x, y = p.pos.y },
-					to = { x = target.pos.x, y = target.pos.y },
-					created_at = now,
-					duration = math.max(0.08, combat.dist(p.pos, target.pos) / combat.PROJECTILE_SPEED),
-					color = { 0.882, 0.961, 0.996 },
-					damage = player_damage,
-					friendly = true,
-					target_kind = "mob",
-					target_id = target.id,
-					pierce = pierce_extra,
-				}
+				if pierce_extra > 0 then
+					-- A piercing shot travels on in a straight line rather
+					-- than resolving at a fixed point: it keeps going after
+					-- the first hit and damages whatever else its path
+					-- actually crosses, up to pierce_extra further enemies.
+					local dx = target.pos.x - p.pos.x
+					local dy = target.pos.y - p.pos.y
+					local len = math.sqrt(dx * dx + dy * dy)
+					if len == 0 then len = 1 end
+					still_flying[#still_flying + 1] = {
+						id = next_id("projectile"),
+						piercing = true,
+						from = { x = p.pos.x, y = p.pos.y },
+						pos = { x = p.pos.x, y = p.pos.y },
+						dir = { x = dx / len, y = dy / len },
+						speed = combat.PROJECTILE_SPEED,
+						color = { 0.882, 0.961, 0.996 },
+						damage = player_damage,
+						pierce_left = pierce_extra,
+						hit_ids = {},
+						skill = player_atk_skill,
+					}
+				else
+					still_flying[#still_flying + 1] = {
+						id = next_id("projectile"),
+						from = { x = p.pos.x, y = p.pos.y },
+						to = { x = target.pos.x, y = target.pos.y },
+						created_at = now,
+						duration = math.max(0.08, combat.dist(p.pos, target.pos) / combat.PROJECTILE_SPEED),
+						color = { 0.882, 0.961, 0.996 },
+						damage = player_damage,
+						friendly = true,
+						target_kind = "mob",
+						target_id = target.id,
+						skill = player_atk_skill,
+					}
+				end
 				p.attack_cooldown = attack_cooldown_duration
 				player_attacked = true
 			end
@@ -568,6 +642,7 @@ function M.update(s, dt)
 			for _, m in ipairs(s.mobs) do
 				if m.hp > 0 and combat.dist(m.pos, p.pos) <= player_attack_range + (m.radius - combat.MOB_RADIUS) then
 					m.hp = m.hp - player_damage
+					m.last_hit_skill = player_atk_skill
 					combat.hurt_mob(m, swing_hidden and nil or p.pos)
 					hit_any = true
 					attack_targets[#attack_targets + 1] = { x = m.pos.x, y = m.pos.y }
@@ -617,9 +692,11 @@ function M.update(s, dt)
 									friendly = true,
 									target_kind = "mob",
 									target_id = mob.id,
+									skill = "summon",
 								}
 							else
 								mob.hp = mob.hp - a.damage
+								mob.last_hit_skill = "summon"
 								combat.hurt_mob(mob, a.pos)
 								s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = mob.pos.x, y = mob.pos.y }, created_at = now }
 								s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(a.damage), mob.pos, combat.DAMAGE_TEXT_COLOR, now)
@@ -650,6 +727,7 @@ function M.update(s, dt)
 				end
 				if m and m.hp > 0 then
 					m.hp = m.hp - h.amount
+					m.last_hit_skill = "cone"
 					combat.hurt_mob(m) -- no from-point: the cone never shoved anyone
 					s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(h.amount + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
 					s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
@@ -675,6 +753,7 @@ function M.update(s, dt)
 				for _, m in ipairs(s.mobs) do
 					if m.id ~= src.id and m.hp > 0 and combat.dist(m.pos, src.pos) <= skills.BURN_EXPLODE_RADIUS then
 						m.hp = m.hp - blast
+						m.last_hit_skill = "burn"
 						s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
 						s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(blast + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
 						if m.hp <= 0 and (m.burn_pct or 0) > 0 and not exploded[m.id] then
@@ -706,9 +785,11 @@ function M.update(s, dt)
 				id = next_id("blood"), pos = { x = m.pos.x, y = m.pos.y },
 				variant = math.random(0, combat.BLOOD_VARIANTS - 1), created_at = now,
 			}
-			local reward = m.type == "boss" and combat.BOSS_XP_REWARD or combat.MOB_XP_REWARD
-			xp_gain = xp_gain + reward
-			s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("+%d XP"):format(reward), m.pos, combat.XP_TEXT_COLOR, now)
+			-- The skill attached to the killing blow earns this kill's practice
+			-- toward its next rank, if it is equipped and not already maxed.
+			if m.last_hit_skill then
+				grant_skill_kill_xp(s, m.last_hit_skill, m.pos)
+			end
 			local coins = m.type == "boss" and combat.BOSS_COINS or (math.random() < combat.MOB_COIN_CHANCE and 1 or 0)
 			if coins > 0 then emit(s, { type = "coins", count = coins }) end
 		end
@@ -933,18 +1014,6 @@ function M.update(s, dt)
 		end
 	end
 
-	if xp_gain > 0 then
-		p.xp = p.xp + xp_gain
-		while p.xp >= p.xp_to_next do
-			p.xp = p.xp - p.xp_to_next
-			p.level = p.level + 1
-			p.xp_to_next = combat.xp_for_level(p.level)
-			local old_max = p.max_hp
-			p.max_hp = p.max_hp + 10
-			p.hp = p.hp * (p.max_hp / old_max)
-		end
-	end
-
 	-- Wave spawning: every wave still spawning keeps its own timer.
 	if s.wave_active and #s.wave_queues > 0 then
 		local still_spawning = {}
@@ -961,7 +1030,10 @@ function M.update(s, dt)
 		if #s.wave_queues == 0 then s.wave_active = false end
 	end
 
-	-- Each owed wave clears on its own: loot drops, gold counts, full heal.
+	-- Each owed wave clears on its own: an upgrade offer, gold counts, full
+	-- heal. The offer is queued rather than picked for you -- the player
+	-- answers it (M.choose_upgrade) whenever they get to it; movement waits
+	-- on the oldest unanswered one (see tap_field).
 	local wave_just_cleared = false
 	if #s.loot_owed > 0 then
 		local still_owed = {}
@@ -975,9 +1047,10 @@ function M.update(s, dt)
 				if m.wave == w then any_alive = true break end
 			end
 			if done_spawning and not any_alive then
-				s.ground_items[#s.ground_items + 1] = items.spawn_loot(w, now)
+				s.pending_upgrade_offers[#s.pending_upgrade_offers + 1] = upgrades.roll_offers(w)
 				wave_just_cleared = true
 				s.highest_wave_cleared = math.max(s.highest_wave_cleared, w)
+				grant_wave_clear_xp(s)
 			else
 				still_owed[#still_owed + 1] = w
 			end
@@ -985,7 +1058,6 @@ function M.update(s, dt)
 		s.loot_owed = still_owed
 		if wave_just_cleared then
 			p.hp = p.max_hp + hp_bonus
-			p.mana = effective_max_mana
 		end
 	end
 
@@ -1026,17 +1098,10 @@ function M.update(s, dt)
 				id = s.run_id,
 				saved_at = os.time(),
 				wave = s.wave,
-				level = p.level,
-				xp = p.xp,
-				xp_to_next = p.xp_to_next,
 				hp = p.hp,
 				max_hp = p.max_hp,
-				mana = p.mana,
 				abilities = s.abilities,
-				passive = s.passive,
-				equipped = s.equipped,
-				bag = s.bag,
-				materials = s.materials,
+				upgrades = s.upgrades,
 			},
 		})
 	end

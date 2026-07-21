@@ -9,7 +9,7 @@ function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.title = ui.text(W / 2, H - 60, "Continue Run", 20, { 1, 1, 1 })
 	self.empty = ui.text(W / 2, H - 120, "No saved runs.", 13, { 0.7, 0.7, 0.75 })
-	self.back = ui.box(W / 2, 70, 120, 40, { 0.216, 0.278, 0.31 }, 1)
+	self.back = ui.button_frame(W / 2, 70, 120, 40, "btn_steel")
 	self.back_text = ui.text(W / 2, 70, "Back", 14, { 1, 1, 1 })
 	self.rows = {}
 end

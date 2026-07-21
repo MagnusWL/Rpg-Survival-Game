@@ -1,7 +1,7 @@
 script: "/main/gui/menu.gui_script"
 fonts {
   name: "default_font"
-  font: "/builtins/fonts/default.font"
+  font: "/main/fonts/game.font"
 }
 textures {
   name: "ui"
@@ -41,5 +41,15 @@ nodes {
   id: "fx_add"
   inherit_alpha: true
 }
+textures {
+  name: "skilltree"
+  texture: "/main/tiles/skilltree.atlas"
+}
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 1024
+layers {
+  name: "base"
+}
+layers {
+  name: "overlay"
+}

@@ -1,25 +1,34 @@
 -- Account meta progression and run saves, ported from menu.tsx.
 -- AsyncStorage JSON blobs become sys.save/sys.load table files.
-local items = require("game.items")
 local skills = require("game.skills")
 local combat = require("game.combat")
+local upgrades = require("game.upgrades")
 
 local M = {}
 
-M.RUNS_FILE = "runs_v2"
-M.META_FILE = "meta_v1"
+-- v4: passives are gone from meta -- they moved to run upgrades. v3: run
+-- saves carry upgrades instead of equipped/bag items, and the player has no
+-- level/xp/mana of his own. v2: meta gained per-skill xp.
+M.RUNS_FILE = "runs_v4"
+M.META_FILE = "meta_v3"
 
 local function save_path(name)
 	return sys.get_save_file("emojiautobattler", name)
 end
 
+-- Every skill starts already owned at rank 1 -- there is no gold unlock step
+-- left; rank 2-4 are earned in the field (see game.sim's grant_skill_kill_xp
+-- and grant_wave_clear_xp).
 function M.default_meta()
 	local skill_levels = {}
-	for _, s in ipairs(skills.ALL_SKILLS) do skill_levels[s] = 0 end
-	for _, root in ipairs(skills.ROOT_SKILLS) do skill_levels[root] = 1 end
+	local skill_xp = {}
+	for _, s in ipairs(skills.ALL_SKILLS) do
+		skill_levels[s] = 1
+		skill_xp[s] = 0
+	end
 	local loadout = {}
 	for i, s in ipairs(skills.ROOT_SKILLS) do loadout[i] = s end
-	return { gold = 0, skill_levels = skill_levels, loadout = loadout, passive = nil }
+	return { gold = 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout }
 end
 
 local function contains(list, v)
@@ -40,19 +49,24 @@ function M.sanitize_meta(raw)
 			if skill_levels[k] ~= nil then skill_levels[k] = v end
 		end
 	end
+	-- Old saves could have a skill locked at 0 (never bought). There is no
+	-- locked state any more -- every skill starts owned -- so bump it to 1.
+	for _, s in ipairs(skills.ALL_SKILLS) do
+		if (skill_levels[s] or 0) < 1 then skill_levels[s] = 1 end
+	end
 	local loadout = {}
 	for _, s in ipairs(raw.loadout or base.loadout) do
-		if contains(skills.ALL_SKILLS, s) and not skills.is_passive_skill(s)
-			and (skill_levels[s] or 0) > 0 and #loadout < skills.MAX_EQUIPPED then
+		if contains(skills.ALL_SKILLS, s) and (skill_levels[s] or 0) > 0 and #loadout < skills.MAX_EQUIPPED then
 			loadout[#loadout + 1] = s
 		end
 	end
-	local passive = nil
-	if raw.passive and contains(skills.ALL_SKILLS, raw.passive)
-		and skills.is_passive_skill(raw.passive) and (skill_levels[raw.passive] or 0) > 0 then
-		passive = raw.passive
+	local skill_xp = base.skill_xp
+	if raw.skill_xp then
+		for k, v in pairs(raw.skill_xp) do
+			if skill_xp[k] ~= nil then skill_xp[k] = v end
+		end
 	end
-	return { gold = raw.gold or 0, skill_levels = skill_levels, loadout = loadout, passive = passive }
+	return { gold = raw.gold or 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout }
 end
 
 function M.load_meta()
@@ -90,72 +104,40 @@ function M.make_abilities(loadout, skill_levels)
 	return { slot_for(1), slot_for(2), slot_for(3) }
 end
 
-local function make_passive(meta)
-	if not meta.passive then return nil end
-	return { skill = meta.passive, level = meta.skill_levels[meta.passive] or 0 }
-end
-
-local function empty_slots(n)
-	local t = {}
-	for i = 1, n do t[i] = false end
-	return t
-end
-
 function M.build_fresh_state(meta)
 	return {
 		player = combat.make_player(),
 		abilities = M.make_abilities(meta.loadout, meta.skill_levels),
-		passive = make_passive(meta),
-		equipped = empty_slots(items.EQUIP_SLOTS),
-		bag = empty_slots(items.BAG_SLOTS),
-		materials = 0,
+		upgrades = {},
 		wave = 0,
 	}
 end
 
 function M.build_test_state(meta)
 	local player = combat.make_player()
-	local target_level = 10
-	local max_hp = player.max_hp
-	for _ = 2, target_level do max_hp = max_hp + 10 end
-	player.level = target_level
-	player.xp = 0
-	player.xp_to_next = combat.xp_for_level(target_level)
-	player.max_hp = max_hp
-	player.hp = max_hp
-	local function random_test_item()
-		local kind = items.ITEM_KINDS[math.random(#items.ITEM_KINDS)]
-		return items.make_item(kind, math.max(1, target_level + math.random(0, 4) - 2))
+	local target_wave = 9
+	local ups = {}
+	for _ = 1, 3 do
+		local offer = upgrades.roll_offers(target_wave)[1]
+		ups[#ups + 1] = offer
 	end
-	local equipped = { random_test_item(), random_test_item(), random_test_item() }
-	local bag = empty_slots(items.BAG_SLOTS)
-	bag[1], bag[2], bag[3] = random_test_item(), random_test_item(), random_test_item()
+	player.hp = player.max_hp
 	return {
 		player = player,
 		abilities = M.make_abilities(meta.loadout, meta.skill_levels),
-		passive = make_passive(meta),
-		equipped = equipped,
-		bag = bag,
-		materials = 0,
-		wave = target_level - 1,
+		upgrades = ups,
+		wave = target_wave,
 	}
 end
 
 function M.build_state_from_save(save)
 	local player = combat.make_player()
-	player.level = save.level
-	player.xp = save.xp
-	player.xp_to_next = save.xp_to_next
 	player.hp = save.hp
 	player.max_hp = save.max_hp
-	player.mana = save.mana
 	return {
 		player = player,
 		abilities = save.abilities,
-		passive = save.passive,
-		equipped = save.equipped,
-		bag = save.bag,
-		materials = save.materials,
+		upgrades = save.upgrades or {},
 		wave = save.wave,
 	}
 end

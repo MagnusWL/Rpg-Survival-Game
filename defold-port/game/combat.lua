@@ -263,8 +263,6 @@ M.KNOCKBACK_TAU = 0.085
 M.KNOCKBACK_STOP = 8
 
 M.WAVE_SPAWN_INTERVAL = 0.5
-M.MANA_REGEN_PER_SEC = 4
-M.MANA_MAX = 100
 
 M.ALLY_RADIUS = 12
 M.ALLY_SPEED = 90
@@ -292,9 +290,6 @@ M.DAMAGE_TEXT_COLOR = { 1, 1, 1 }
 M.TAKEN_TEXT_COLOR = { 1, 0.322, 0.322 }
 M.XP_TEXT_COLOR = { 1, 0.835, 0.31 }
 
-function M.xp_for_level(level)
-	return 40 + (level - 1) * 25
-end
 
 -- Mutators -------------------------------------------------------------------
 
@@ -327,10 +322,6 @@ function M.make_player()
 		target = { x = SCREEN_W / 2, y = PLAY_H - M.INTRO_STOP_ABOVE_BOTTOM },
 		hp = 100,
 		max_hp = 100,
-		mana = M.MANA_MAX,
-		level = 1,
-		xp = 0,
-		xp_to_next = M.xp_for_level(1),
 		attack_cooldown = 0,
 		haste_timer = 0,
 		facing = 6, -- north, the way he is about to walk in
