@@ -263,6 +263,34 @@ ur (pause fryser dem midt i faldet). Tal til øjnene: `CORPSE_LINGER` /
 
 ---
 
+## Defold-flytningen (Magnus er i gang — plan, intet gjort)
+
+Nicolai nævnte 21. juli, at Magnus er ved at flytte spillet til **Defold**.
+Kunsten, lydene og alle design-tal overlever; kun web-rørføringen skiftes ud.
+Denne liste er reelt porterings-specifikationen. Fordelingen, når dagen kommer:
+
+**Bages til flipbøger** (kittene kører én gang i web-udgaven, billederne
+optages og pakkes — designerens motor tegner selv sine frames):
+- RESCUE HER-rivningen (én forestilling, ~20-30 billeder)
+- Intro-effekterne: bål, øjne, tåge (loops, beskåret til deres områder)
+- CRUEL-glimtet (eller genskabes trivielt)
+
+**Genopbygges** (interaktivt/levende — kan ikke filmes):
+- Kraniet: Defolds indbyggede Box2D-fysik + kittets kunst, lyde og tal
+- Regn + vandringe: Defolds partikelsystem; vores tal er opskriften
+
+**Flytter som de er:** alle sprite-ark, kegle-stregerne (allerede en flipbog),
+alle lyde. Koreografierne (`order`-lister) er Defolds *native* animationsform.
+
+**Motor-råd der først gælder i Defold:** mipmaps FRA på pixel art;
+ASTC/ETC2-komprimering på baggrunde men test sprites med øjne (4×4-blokke
+kan smøre skarpe kanter).
+
+**Venter på:** Magnus's bekræftelse + tidshorisont. Derefter bygger Claude
+optage-værktøjet (en side der kører hvert kit og gemmer canvas-billeder).
+
+---
+
 ## Hvad spillet vejer (målt 21. juli)
 
 To helt forskellige tal, og kun det ene er et problem:
