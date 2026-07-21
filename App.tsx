@@ -1355,24 +1355,33 @@ const CONE_ZONE_MS =
   Math.round((CONE_RANGE / CONE_ZONE.sweepSpeed) * 1000) + CONE_ZONE.cellLifeMs + 80;
 
 /**
- * The leaps a pixel can take, dealt out per pixel so the wave has texture
- * instead of one motion repeated hundreds of times -- a crowd doing the wave
- * is not a crowd doing the same jump.
+ * The leaps, dealt out per GROUP of pixels rather than per pixel.
+ *
+ * This is the whole performance story of the effect. What a browser charges
+ * for is not the pixel but the *animated layer*: every element with a
+ * running animation is composited separately, every frame. Four hundred of
+ * them cost Nicolai about 150 fps. Four hundred pixels arranged into forty
+ * animated groups cost forty layers, and the pixels inside ride along for
+ * free -- they are painted once and never touched again.
+ *
+ * A whole strike line therefore leaps as one thing. At 2 px that reads the
+ * same, because a group is one arc: the eye was following the line, not the
+ * individual squares.
  *
  * Every height is a whole number of pixels, and with 4 steps each one moves
  * at least a pixel per step, which is what makes the leap read at all. The
- * first two are for the outline: it hops with everything else, but low, so
- * the shape stays drawn while the fill dances.
+ * swell is gentle now for the same reason -- a whole arc growing 2.4x would
+ * balloon out of the cone, where a single square just looked bright.
  */
 const CONE_HOPS = [
-  { lift: 8, pop: 1.6 },
-  { lift: 12, pop: 1.8 },
-  { lift: 16, pop: 2 },
-  { lift: 20, pop: 2.2 },
-  { lift: 24, pop: 2 },
-  { lift: 28, pop: 2.4 },
+  { lift: 8, pop: 1.1 },
+  { lift: 12, pop: 1.15 },
+  { lift: 16, pop: 1.2 },
+  { lift: 20, pop: 1.25 },
+  { lift: 24, pop: 1.2 },
+  { lift: 28, pop: 1.3 },
 ];
-const CONE_EDGE_HOPS = 2; // the first two belong to the outline
+const CONE_EDGE_HOPS = 2; // the first two belong to the scatter, not the lines
 
 /**
  * One style per leap. Each carries its own keyframes because the height is
@@ -1442,8 +1451,13 @@ const coneZoneSheet = StyleSheet.create({
     height: PLAY_H,
     pointerEvents: 'none',
   },
-  // Just the square. Lighting up and leaping arrive together, from the leap
-  // class the pixel is dealt -- the front does both when it reaches it.
+  // A set of pixels that light up together, and the only thing that is
+  // animated. Sized by its own contents rather than stretched over the field,
+  // so a swell grows the line about its own middle.
+  group: {
+    position: 'absolute',
+  },
+  // Just the square. It never animates: it is carried by its group.
   cell: {
     position: 'absolute',
     width: CONE_ZONE.cell,
@@ -1481,7 +1495,26 @@ const CONE_DAMAGE_RIDES_WAVE = true;
 /** A blow the wave is carrying but has not delivered yet. */
 type PendingConeHit = { mobId: number; amount: number; at: number };
 
-type ConeZoneCell = { left: number; top: number; color: string; bucket: number; arc: boolean; hop: number };
+type ConeZoneCell = { left: number; top: number; color: string; bucket: number; arc: boolean };
+/**
+ * Pixels that light up at the same moment, gathered under one animated
+ * wrapper -- in practice one strike line, since a line is exactly the set of
+ * pixels the front reaches together.
+ *
+ * The wrapper is sized to its own pixels rather than to the field, which
+ * matters for more than tidiness: a transform scales about an element's
+ * centre, so a field-sized wrapper would swell the whole screen, while this
+ * one swells the arc about its own middle, which is what it should do.
+ */
+type ConeZoneGroup = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  hop: number;
+  bucket: number;
+  cells: { left: number; top: number; color: string }[];
+};
 /**
  * One cast's zone. The cells are worked out at the moment of the cast -- from
  * where he stood and which way he faced then -- but `startAt` holds them back
@@ -1489,7 +1522,7 @@ type ConeZoneCell = { left: number; top: number; color: string; bucket: number; 
  * on the animation itself, so a cast made on the run, where the pose is
  * skipped entirely, still lights the ground it hit.
  */
-type ConeZone = { id: number; cells: ConeZoneCell[]; startAt: number };
+type ConeZone = { id: number; groups: ConeZoneGroup[]; startAt: number };
 
 /**
  * Which pixels of the field lie inside the cone about to be cast.
@@ -1498,7 +1531,7 @@ type ConeZone = { id: number; cells: ConeZoneCell[]; startAt: number };
  * cast direction -- the same two questions fireCone asks of every mob, so
  * what lights up is what gets hit.
  */
-function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[] {
+function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneGroup[] {
   const { cell, arcColors, edgeColors, fillColors } = CONE_ZONE;
   const halfRad = (ABILITY2_HALF_ANGLE_DEG * Math.PI) / 180;
   const cosHalf = Math.cos(halfRad);
@@ -1533,16 +1566,10 @@ function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[]
             );
       if (Math.random() > density) continue;
       const palette = onArc ? arcColors : onEdge ? edgeColors : fillColors;
-      // The line leaps highest -- it is the blow. The rest keeps its feet
-      // nearer the ground so the line stays the thing being watched.
-      const hop = onArc
-        ? CONE_EDGE_HOPS + Math.floor(Math.random() * (CONE_HOPS.length - CONE_EDGE_HOPS))
-        : Math.floor(Math.random() * CONE_EDGE_HOPS);
       cells.push({
         left,
         top,
         arc: onArc,
-        hop,
         color: palette[Math.floor(Math.random() * palette.length)],
         bucket: Math.min(
           CONE_DELAY_BUCKETS - 1,
@@ -1555,32 +1582,87 @@ function buildConeZone(ox: number, oy: number, angleDeg: number): ConeZoneCell[]
   // corner. Thinning keeps the worst case as cheap as the ordinary one -- and
   // it spares the strike lines, because thinning those would break up the one
   // thing the eye is meant to follow.
+  let kept = cells;
   if (cells.length > CONE_ZONE.maxCells) {
     const lines = cells.filter((c) => c.arc);
     const rest = cells.filter((c) => !c.arc);
     const keep = Math.max(0, (CONE_ZONE.maxCells - lines.length) / rest.length);
-    return lines.concat(rest.filter(() => Math.random() < keep));
+    kept = lines.concat(rest.filter(() => Math.random() < keep));
   }
-  return cells;
+
+  // Gather them into the sets that light up together. Keyed by the moment
+  // the front arrives, so a whole strike line falls into one group -- which
+  // is the point: one animated layer per line instead of one per pixel.
+  // Arcs are kept apart from the scatter around them so the two can leap
+  // differently.
+  const byMoment = new Map<string, ConeZoneCell[]>();
+  for (const c of kept) {
+    const key = `${c.bucket}:${c.arc ? 'l' : 's'}`;
+    const bag = byMoment.get(key);
+    if (bag) bag.push(c);
+    else byMoment.set(key, [c]);
+  }
+
+  const groups: ConeZoneGroup[] = [];
+  for (const [key, bag] of byMoment) {
+    let minLeft = Infinity;
+    let minTop = Infinity;
+    let maxLeft = -Infinity;
+    let maxTop = -Infinity;
+    for (const c of bag) {
+      if (c.left < minLeft) minLeft = c.left;
+      if (c.top < minTop) minTop = c.top;
+      if (c.left > maxLeft) maxLeft = c.left;
+      if (c.top > maxTop) maxTop = c.top;
+    }
+    const isLine = key.endsWith('l');
+    groups.push({
+      left: minLeft,
+      top: minTop,
+      // Given a real size, so a swell grows the line about its own middle. A
+      // box with no size takes its corner as the origin, which would shove
+      // the line sideways instead of expanding it.
+      width: maxLeft - minLeft + CONE_ZONE.cell,
+      height: maxTop - minTop + CONE_ZONE.cell,
+      bucket: bag[0].bucket,
+      // The lines leap highest -- they are the blow. The scatter keeps its
+      // feet nearer the ground so the line stays the thing being watched.
+      hop: isLine
+        ? CONE_EDGE_HOPS + Math.floor(Math.random() * (CONE_HOPS.length - CONE_EDGE_HOPS))
+        : Math.floor(Math.random() * CONE_EDGE_HOPS),
+      cells: bag.map((c) => ({ left: c.left - minLeft, top: c.top - minTop, color: c.color })),
+    });
+  }
+  return groups;
 }
 
 /**
  * The carpet. Its props never change after mount, so React never reconciles
  * it again -- the compositor owns every pixel until the loop drops the entry.
  */
-const ConeZoneFx = memo(function ConeZoneFx({ cells }: { cells: ConeZoneCell[] }) {
+const ConeZoneFx = memo(function ConeZoneFx({ groups }: { groups: ConeZoneGroup[] }) {
   return (
     <View style={coneZoneSheet.layer}>
-      {cells.map((c, i) => (
+      {groups.map((g, gi) => (
+        // The animation lives here, on the group, and this is the only thing
+        // the compositor has to work on every frame. The squares inside are
+        // painted once and then carried along.
         <View
-          key={i}
+          key={gi}
           style={[
-            coneZoneSheet.cell,
-            coneHopStyles[`h${c.hop}`],
-            coneZoneSheet[`d${c.bucket}`],
-            { left: c.left, top: c.top, backgroundColor: c.color },
+            coneZoneSheet.group,
+            coneHopStyles[`h${g.hop}`],
+            coneZoneSheet[`d${g.bucket}`],
+            { left: g.left, top: g.top, width: g.width, height: g.height },
           ]}
-        />
+        >
+          {g.cells.map((c, i) => (
+            <View
+              key={i}
+              style={[coneZoneSheet.cell, { left: c.left, top: c.top, backgroundColor: c.color }]}
+            />
+          ))}
+        </View>
       ))}
     </View>
   );
@@ -3175,13 +3257,13 @@ export default function App() {
     // Ours: the cast pose. The skill's own work below stays exactly as it was.
     pendingCastAnimRef.current = 'rupture';
     // Ours too: the zone lit up on the ground, toward the aimed point.
-    const zoneCells = buildConeZone(
+    const zoneGroups = buildConeZone(
       p.pos.x,
       p.pos.y,
       (Math.atan2(locationY - p.pos.y, locationX - p.pos.x) * 180) / Math.PI
     );
     setConeZones((prev) =>
-      prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
+      prev.concat({ id: ++coneZoneIdCounter, groups: zoneGroups, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
     );
     const baseDmg = ability2BaseDamage(ab.level);
     const dmgPercent = ability2DamagePercent(ab.level);
@@ -3222,9 +3304,9 @@ export default function App() {
       const dir = directionFromFacing(p.facing);
       const aim = { x: p.pos.x + dir.x * CONE_RANGE, y: p.pos.y + dir.y * CONE_RANGE };
       // Ours too: the zone lit up on the ground, aimed the same way.
-      const zoneCells = buildConeZone(p.pos.x, p.pos.y, (Math.atan2(dir.y, dir.x) * 180) / Math.PI);
+      const zoneGroups = buildConeZone(p.pos.x, p.pos.y, (Math.atan2(dir.y, dir.x) * 180) / Math.PI);
       setConeZones((prev) =>
-        prev.concat({ id: ++coneZoneIdCounter, cells: zoneCells, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
+        prev.concat({ id: ++coneZoneIdCounter, groups: zoneGroups, startAt: Date.now() + RUPTURE_ZONE_DELAY_MS })
       );
       const result = fireCone(
         p.pos,
@@ -4984,7 +5066,7 @@ export default function App() {
             what starts its animation -- so the wait costs nothing until it
             is due. */}
         {coneZones.map((z) =>
-          z.startAt <= Date.now() ? <ConeZoneFx key={`czone-${z.id}`} cells={z.cells} /> : null
+          z.startAt <= Date.now() ? <ConeZoneFx key={`czone-${z.id}`} groups={z.groups} /> : null
         )}
 
         {groundItems.map((it) => {

@@ -284,6 +284,19 @@ af dem er selve stregerne. Færre buer (96 px imellem i stedet for 52), kant og
 dither næsten væk. Det blev både billigere *og* renere — nu er ni tiendedele
 af det tegnede dét, øjet skal følge.
 
+**Men det var ikke nok — Nicolai mistede stadig ~150 fps.** Den afgørende
+indsigt: browseren betaler ikke pr. pixel, den betaler pr. **animeret lag**.
+Hvert element med en kørende animation sammensættes for sig, hver frame.
+Så pixlerne er nu samlet i **grupper efter hvornår bølgefronten når dem** —
+hvilket i praksis vil sige én gruppe pr. streg — og det er *grupperne*, der
+animerer. Pixlerne indeni males én gang og bæres med gratis.
+
+**428 animerede lag → 48 i værste fald** (typisk 15-30). Samme antal pixels,
+samme udseende. To små følger: en streg springer nu som helhed i stedet for
+pixel for pixel (usynligt ved 2 px), og svulmningen er skruet ned fra 2,4× til
+~1,25×, fordi en hel bue der vokser 2,4× ville sprænge ud af keglen. Grupperne
+får en rigtig størrelse, så svulmningen vokser fra midten og ikke fra hjørnet.
+
 **Den rigtige løsning, hvis det stadig er for tungt — "bagning":** vi behøver
 ikke at *tegne* noget. Et byggescript kan **regne effekten ud på forhånd** med
 præcis den matematik, der allerede står i koden, og gemme den som et
