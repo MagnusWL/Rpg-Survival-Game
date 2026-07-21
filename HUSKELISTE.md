@@ -84,6 +84,13 @@ udefineret i prototypen); beskrivelses-tekster fra den gamle liste vises ikke
 (designet har ingen plads til dem — de findes stadig i skills.lua).
 Web-udgaven af blomsten er IKKE bygget (Defold-æraen først).
 
+**AFGØRELSE (Nicolai, 22. juli) — til Magnus:** standalone-HTML'en i din
+`feature/new-skill-tree`-gren (hovedudgaven) er det GAMLE design. Blomsten
+her i Defold-porten er det nyeste og det rigtige — grafik, animation og
+vokse-logik er kanon som den står. Dine REGLER er velkomne ovenpå: priser,
+gates, økonomi (fx guld på opvågning II/III — pladsen er klar i koden).
+Kort sagt: tallene dine, blomsten vores.
+
 ---
 
 ## Shockwave på Rupture: jorden selv slår bølge (22. juli, afventer F5)
