@@ -72,6 +72,18 @@ end
 
 local function v4(c, a) return vmath.vector4(c[1], c[2], c[3], a or 1) end
 
+-- The design's growth logic: the tree blooms in waves from the core. Roots
+-- appear at the unfurl; a child stays out of sight until its parent is
+-- owned, then sprouts from the centre like the prototype's awakenings.
+-- (The gate itself is still the game's parent rule - only the theatre of
+-- WHEN a skill enters the star follows the standalone.)
+local function skill_shown(self, sid, m)
+	if not self.revealed then return false end
+	local parent = skills.SKILL_PARENT[sid]
+	if not parent then return true end
+	return m and (m.skill_levels[parent] or 0) >= 1 or false
+end
+
 local function is_equipped(m, sid)
 	if skills.is_passive_skill(sid) then return m.passive == sid end
 	for _, s in ipairs(m.loadout) do
@@ -151,14 +163,16 @@ local function refit(self, animate)
 	local vis = { { x = DCX, y = DCY, r = 44 } }
 	if self.revealed then
 		for _, sid in ipairs(ORDER) do
-			local p = skill_pos(sid)
-			vis[#vis + 1] = { x = p.x, y = p.y, r = 39 }
-			if self.expanded[sid] then
-				local level = m and (m.skill_levels[sid] or 0) or 0
-				for j = 1, 3 do
-					if level >= j then
-						local q = rank_pos(sid, j)
-						vis[#vis + 1] = { x = q.x, y = q.y, r = 28 }
+			if skill_shown(self, sid, m) then
+				local p = skill_pos(sid)
+				vis[#vis + 1] = { x = p.x, y = p.y, r = 39 }
+				if self.expanded[sid] then
+					local level = m and (m.skill_levels[sid] or 0) or 0
+					for j = 1, 3 do
+						if level >= j then
+							local q = rank_pos(sid, j)
+							vis[#vis + 1] = { x = q.x, y = q.y, r = 28 }
+						end
 					end
 				end
 			end
@@ -215,7 +229,9 @@ local function try_buy(self, skill)
 	else
 		flash(self, "RANK " .. ROMAN[level + 1] .. " UNLOCKED")
 	end
-	if self.expanded[skill] then refit(self, true) end
+	-- Every purchase can change what the star holds - a first level lets
+	-- children sprout, a rank extends a chain - so the camera always refits.
+	refit(self, true)
 end
 
 local function toggle_equip(self, skill)
@@ -251,29 +267,34 @@ local function build_desired(self)
 	local m = session.meta
 	if not m then return out end
 	for i, sid in ipairs(ORDER) do
-		local di = i - 1 -- the design's 0-based index drives seeds and delays
-		local p = skill_pos(sid)
-		local parent = skills.SKILL_PARENT[sid]
-		local from = parent and skill_pos(parent) or { x = DCX, y = DCY }
-		local lit = is_equipped(m, sid)
-		out[#out + 1] = {
-			key = "o_" .. sid, ax = from.x, ay = from.y, bx = p.x, by = p.y,
-			seed = di * 13 + 3, delay = (di < 3 and 0 or 120), dur = 900,
-			thick = 4 + (di % 3), sag = 8 + di * 4, lit = lit,
-		}
-		if self.expanded[sid] and lit then
-			local level = m.skill_levels[sid] or 0
-			local fast = self.eq_t and self.eq_t.sid == sid and (self.ms - self.eq_t.t) < 800 or false
-			for j = 1, 3 do
-				if level >= j then
-					local q = rank_pos(sid, j)
-					local pv = j > 1 and rank_pos(sid, j - 1) or p
-					out[#out + 1] = {
-						key = "u_" .. sid .. "_" .. j, ax = pv.x, ay = pv.y, bx = q.x, by = q.y,
-						seed = di * 7 + (j - 1) * 17 + 40, delay = (j == 1 and 420 or 0), dur = 520,
-						after = j > 1 and ("u_" .. sid .. "_" .. (j - 1)) or ("o_" .. sid),
-						thick = 3, sag = 3 + (j - 1) * 2, lit = lit, fast = fast,
-					}
+		-- A skill not yet in the star has no strand either: on reset its
+		-- vine leaves desired and retracts instead of vanishing mid-air.
+		if skill_shown(self, sid, m) then
+			local di = i - 1 -- the design's 0-based index drives seeds and delays
+			local p = skill_pos(sid)
+			local lit = is_equipped(m, sid)
+			-- Every skill's vine grows from the core, as the standalone
+			-- draws them - the parent bond gates WHEN a child sprouts into
+			-- the star, not WHERE its vine comes from.
+			out[#out + 1] = {
+				key = "o_" .. sid, ax = DCX, ay = DCY, bx = p.x, by = p.y,
+				seed = di * 13 + 3, delay = (di < 3 and 0 or 120), dur = 900,
+				thick = 4 + (di % 3), sag = 8 + di * 4, lit = lit,
+			}
+			if self.expanded[sid] and lit then
+				local level = m.skill_levels[sid] or 0
+				local fast = self.eq_t and self.eq_t.sid == sid and (self.ms - self.eq_t.t) < 800 or false
+				for j = 1, 3 do
+					if level >= j then
+						local q = rank_pos(sid, j)
+						local pv = j > 1 and rank_pos(sid, j - 1) or p
+						out[#out + 1] = {
+							key = "u_" .. sid .. "_" .. j, ax = pv.x, ay = pv.y, bx = q.x, by = q.y,
+							seed = di * 7 + (j - 1) * 17 + 40, delay = (j == 1 and 420 or 0), dur = 520,
+							after = j > 1 and ("u_" .. sid .. "_" .. (j - 1)) or ("o_" .. sid),
+							thick = 3, sag = 3 + (j - 1) * 2, lit = lit, fast = fast,
+						}
+					end
 				end
 			end
 		end
@@ -497,7 +518,7 @@ function update(self, dt)
 		local parent = skills.SKILL_PARENT[sid]
 		local unlocked = not parent or (m.skill_levels[parent] or 0) >= 1
 		local lit = is_equipped(m, sid)
-		if self.revealed then
+		if skill_shown(self, sid, m) then
 			show_pod(self, sid, pod, i <= 3 and 0.9 or 1.1)
 			sync_pod(pod, {
 				lit = lit, owned = owned, available = not owned and unlocked,

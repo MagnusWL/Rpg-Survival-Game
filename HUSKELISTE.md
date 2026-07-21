@@ -45,8 +45,21 @@ cleave) ligger med i atlasset til fremtidens skills.
   Lua-VM med blomstens præcise strenge — 21/21 strenge fuldvoksede, visning
   og fast-regrow virker, max 1909 blokke < 2600-loftet.
 
+**Vokse-logikken rettet efter Nicolais øjne (22. juli, anden runde):** første
+udgave viste alle 9 skills fra start (børn grå/låst) med vines fra rod til
+barn — MIN kobling, ikke designets. Nu blomstrer træet i BØLGER fra kernen
+som i standalone'en: unfurl viser kun de tre rødder; et barn er USYNLIGT
+til forælderen er købt og skyder så ud fra midten (designets opvågnings-
+teater). ALLE vines udgår fra kernen — forældre-båndet bestemmer HVORNÅR
+et barn spirer, ikke HVOR strengen kommer fra. Kameraet refitter ved hvert
+køb. Reglerne (priser, gates, equip) stadig Magnus's, urørte. Vil Nicolai
+en dag have designets GULD-opvågninger (800/1600 g i kernen), er det en
+gameplay-ændring → Magnus-snak. NB: goto findes ikke i Lua 5.1 (HTML5-
+builds) — brug if, ikke goto continue.
+
 **MANGLER (F5-test):**
-1. Menu → Skills: skull-kerne, tap → 9 skills folder ud med vines.
+1. Menu → Skills: skull-kerne, tap → KUN de tre rødder folder ud; køb en rod
+   → dens to børn skyder ud fra kernen.
 2. Køb/equip-runde: køb rod (5g), udfold, køb Rank II-IV, equip/unequip —
    glød, visnende vines ved unequip, flydende genvækst ved re-equip.
 3. NEAREST-filteret: kig på SPILLET (ridder, zombier, menu-cover, intro) —
