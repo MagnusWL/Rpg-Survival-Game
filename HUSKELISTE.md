@@ -290,25 +290,30 @@ der først viser sig på en telefon.
 disken og `idle-rim.png` fylder 17 KB — i hukommelsen fylder de nøjagtig det
 samme. Et ark er 1920×1024 pixels à 4 bytes. Punktum.
 
-### Beskæring: GJORT 21. juli — ridderen 150 → 97 MB
+### Pakning: GJORT 21. juli — ridderen 150 → 39 MB
 
-Hvert ark er nu beskåret til sin egen tætteste kasse, og forskydningen ligger
-i `assets/sprites/knight/atlas.json`. Spillet lægger den tilbage, når det
-tegner, så ankeret er uændret.
+Hvert **billede** er beskåret til sin egen kasse og pakket tæt (ChatGPTs idé,
+målt bedre end min første version: én kasse pr. *ark* gav 97 MB, én pr.
+*billede* giver 39). Layoutet ligger i `assets/sprites/knight/atlas.json` —
+seks tal pr. billede: hvor det ligger i arket, hvor stort det er, og hvor det
+sad i den gamle 128-celle. Spillet lægger den sidste forskydning tilbage, så
+ankeret er uændret.
 
-**Bevist identisk:** alle 20 ark, alle 120 celler hver — 2400 billeder
-sammenlignet pixel for pixel mod originalerne fra git. Ingen afvigelse.
+**Bevist identisk:** `node tools/verify-sprites.mjs 631b25c~1` sammenligner
+alle 2400 billeder pixel for pixel mod de oprindelige utrimmede ark. Ingen
+afvigelse. Værktøjet er gemt — det er dét, der gør sådan et indgreb
+forsvarligt, for øjet kan ikke revidere 2400 billeder.
 
-**Én fælde undervejs, værd at huske:** klippeboksen var stadig 128×128, men
-en beskåret celle er kun fx 60×79 — så nabocellerne sivede ind i billedet.
-Klippet skal følge cellen, ikke den nominelle boks. Fanget ved at måle, hvor
-silhuetten faktisk landede, ikke ved at kigge.
+**Fælden, værd at huske:** klippeboksen var stadig 128×128, mens cellerne var
+krympet — så nabobillederne sivede ind i rammen. Klippet skal følge billedet.
+Fanget ved at måle hvor silhuetten *landede*, ikke ved at kigge.
 
-**Rul tilbage:** `TRIM.enabled = false` øverst i `tools/build-sprites.mjs` +
-`npm run build:sprites`. Atlas'et siger så 128×128 overalt, og spillet følger
-med af sig selv. Originalerne ligger desuden i git.
+**Rul tilbage:** `PACK.enabled = false` øverst i `tools/build-sprites.mjs` +
+`npm run build:sprites` → almindelige 15×8-ark igen, og spillet følger med af
+sig selv. Originalerne ligger desuden i git.
 
-Zombierne er **ikke** beskåret endnu — samme greb dér er 52 → ~30 MB.
+**Spillet i alt: 260 → 149 MB.** Zombierne er **ikke** pakket endnu og er nu
+den største post (52,5 MB) — samme greb dér, og de har mere luft end ridderen.
 
 ---
 

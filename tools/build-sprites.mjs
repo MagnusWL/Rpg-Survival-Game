@@ -189,74 +189,98 @@ function rimMask(data, width, height, cell, opts) {
 }
 
 /**
- * Trimming the empty space out of the cells.
+ * Packing the empty space out of the sheets.
  *
- * A cell is 128x128 but the knight rarely fills it: idle sits inside 60x79,
- * and his rim mask inside 44x73. That padding is free on disk -- it compresses
- * to nothing -- but not in memory, where a sheet costs width x height x 4
- * bytes whatever it holds. Measured across his twenty sheets, 45% of him is
- * air, which is 67 MB.
+ * A cell is 128x128 but the knight rarely fills it, and padding is free on
+ * disk -- it compresses to nothing -- while costing full price in memory,
+ * where a sheet is width x height x 4 bytes whatever it holds.
  *
- * Each sheet gets its own box: the tightest rectangle that still holds all 120
- * of its cells. The offset is written to atlas.json and added back when the
- * game draws, so every animation keeps the anchor it had -- the old worry
- * about him jumping between animations applies to a single shared crop, not to
- * one box per sheet with its offset travelling alongside.
+ * Cropping each SHEET to one shared box took him from 150 MB to 97. Cropping
+ * each FRAME to its own and packing them takes him to 29, because a shared box
+ * has to hold the sword at its furthest reach in every frame, including the
+ * hundred where it is tucked in. Measured before it was built.
  *
- * A sheet and its rim share one box, so the light can never drift off the body.
+ * Each frame keeps `ox`/`oy`: where it sat inside the old 128 cell. Adding that
+ * back when drawing is what keeps every animation on one anchor, so he does not
+ * shift when one hands over to the next.
  *
- * Set enabled to false and rebuild to get the old full-size sheets back; the
- * game reads the offsets from the atlas, so it follows either way.
+ * A frame and its rim share one box, measured across both. They must, or the
+ * light would wander over him from frame to frame.
+ *
+ * Set enabled to false and rebuild for plain 15x8 sheets again; the game reads
+ * the atlas and follows either way.
  */
-const TRIM = { enabled: true };
+const PACK = { enabled: true, padding: 2 };
 
-/** The tightest box holding every cell's content, in cell coordinates. */
-function contentBox(buffers, width, cell, cols, rows) {
+/** The tightest box round one cell's content, measured across sheet and rim. */
+function frameBox(buffers, width, cell, col, row) {
   let minX = cell, minY = cell, maxX = -1, maxY = -1;
   for (const data of buffers) {
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        for (let y = 0; y < cell; y++) {
-          const gy = r * cell + y;
-          for (let x = 0; x < cell; x++) {
-            const gx = c * cell + x;
-            // Anything at all, not "enough to see": a threshold of 8 clipped
-            // edge pixels at 3% opacity, which cost nothing to look at but
-            // meant the trimmed sheets were not provably the same picture.
-            if (data[(gy * width + gx) * 4 + 3] > 0) {
-              if (x < minX) minX = x;
-              if (x > maxX) maxX = x;
-              if (y < minY) minY = y;
-              if (y > maxY) maxY = y;
-            }
-          }
+    for (let y = 0; y < cell; y++) {
+      const gy = row * cell + y;
+      for (let x = 0; x < cell; x++) {
+        const gx = col * cell + x;
+        // Anything at all, not "enough to see": a threshold of 8 clipped edge
+        // pixels at 3% opacity, which cost nothing to look at but meant the
+        // result was not provably the same picture.
+        if (data[(gy * width + gx) * 4 + 3] > 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
         }
       }
     }
   }
-  if (maxX < 0) return { x: 0, y: 0, w: cell, h: cell }; // an empty sheet: leave it be
-  return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+  if (maxX < 0) return { ox: 0, oy: 0, w: 0, h: 0 }; // nothing drawn in this frame
+  return { ox: minX, oy: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
 }
 
-/** Copies each cell's box into a tighter grid. Straight buffer work: no resampling. */
-function cropCells(data, width, cell, cols, rows, box) {
-  const outW = box.w * cols;
-  const outH = box.h * rows;
-  const out = Buffer.alloc(outW * outH * 4);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      for (let y = 0; y < box.h; y++) {
-        const srcStart = ((r * cell + box.y + y) * width + c * cell + box.x) * 4;
-        const dstStart = ((r * box.h + y) * outW + c * box.w) * 4;
-        data.copy(out, dstStart, srcStart, srcStart + box.w * 4);
-      }
+/**
+ * Lays the boxes out in shelves, tallest first, never rotated.
+ *
+ * A shelf packer rather than anything cleverer: these are 120 rectangles of
+ * similar height, which is the case shelves handle almost perfectly, and a
+ * deterministic layout means a rebuild produces the same atlas byte for byte.
+ */
+function packBoxes(boxes, padding) {
+  const area = boxes.reduce((s, b) => s + (b.w + padding) * (b.h + padding), 0);
+  const width = Math.ceil(Math.sqrt(area) * 1.1);
+  const order = boxes.map((b, i) => ({ i, b })).filter(({ b }) => b.w > 0).sort((a, z) => z.b.h - a.b.h);
+  const placed = boxes.map((b) => ({ ...b, x: 0, y: 0 }));
+  let x = 0, shelfY = 0, shelfH = 0;
+  for (const { i, b } of order) {
+    if (x + b.w + padding > width) {
+      shelfY += shelfH + padding;
+      x = 0;
+      shelfH = 0;
+    }
+    placed[i].x = x;
+    placed[i].y = shelfY;
+    x += b.w + padding;
+    if (b.h > shelfH) shelfH = b.h;
+  }
+  return { frames: placed, width, height: shelfY + shelfH + padding };
+}
+
+/** Copies each frame out of the grid and into its packed slot. No resampling. */
+function drawPacked(data, srcWidth, cell, cols, frames, atlasW, atlasH) {
+  const out = Buffer.alloc(atlasW * atlasH * 4);
+  for (const [i, f] of frames.entries()) {
+    if (f.w === 0) continue;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    for (let y = 0; y < f.h; y++) {
+      const srcStart = ((row * cell + f.oy + y) * srcWidth + col * cell + f.ox) * 4;
+      const dstStart = ((f.y + y) * atlasW + f.x) * 4;
+      data.copy(out, dstStart, srcStart, srcStart + f.w * 4);
     }
   }
-  return { out, outW, outH };
+  return out;
 }
 
-/** name -> box, written beside the sheets so the game can put the offset back. */
-const atlas = {};
+/** name -> packed layout, written beside the sheets for the game to read. */
+const atlas = { cell: OUT_CELL, cols: COLS, rows: ROWS, sheets: {} };
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -291,17 +315,39 @@ for (const entry of SHEETS) {
   // exactly as he was -- the light is a separate picture laid over him.
   const rimRaw = RIM.enabled ? Buffer.from(rimMask(sheetRaw, info.width, info.height, OUT_CELL, RIM).buffer) : null;
 
-  // One box for the pair. The rim is worked out from the sheet's own body
-  // pixels so it cannot reach past them, but measuring both costs nothing and
-  // removes the question.
-  const box = TRIM.enabled
-    ? contentBox(rimRaw ? [sheetRaw, rimRaw] : [sheetRaw], info.width, OUT_CELL, COLS, ROWS)
-    : { x: 0, y: 0, w: OUT_CELL, h: OUT_CELL };
-  atlas[outName] = box;
+  // One box per frame, measured across the pair. The rim is worked out from
+  // the sheet's own body pixels so it cannot reach past them, but measuring
+  // both costs nothing and removes the question -- and they must be packed
+  // identically, or the light would wander over him frame by frame.
+  const pair = rimRaw ? [sheetRaw, rimRaw] : [sheetRaw];
+  let layout;
+  if (PACK.enabled) {
+    const boxes = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) boxes.push(frameBox(pair, info.width, OUT_CELL, c, r));
+    }
+    layout = packBoxes(boxes, PACK.padding);
+  } else {
+    // Plain grid: every frame its whole cell, laid out where it always was.
+    const frames = [];
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        frames.push({ ox: 0, oy: 0, w: OUT_CELL, h: OUT_CELL, x: c * OUT_CELL, y: r * OUT_CELL });
+      }
+    }
+    layout = { frames, width: COLS * OUT_CELL, height: ROWS * OUT_CELL };
+  }
+  atlas.sheets[outName] = {
+    w: layout.width,
+    h: layout.height,
+    // Six numbers a frame rather than named fields: this is 120 entries per
+    // sheet and the file is read by one line of code that knows the order.
+    frames: layout.frames.map((f) => [f.x, f.y, f.w, f.h, f.ox, f.oy]),
+  };
 
   const write = async (raw, file) => {
-    const { out, outW: w, outH: h } = cropCells(raw, info.width, OUT_CELL, COLS, ROWS, box);
-    await sharp(out, { raw: { width: w, height: h, channels: 4 } })
+    const out = drawPacked(raw, info.width, OUT_CELL, COLS, layout.frames, layout.width, layout.height);
+    await sharp(out, { raw: { width: layout.width, height: layout.height, channels: 4 } })
       .png({ compressionLevel: 9, palette: false })
       .toFile(file);
   };
@@ -311,11 +357,11 @@ for (const entry of SHEETS) {
   const before = statSync(srcPath).size;
   const after = statSync(outPath).size;
   const saved = Math.round((1 - after / before) * 100);
-  const kept = Math.round(((box.w * box.h) / (OUT_CELL * OUT_CELL)) * 100);
+  const kept = Math.round(((layout.width * layout.height) / (COLS * OUT_CELL * ROWS * OUT_CELL)) * 100);
   console.log(
     `${name.padEnd(14)} ${(before / 1024).toFixed(0).padStart(5)} KB  ->  ` +
       `${(after / 1024).toFixed(0).padStart(5)} KB   (-${saved}%)   ` +
-      `celle ${String(box.w).padStart(3)}x${String(box.h).padEnd(3)} = ${String(kept).padStart(3)}% af 128x128`
+      `ark ${String(layout.width).padStart(4)}x${String(layout.height).padEnd(4)} = ${String(kept).padStart(3)}% af 1920x1024`
   );
 }
 
@@ -324,11 +370,12 @@ for (const entry of SHEETS) {
 writeFileSync(path.join(OUT_DIR, 'atlas.json'), JSON.stringify(atlas, null, 2));
 
 {
-  const full = Object.keys(atlas).length * 2 * OUT_CELL * COLS * OUT_CELL * ROWS * 4;
-  const trimmed = Object.values(atlas).reduce((sum, b) => sum + b.w * COLS * b.h * ROWS * 4, 0) * 2;
+  const sheets = Object.values(atlas.sheets);
+  const full = sheets.length * 2 * COLS * OUT_CELL * ROWS * OUT_CELL * 4;
+  const packed = sheets.reduce((sum, s) => sum + s.w * s.h * 4, 0) * 2;
   console.log(
     `\nHukommelse for ridderens ark: ${(full / 1048576).toFixed(0)} MB  ->  ` +
-      `${(trimmed / 1048576).toFixed(0)} MB   (${Math.round((1 - trimmed / full) * 100)}% sparet)`
+      `${(packed / 1048576).toFixed(0)} MB   (${Math.round((1 - packed / full) * 100)}% sparet)`
   );
 }
 

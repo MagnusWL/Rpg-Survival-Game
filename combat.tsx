@@ -114,23 +114,29 @@ export const INTRO_HOLD_FRAME = SPRITE_COLS - 1;
 export type AnimName = 'idle' | 'walk' | 'run' | 'attack' | 'hurt' | 'spawn' | 'kick' | 'die' | 'rupture' | 'ancestor';
 
 /**
- * Where a sheet's cells actually are, once the empty space has been cut away.
+ * Where each frame of a sheet ended up once the empty space was packed out.
  *
- * A cell is nominally 128x128, but the knight rarely fills it -- idle sits
- * inside 60x79 -- and padding costs nothing on disk yet full price in memory,
- * where a sheet is width x height x 4 bytes whatever it holds. So the build
- * crops each sheet to its own tightest box and records it here: `w`/`h` are
- * the cell size that was kept, `x`/`y` where it sat in the old 128 box.
+ * A cell is nominally 128x128, but the knight rarely fills it, and padding
+ * costs nothing on disk yet full price in memory, where a sheet is width x
+ * height x 4 bytes whatever it holds. So the build crops every frame to its
+ * own box and packs the 120 of them tight: 150 MB of him becomes 39.
  *
- * Adding the offset back when drawing is what keeps every animation on the
- * same anchor, so he does not shift when one hands over to the next.
+ * Six numbers a frame, in the order the build writes them:
+ *   x, y  where the frame sits in the packed sheet
+ *   w, h  how big it is
+ *   ox,oy where it sat inside the old 128 cell
+ *
+ * That last pair is the important one. Adding it back when drawing is what
+ * keeps every animation on the same anchor, so he does not shift when one
+ * hands over to the next -- and a frame's rim shares its box exactly, or the
+ * light would wander over him as he moved.
  */
-export type SheetTrim = { x: number; y: number; w: number; h: number };
+export type SheetAtlas = { w: number; h: number; frames: number[][] };
 
 export type AnimDef = {
   sheet: ImageSourcePropType;
-  /** Set from atlas.json below. Absent means whole 128 cells, untrimmed. */
-  trim?: SheetTrim;
+  /** Set from atlas.json below. Absent means a plain 15x8 grid of 128 cells. */
+  atlas?: SheetAtlas;
   /**
    * The rim light for this animation, frame for frame: white, with alpha
    * carrying how strongly each pixel is lit. Built by tools/build-sprites.mjs
@@ -303,7 +309,7 @@ export const ANIMS: Record<AnimName, AnimDef> = {
  * and the drawing would come to disagree. Rebuild with TRIM off and this file
  * says 128x128 everywhere, which is exactly the old behaviour.
  */
-const KNIGHT_ATLAS: Record<string, SheetTrim> = require('./assets/sprites/knight/atlas.json');
+const KNIGHT_ATLAS: { sheets: Record<string, SheetAtlas> } = require('./assets/sprites/knight/atlas.json');
 
 /** Animations whose sheet is not named after them. The rest match already. */
 const SHEET_FILE: Partial<Record<AnimName, string>> = {
@@ -314,8 +320,8 @@ const SHEET_FILE: Partial<Record<AnimName, string>> = {
   ancestor: 'special2',
 };
 for (const [name, def] of Object.entries(ANIMS) as [AnimName, AnimDef][]) {
-  const box = KNIGHT_ATLAS[SHEET_FILE[name] ?? name];
-  if (box) def.trim = box;
+  const packed = KNIGHT_ATLAS.sheets[SHEET_FILE[name] ?? name];
+  if (packed) def.atlas = packed;
 }
 
 /**
@@ -898,22 +904,36 @@ export function SpriteSheet({
    * `trim` is absent and this reduces to what it always was.
    */
   const cell = (def: AnimDef, source: ImageSourcePropType, key: string, opacity: number, tint?: string) => {
-    const t = def.trim;
     const rows = def.rows ?? SPRITE_ROWS;
-    const cw = t ? t.w : SPRITE_CELL;
-    const ch = t ? t.h : SPRITE_CELL;
+    const col = animColumn(def, animTime);
+    const row = Math.min(facing, rows - 1);
     // The box is `size` across for one nominal 128 cell, so this is how much
     // the art is scaled by -- 1 while the knight is drawn at his native size.
     const s = size / SPRITE_CELL;
+
+    // Packed: the frame sits wherever the packer put it, and carries the
+    // offset it had inside its old 128 cell. Unpacked: a plain grid, which is
+    // the same arithmetic with the offsets all zero and the cells all 128.
+    const packed = def.atlas?.frames[row * SPRITE_COLS + col];
+    const [fx, fy, fw, fh, ox, oy] = packed ?? [
+      SPRITE_CELL * col, SPRITE_CELL * row, SPRITE_CELL, SPRITE_CELL, 0, 0,
+    ];
+    // A frame with nothing drawn in it. None of the knight's are, but a sheet
+    // that opens on an empty pose would be, and drawing a zero-sized window
+    // is a way to leave a stray pixel on screen.
+    if (fw === 0) return null;
+    const sheetW = def.atlas ? def.atlas.w : SPRITE_CELL * SPRITE_COLS;
+    const sheetH = def.atlas ? def.atlas.h : SPRITE_CELL * rows;
+
     return (
       <View
         key={key}
         style={{
           position: 'absolute',
-          left: (t ? t.x : 0) * s,
-          top: (t ? t.y : 0) * s,
-          width: cw * s,
-          height: ch * s,
+          left: ox * s,
+          top: oy * s,
+          width: fw * s,
+          height: fh * s,
           overflow: 'hidden',
           opacity,
         }}
@@ -923,10 +943,10 @@ export function SpriteSheet({
           tintColor={tint}
           style={{
             position: 'absolute',
-            width: cw * SPRITE_COLS * s,
-            height: ch * rows * s,
-            left: -cw * animColumn(def, animTime) * s,
-            top: -ch * Math.min(facing, rows - 1) * s,
+            width: sheetW * s,
+            height: sheetH * s,
+            left: -fx * s,
+            top: -fy * s,
           }}
         />
       </View>
