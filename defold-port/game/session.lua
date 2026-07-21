@@ -24,6 +24,9 @@ local M = {
 	all_sound_off = false,
 	weather_off = false,
 	tech_on = true,
+	-- Trying out new arena art side by side with the old (not saved, like
+	-- the toggles above). The puddle map still belongs to the OLD art.
+	bane1_bg = false,
 }
 
 function M.load()

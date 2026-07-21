@@ -35,6 +35,16 @@ local function show_only(go_id, all_ids, active)
 	end
 end
 
+-- Which arena art is up, driven by the settings toggle. Two sprites on the
+-- one background object, because the two 1448x1086 paintings cannot share a
+-- 2048 texture; everything else about the ground is identical between them.
+local function sync_background(self)
+	local want = session.bane1_bg and "bg_bane1" or "bg"
+	if self.bg_shown == want then return end
+	self.bg_shown = want
+	show_only(self.bg_id, { "bg", "bg_bane1" }, want)
+end
+
 function init(self)
 	self.mob_views = {}
 	self.ally_views = {}
@@ -43,12 +53,15 @@ function init(self)
 	self.zone_views = {}
 	self.knight_view = { anim = nil, facing = nil, epoch = nil }
 
-	-- The ground: cover-fit the 1448x1086 art over the play area.
+	-- The ground: cover-fit the 1448x1086 art over the play area. Both arenas
+	-- are milled to that exact size, so one scale serves them all and the
+	-- puddle/rain geometry never has to know which one is up.
 	local bg_scale = math.max(layout.SCREEN_W / 1448, layout.PLAY_H / 1086)
 	local bg = factory.create("#background_factory",
 		vmath.vector3(layout.SCREEN_W / 2, layout.PLAY_BOTTOM + layout.PLAY_H / 2, -0.95),
 		nil, {}, bg_scale)
 	self.bg_id = bg
+	sync_background(self)
 
 	-- The knight and his light are permanent; hide them until a run is up.
 	msg.post("knight", "disable")
@@ -284,6 +297,9 @@ function on_message(self, message_id, message)
 end
 
 function update(self, dt)
+	-- Ahead of the in-game gate, so a toggle flipped from the menu's settings
+	-- is already honoured when the next run fades in.
+	sync_background(self)
 	local s = session.sim
 	if not s or session.screen ~= "game" then return end
 	sync_knight(self, s)

@@ -19,6 +19,8 @@ local ROWS = {
 		toggle = function() session.weather_off = not session.weather_off end },
 	{ label = "Technical info", get = function() return session.tech_on end,
 		toggle = function() session.tech_on = not session.tech_on end },
+	{ label = "New arena (test)", get = function() return session.bane1_bg end,
+		toggle = function() session.bane1_bg = not session.bane1_bg end },
 }
 
 function M.build(buttons)

@@ -64,6 +64,28 @@ Web-udgaven af blomsten er IKKE bygget (Defold-æraen først).
 
 ---
 
+## Ny bane-baggrund bag test-knap (22. juli, afventer F5)
+
+`Raw_Assets/Grafik/Baner/Bane 1.png` (2400×1792, i virkeligheden en JPEG med
+png-navn) er møllet til `defold-port/assets/sprites/bane1.jpg` i den gamle
+banes PRÆCISE mål (1448×1086, cover-beskåret — formatet var næsten ens, så
+beskæringen koster ~2 % i bredden). Derfor er AL geometri fælles: samme
+cover-skala, samme pyt-/regn-matematik, world.script kender kun ét sæt tal.
+
+- To sprites på background.go (`bg`/`bg_bane1`) — de to malerier kan ikke dele
+  én 2048-tekstur; skiftet er enable/disable som ridderens animationer.
+- Settings-række **"New arena (test)"** — session.bane1_bg, IKKE gemt
+  (nulstilles ved genstart, som Weather). Virker også fra menuens settings.
+- **Kendt hak:** pyt-kortet (puddles.lua, brøker af det GAMLE billede) styrer
+  våde skridt og ringe — på den nye bane kan sprøjt lande på tørre sten.
+  Den nye bane HAR selv vand, så det mudrer mildt. Vælges banen til, skal
+  Nicolai udpege pytterne, og puddles.lua får et sæt pr. bane.
+- Dobbelt-mølle-løftet stadig ubygget MED VILJE: web-spillet har ingen
+  test-knap, så denne aflevering havde intet web-behov. Møllen bygges når
+  et asset reelt skal til begge verdener.
+
+---
+
 ## RESCUE HER-rivningen ind i Defold (syet, afventer F5)
 
 Nicolais spørgsmål "er et spritesheet ikke bedre end en film?" er allerede
