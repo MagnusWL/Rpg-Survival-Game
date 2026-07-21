@@ -1,0 +1,187 @@
+animations {
+  id: "fog"
+  images {
+    image: "/assets/sprites/introfx/fog-000.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-001.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-002.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-003.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-004.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-005.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-006.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-007.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-008.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-009.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-010.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-011.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-012.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-013.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-014.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-015.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-016.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-017.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-018.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-019.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-020.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-021.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-022.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-023.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-024.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-025.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-026.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-027.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-028.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-029.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-030.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-031.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-032.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-033.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-034.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-035.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-036.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-037.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-038.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-039.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-040.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-041.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-042.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-043.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-044.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-045.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-046.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-047.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-048.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-049.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-050.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-051.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-052.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-053.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-054.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-055.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-056.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-057.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-058.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fog-059.png"
+  }
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 10
+}
+margin: 2
+extrude_borders: 2

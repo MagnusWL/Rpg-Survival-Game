@@ -1,0 +1,157 @@
+animations {
+  id: "fire"
+  images {
+    image: "/assets/sprites/introfx/fire-000.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-001.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-002.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-003.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-004.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-005.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-006.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-007.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-008.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-009.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-010.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-011.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-012.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-013.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-014.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-015.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-016.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-017.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-018.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-019.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-020.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-021.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-022.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-023.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-024.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-025.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-026.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-027.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-028.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-029.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-030.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-031.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-032.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-033.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-034.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-035.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-036.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-037.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-038.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-039.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-040.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-041.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-042.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-043.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-044.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-045.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-046.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-047.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-048.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/fire-049.png"
+  }
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+margin: 2
+extrude_borders: 2

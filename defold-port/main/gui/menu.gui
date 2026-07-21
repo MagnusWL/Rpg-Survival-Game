@@ -11,5 +11,35 @@ textures {
   name: "tear"
   texture: "/main/tiles/tear.atlas"
 }
+textures {
+  name: "introfx_fire"
+  texture: "/main/tiles/introfx_fire.atlas"
+}
+textures {
+  name: "introfx_eyes"
+  texture: "/main/tiles/introfx_eyes.atlas"
+}
+textures {
+  name: "introfx_fog"
+  texture: "/main/tiles/introfx_fog.atlas"
+}
+nodes {
+  position {
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    w: 1.0
+  }
+  size {
+    x: 100.0
+    y: 100.0
+    z: 0.0
+    w: 1.0
+  }
+  type: TYPE_BOX
+  blend_mode: BLEND_MODE_ADD
+  id: "fx_add"
+  inherit_alpha: true
+}
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 1024

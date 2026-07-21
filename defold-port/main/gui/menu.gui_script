@@ -16,6 +16,25 @@ local BUTTON_ASPECT = 322 / 115
 -- in /assets/sprites/tear/placement.json (screen coordinates, y downwards).
 local TEAR_BOX = { x = 0, y = 431, w = 390, h = 413 }
 
+-- The intro cards' baked effect films, from tools/pack-intro.mjs (the
+-- *-placement.json files beside the frames). Coordinates are LOCAL to the
+-- card node, whose centre is the drawn card's centre, so the effects ride
+-- the card through fades and the third card's camera move. Fire and eyes
+-- only add light (the web composited them with screen blend), so they are
+-- cloned from the fx_add template - blend mode cannot be set from Lua.
+local INTROFX = {
+	[1] = { anim = "fire", tex = "introfx_fire", add = true, x = 2.0, y = -228.5, w = 337, h = 337 },
+	[2] = { anim = "eyes", tex = "introfx_eyes", add = true, x = 94.0, y = 181.5, w = 137, h = 123 },
+	[3] = { anim = "fog", tex = "introfx_fog", add = false, x = 0.0, y = 104.5, w = 475, h = 377 },
+}
+
+-- The third card's slow push and climb, the web's own numbers: scale 1.2
+-- to 1.26 while the picture slides 70 px high to 70 px low. Linear on
+-- purpose - a camera on a slow push does not settle, it goes until the cut.
+local KB_FROM_SCALE, KB_TO_SCALE = 1.2, 1.26
+local KB_FROM_Y, KB_TO_Y = 70, -70
+local KB_SECONDS = 5.6 -- the card's five plus the web's cross-dissolve tail
+
 -- Intro schedule (IntroSequence.tsx): logo, then three story cards.
 local LOGO_MS = 2.0
 local CARD_MS = 5.0
@@ -32,7 +51,22 @@ local function build_intro(self)
 		gui.set_size(card, vmath.vector3(941 * scale, 1672 * scale, 0))
 		ui.set_alpha(card, 0)
 		self.intro_nodes.cards[i] = card
+
+		-- What moves on the still: the card's baked effect film, parented so
+		-- it fades, travels and dies with the card it belongs to. It loops
+		-- from init; the card's alpha decides when anyone sees it.
+		local fxd = INTROFX[i]
+		local fxn = fxd.add and gui.clone(self.fx_template)
+			or gui.new_box_node(vmath.vector3(0, 0, 0), vmath.vector3(1, 1, 0))
+		gui.set_parent(fxn, card)
+		gui.set_position(fxn, vmath.vector3(fxd.x, fxd.y, 0))
+		gui.set_size(fxn, vmath.vector3(fxd.w, fxd.h, 0))
+		gui.set_texture(fxn, fxd.tex)
+		gui.play_flipbook(fxn, fxd.anim)
+		gui.set_inherit_alpha(fxn, true)
+		gui.set_enabled(fxn, true)
 	end
+	self.intro_nodes.kb_started = false
 	self.intro_nodes.logo = ui.text(W / 2, H / 2, "EMOJI AUTOBATTLER", 26, { 0.494, 0.086, 0.063 })
 	ui.set_alpha(self.intro_nodes.logo, 0)
 	self.intro_t = 0
@@ -61,6 +95,12 @@ end
 function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.buttons = {}
+
+	-- The ADD-blend template for the light-only intro effects. Blend mode
+	-- lives in the .gui file because Lua cannot set it; the template itself
+	-- never shows, only its clones do.
+	self.fx_template = gui.get_node("fx_add")
+	gui.set_enabled(self.fx_template, false)
 
 	-- Cover-fit menu art (941x1672).
 	local scale = math.max(W / 941, H / 1672)
@@ -150,6 +190,16 @@ function update(self, dt)
 			ui.set_alpha(self.intro_nodes.cards[1], c1)
 			ui.set_alpha(self.intro_nodes.cards[2], c2)
 			ui.set_alpha(self.intro_nodes.cards[3], c3)
+			-- The camera starts on him the moment his card first shows, and
+			-- climbs to the valley, the ruin and the moon above.
+			if c3 > 0 and not self.intro_nodes.kb_started then
+				self.intro_nodes.kb_started = true
+				local card3 = self.intro_nodes.cards[3]
+				gui.set_scale(card3, vmath.vector3(KB_FROM_SCALE, KB_FROM_SCALE, 1))
+				gui.set_position(card3, vmath.vector3(W / 2, H / 2 + KB_FROM_Y, 0))
+				gui.animate(card3, gui.PROP_SCALE, vmath.vector3(KB_TO_SCALE, KB_TO_SCALE, 1), gui.EASING_LINEAR, KB_SECONDS)
+				gui.animate(card3, gui.PROP_POSITION, vmath.vector3(W / 2, H / 2 + KB_TO_Y, 0), gui.EASING_LINEAR, KB_SECONDS)
+			end
 		end
 	end
 end

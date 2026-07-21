@@ -1,0 +1,18 @@
+{
+  "canvas": {
+    "W": 475,
+    "H": 844
+  },
+  "box": {
+    "x": 0,
+    "y": 129,
+    "w": 475,
+    "h": 377
+  },
+  "frames": 60,
+  "fps": 10,
+  "stride": 1,
+  "factor": 0.5,
+  "crossfade": 10,
+  "note": "box er i tegne-kort-koordinater (475x844, y nedad); paa kortnoden: lokal pos (box.x+box.w/2-237.5, 422-(box.y+box.h/2)), stoerrelse (box.w, box.h)"
+}

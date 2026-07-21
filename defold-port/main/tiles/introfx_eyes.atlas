@@ -1,0 +1,400 @@
+animations {
+  id: "eyes"
+  images {
+    image: "/assets/sprites/introfx/eyes-000.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-001.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-002.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-003.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-004.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-005.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-006.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-007.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-008.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-009.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-010.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-011.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-012.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-013.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-014.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-015.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-016.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-017.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-018.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-019.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-020.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-021.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-022.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-023.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-024.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-025.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-026.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-027.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-028.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-029.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-030.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-031.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-032.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-033.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-034.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-035.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-036.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-037.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-038.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-039.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-040.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-041.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-042.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-043.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-044.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-045.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-046.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-047.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-048.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-049.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-050.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-051.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-052.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-053.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-054.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-055.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-056.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-057.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-058.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-059.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-060.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-061.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-062.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-063.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-064.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-065.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-066.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-067.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-068.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-069.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-070.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-071.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-072.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-073.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-074.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-075.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-076.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-077.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-078.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-079.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-080.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-081.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-082.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-083.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-084.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-085.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-086.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-087.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-088.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-089.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-090.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-091.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-092.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-093.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-094.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-095.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-096.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-097.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-098.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-099.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-100.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-101.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-102.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-103.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-104.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-105.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-106.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-107.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-108.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-109.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-110.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-111.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-112.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-113.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-114.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-115.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-116.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-117.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-118.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-119.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-120.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-121.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-122.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-123.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-124.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-125.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-126.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-127.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-128.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-129.png"
+  }
+  images {
+    image: "/assets/sprites/introfx/eyes-130.png"
+  }
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 15
+}
+margin: 2
+extrude_borders: 2

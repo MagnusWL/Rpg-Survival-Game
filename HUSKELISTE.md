@@ -108,7 +108,46 @@ oveni, leverer han én.**
    (~6,8 MB) — én linje i pack-tear (resize før crop) + ny pakning.
 
 **Genbrug:** samme studie (server + virtuel-tid-harness + pakker) er skabelonen
-for intro-effekterne (bål/øjne/tåge — loops) og CRUEL-glimtet.
+for CRUEL-glimtet (intro-effekterne er GJORT, se næste afsnit).
+
+---
+
+## Intro-effekterne bagt ind i Defold (22. juli, afventer F5)
+
+Bål, øjne og tåge er filmet som **loops** i studiet (`tools/record-intro.html`
++ `tools/pack-intro.mjs`) og syet ind i portens intro. Billede 3 fik webbens
+Ken Burns tilbage: scale 1,2→1,26, glid −70→+70, LINEÆRT over 5,6 s.
+
+**Loop-lærdommen (andre regler end rivningen!):**
+- Loops ofrer OPLØSNING, aldrig billeder — perioden er designet. Pakkerens
+  faktor-stige (1,0→0,35) + stride-valg (kun hele eksponerings-spring, ægte
+  sim-tid imellem) finder skarpeste film der kan ligge på ÉN 2048-tekstur.
+- Bålet: glød-pulsen er to sinuser i 5:2 → eksakt periode 4021,24 ms —
+  filmet præcis én periode, sømmen ER kontinuitet. 50 billeder @ 12 fps,
+  faktor 0,7, 10,6 MB.
+- Øjnene: ren sinus-flet uden kort periode → harnesset SØGER klippepunktet
+  hvor kurven møder sig selv (fandt E=0,0003 ved t=26,8 s) + 4 billeders
+  krydsfade. 131 billeder @ 15 fps, fuld opløsning, 8,4 MB.
+- Tågen: aperiodisk støj → 10 billeders krydsfade mod halen
+  (out[i]=lerp(rec[N+i], rec[i], (i+1)/(cf+1))). 60 billeder @ 10 fps,
+  halv opløsning, 10,3 MB.
+- Motor-fælde: kittenes loop() klemmer dt til 50 ms — større virtuelle skridt
+  gør simulationen LANGSOMMERE end designet. Kuren: kræng motoren i ≤50 ms
+  bidder mellem eksponeringerne (tågen: 2×50 ms pr. billede; bålet: stride 2
+  over en 40 ms-optagelse).
+- Defold-fælde: GUI-noder kan IKKE skifte blend-mode fra Lua — ADD-noderne
+  (bål+øjne ≈ webbens screen-blend) klones fra `fx_add`-skabelonen i
+  menu.gui. Tågen er normal alpha.
+- Effekt-noder er BØRN af deres kort med inherit_alpha → de fader, rejser
+  og dør med kortet (webbens egen løsning). Placering fra
+  `introfx/*-placement.json`, hårdkodet i INTROFX-tabellen i menu.gui_script.
+
+**F5-kig:** (1) bålet ånder på billede 1 (glød-loop uden hak hvert 4. sekund?),
+(2) øjnene gløder og pulserer på billede 2 (søm usynlig hvert 8,7 s?),
+(3) tågen driver på billede 3 MENS kameraet skubber ind og stiger,
+(4) ADD-blend mod screen: er bål/øjne for lyse, er alternativet at bage
+kortet+effekt sammen fladt (mister Ken Burns-frihed) eller dæmpe alpha.
+(5) Opløsning: bål faktor 0,7 / tåge 0,5 — for blødt? Sig til.
 
 **Det lovede dobbelt-leverings-workflow** (møllerne skriver til både
 `assets/` og `defold-port/assets/` + komponentfiler i ét hug) er stadig
