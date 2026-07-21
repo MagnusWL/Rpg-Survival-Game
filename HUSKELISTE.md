@@ -290,6 +290,28 @@ der først viser sig på en telefon.
 disken og `idle-rim.png` fylder 17 KB — i hukommelsen fylder de nøjagtig det
 samme. Et ark er 1920×1024 pixels à 4 bytes. Punktum.
 
+### ATLAS-PAKNINGEN — navnet på arbejdsgangen
+
+Sådan hedder den, når vi taler om den: **atlas-pakning**. Opskriften:
+1. Beskær hvert **billede** (ikke hvert ark) til sin egen tætteste kasse.
+2. Pak kasserne tæt (hylde-pakning, aldrig roteret, 2 px luft).
+3. Skriv facitlisten i `atlas.json` — seks tal pr. billede, inkl. hvor det
+   sad i den gamle 128-celle.
+4. Spillet lægger forskydningen tilbage ved tegning → ankeret bevares.
+5. **Bevis** med `node tools/verify-sprites.mjs <ref> <mappe>` at hvert
+   eneste billede er pixel-identisk med originalen fra git.
+
+**Gjort:** ridderen (150 → 39 MB, 2400 billeder bevist) og fjenderne
+(53 → 7 MB, **86% sparet** — zombien fylder ned til 9% af sin celle; 840
+billeder bevist). Spillet i alt: **260 → 104 MB**.
+
+**Ikke pakket endnu:**
+- `effects/blood.png` — 5 rækker × 15 billeder, 4,7 MB udpakket. Kan tages
+  med samme opskrift (renderen forstår allerede `rows`), men er småpenge.
+- `effects/glow.png` og kegle-stregerne — allerede små/pakkede; intet at hente.
+- Intro-/menubilleder — fotografier, ikke sprite-gitre; atlas-pakning gælder ikke.
+- Kraniet — vendored kit, røres ikke.
+
 ### Pakning: GJORT 21. juli — ridderen 150 → 39 MB
 
 Hvert **billede** er beskåret til sin egen kasse og pakket tæt (ChatGPTs idé,

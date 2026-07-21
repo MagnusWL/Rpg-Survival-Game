@@ -394,6 +394,21 @@ export const MOB_DIE_ANIMS: Record<MobDieAnimName, AnimDef> = {
 };
 
 /**
+ * The zombies' packed layouts, same treatment as the knight's below: every
+ * frame cropped to its own box and packed, the offset put back at draw time.
+ * They were emptier than he was -- a zombie fills a tenth of its 128 cell in
+ * places -- so this is where the packing pays most: 53 MB of sheets became 7.
+ *
+ * Their output names match the animation names exactly, so no translation
+ * table is needed on this side.
+ */
+const ZOMBIE_ATLAS: { sheets: Record<string, SheetAtlas> } = require('./assets/sprites/zombie/atlas.json');
+for (const [name, def] of [...Object.entries(MOB_ANIMS), ...Object.entries(MOB_DIE_ANIMS)]) {
+  const packed = ZOMBIE_ATLAS.sheets[name];
+  if (packed) def.atlas = packed;
+}
+
+/**
  * A fallen zombie, purely visual. It left the mobs array -- and every rule
  * that reads it: loot, gold, wave count, targeting, the kick's fan -- the
  * frame it died, exactly as before. This plays the fall where it happened,

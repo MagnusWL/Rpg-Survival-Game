@@ -14,8 +14,9 @@
  * clip box still being 128 square while the cells had shrunk, which had the
  * neighbouring frames bleeding into view.
  *
- * Run: node tools/verify-sprites.mjs [ref]
+ * Run: node tools/verify-sprites.mjs [ref] [dir]
  *   ref defaults to HEAD~1; pass any commit whose sheets are a plain grid.
+ *   dir defaults to assets/sprites/knight; the zombies live one door over.
  */
 import sharp from 'sharp';
 import { execSync } from 'node:child_process';
@@ -23,19 +24,20 @@ import { readFileSync, writeFileSync, unlinkSync, readdirSync } from 'node:fs';
 
 const CELL = 128, COLS = 15, ROWS = 8;
 const REF = process.argv[2] ?? 'HEAD~1'; // the untrimmed sheets
-const atlas = JSON.parse(readFileSync('assets/sprites/knight/atlas.json', 'utf8'));
-const names = readdirSync('assets/sprites/knight').filter((f) => f.endsWith('.png')).map((f) => f.replace('.png', ''));
+const DIR = process.argv[3] ?? 'assets/sprites/knight';
+const atlas = JSON.parse(readFileSync(`${DIR}/atlas.json`, 'utf8'));
+const names = readdirSync(DIR).filter((f) => f.endsWith('.png')).map((f) => f.replace('.png', ''));
 
 let worst = 0, worstWhere = '';
 for (const name of names) {
   const layout = atlas.sheets[name.replace('-rim', '')];
   const tmp = `_ref-${name}.png`;
-  writeFileSync(tmp, execSync(`git show ${REF}:assets/sprites/knight/${name}.png`, { maxBuffer: 64 * 1024 * 1024, encoding: 'buffer' }));
+  writeFileSync(tmp, execSync(`git show ${REF}:${DIR}/${name}.png`, { maxBuffer: 64 * 1024 * 1024, encoding: 'buffer' }));
   const ref = await sharp(tmp).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   unlinkSync(tmp);
   if (ref.info.width !== COLS * CELL) { console.log(`${name}: reference er ${ref.info.width}px bred, ikke et 15x8 gitter -- sprunget over`); continue; }
 
-  const now = await sharp(`assets/sprites/knight/${name}.png`).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const now = await sharp(`${DIR}/${name}.png`).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
 
   let maxDiff = 0, at = '';
   for (let r = 0; r < ROWS; r++) {

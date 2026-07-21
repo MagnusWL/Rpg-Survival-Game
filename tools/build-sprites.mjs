@@ -435,14 +435,17 @@ async function packDirectionFolders(srcDir, outPath) {
     }
   }
 
-  await sharp({
+  // Assembled in memory rather than straight to file, so the same packing the
+  // knight gets can run on the finished grid before anything is written.
+  const raw = await sharp({
     create: { width: outW, height: outH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
   })
     .composite(tiles)
-    .png({ compressionLevel: 9, palette: false })
-    .toFile(outPath);
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
 
-  return tiles.length;
+  return { raw, count: tiles.length };
 }
 
 /** Packs a list of flat frame folders into one sheet, one folder per row. */
@@ -482,15 +485,56 @@ if (!existsSync(ZOMBIE_SRC)) {
   console.log('\n(Springer fjender over -- Grafik/Enemies findes ikke)');
 } else {
   mkdirSync(ZOMBIE_OUT, { recursive: true });
-  console.log('\nFjender: samler loese billeder til ark');
+  console.log('\nFjender: samler loese billeder til ark og pakker dem');
+  // The zombies' own atlas, beside their sheets, same shape as the knight's.
+  const zombieAtlas = { cell: OUT_CELL, cols: COLS, rows: ROWS, sheets: {} };
+  let zFull = 0, zPacked = 0;
   for (const { out, src } of ZOMBIE_ANIMS) {
     const outPath = path.join(ZOMBIE_OUT, `${out}.png`);
-    const count = await packDirectionFolders(path.join(ZOMBIE_SRC, src), outPath);
+    const { raw, count } = await packDirectionFolders(path.join(ZOMBIE_SRC, src), outPath);
+
+    // The knight's treatment, exactly: one box per frame, shelf-packed. The
+    // zombies have no rim, so the pair is just the sheet itself.
+    let layout;
+    if (PACK.enabled) {
+      const boxes = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) boxes.push(frameBox([raw], outW, OUT_CELL, c, r));
+      }
+      layout = packBoxes(boxes, PACK.padding);
+    } else {
+      const frames = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          frames.push({ ox: 0, oy: 0, w: OUT_CELL, h: OUT_CELL, x: c * OUT_CELL, y: r * OUT_CELL });
+        }
+      }
+      layout = { frames, width: COLS * OUT_CELL, height: ROWS * OUT_CELL };
+    }
+    zombieAtlas.sheets[out] = {
+      w: layout.width,
+      h: layout.height,
+      frames: layout.frames.map((f) => [f.x, f.y, f.w, f.h, f.ox, f.oy]),
+    };
+    const packedRaw = drawPacked(raw, outW, OUT_CELL, COLS, layout.frames, layout.width, layout.height);
+    await sharp(packedRaw, { raw: { width: layout.width, height: layout.height, channels: 4 } })
+      .png({ compressionLevel: 9, palette: false })
+      .toFile(outPath);
+
+    zFull += outW * outH * 4;
+    zPacked += layout.width * layout.height * 4;
     console.log(
       `${out.padEnd(7)} ${String(count).padStart(3)} billeder  ->  ` +
-        `${(statSync(outPath).size / 1024).toFixed(0).padStart(4)} KB`
+        `${(statSync(outPath).size / 1024).toFixed(0).padStart(4)} KB   ` +
+        `ark ${String(layout.width).padStart(4)}x${String(layout.height).padEnd(4)} = ` +
+        `${String(Math.round((layout.width * layout.height) / (outW * outH) * 100)).padStart(3)}% af gitteret`
     );
   }
+  writeFileSync(path.join(ZOMBIE_OUT, 'atlas.json'), JSON.stringify(zombieAtlas, null, 2));
+  console.log(
+    `Hukommelse for fjendernes ark: ${(zFull / 1048576).toFixed(0)} MB  ->  ` +
+      `${(zPacked / 1048576).toFixed(0)} MB   (${Math.round((1 - zPacked / zFull) * 100)}% sparet)`
+  );
   console.log(`Skrevet til ${path.relative(ROOT, ZOMBIE_OUT)}`);
 }
 
