@@ -74,6 +74,9 @@ function init(self)
 		if not session.actions or self.tearing then return end
 		-- Swap the plaque for its baked tear film (same pixels, frame 0 is the
 		-- intact plaque) and start the run when the last piece has fallen.
+		-- The press sound belongs to the press, not the arrival: the web's
+		-- leaveMenu strikes all four pieces the moment the plaque is hit.
+		session.actions.menu_press()
 		self.tearing = true
 		gui.set_enabled(self.plaque, false)
 		gui.set_enabled(self.tear, true)

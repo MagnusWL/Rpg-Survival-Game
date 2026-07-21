@@ -42,8 +42,9 @@ function init(self)
 
 	-- The GUI scripts drive transitions through these closures.
 	session.actions = {
+		-- No press sound here: the menu plays it at the plaque press, a full
+		-- tear film before this runs (the web's leaveMenu does the same).
 		start_new_run = function()
-			audio.menu_press()
 			begin_run(meta_mod.build_fresh_state(session.meta), "run-" .. os.time() .. "-" .. math.random(9999), false)
 		end,
 		start_test_run = function()
