@@ -29,10 +29,17 @@ const OUT_DIR = path.join(ROOT, 'assets', 'sprites', 'knight');
 const DIR_ORDER = ['E', 'SE', 'S', 'SW', 'W', 'NW', 'N', 'NE'];
 
 const SRC_CELL = 128;
-// Output at source resolution. Downscaling to 96 only bought 16-25% on file
-// size -- PNG does not shrink linearly with pixel count on art this detailed --
-// and cost sharpness at every display size. Lower this if bundle size ever
-// starts to matter more than crispness; App.tsx scales independently.
+// Output at source resolution, and the knight is drawn at 128 too, so the
+// sheets render pixel for pixel.
+//
+// A note that was measured against the wrong thing, corrected 21 July:
+// downscaling to 96 was rejected because it only bought 16-25% of the FILE
+// size, PNG not shrinking linearly with pixel count on art this detailed.
+// But files are not what costs. In memory a sheet is width x height x 4
+// bytes whatever it contains, so the saving there is exactly quadratic: 96
+// would cut every sheet by 44%, 64 by 75%. Against 150 MB of knight that is
+// real money -- paid for in sharpness, since he is displayed at 128 and
+// would have to be upscaled back.
 const OUT_CELL = 128; // must match SPRITE_CELL in App.tsx
 const COLS = 15;
 const ROWS = 8;

@@ -277,9 +277,43 @@ større i hukommelsen end på disken (det er næsten kun gennemsigtighed).
 **Elefanten er ridderen: 150 MB.** Tyve ark à 1920×1024 — ti animationer plus
 ti lysmasker til rim-lyset, og lysmaskerne alene er 75 MB. De monteres alle
 samtidig med vilje (kilde-skift midt i kampen gav hak), men det er en pris,
-der først viser sig på en telefon. **Ikke undersøgt endnu.** Muligt spor:
-lysmaskerne kunne være meget mindre end arkene, eller kun den aktive kunne
-være monteret.
+der først viser sig på en telefon.
+
+**Hvert ark koster 7,5 MB uanset indhold.** `melee.png` fylder 872 KB på
+disken og `idle-rim.png` fylder 17 KB — i hukommelsen fylder de nøjagtig det
+samme. Et ark er 1920×1024 pixels à 4 bytes. Punktum.
+
+### Beslutning der venter: skal rim-lyset bages ind? (Nicolai, 21. juli)
+
+Nicolai foreslår at gøre rim-lyset til en **permanent del af arkene**, så vi
+ikke har to ark pr. animation — ét med og ét uden.
+
+| | ark | hukommelse | mister vi |
+|---|---|---|---|
+| **som nu** | 20 | 150 MB | — |
+| **bagt ind** | 10 | **75 MB** | farve/styrke kan ikke skrues live |
+| kun mindre masker (½) | 20 | 94 MB | intet synligt (kanten er 2 px blød) |
+
+**Bagt ind er det store snit: halvdelen af ridderens regning væk.** Prisen er,
+at `RIM_STYLE` (farve, styrke, blandingsmåde) bages fast ved bygningen i
+stedet for at kunne skrues i spillet — men værdierne har stået urørt siden
+Nicolai godkendte dem, og de kan stadig ændres med en genbygning
+(`npm run build:sprites`, få sekunder). Sliderne under `DEBUG_RIM_TUNING`
+ville skulle bruges *før* bygningen i stedet for under spillet.
+
+**Ikke gjort endnu — afventer Nicolais go.** Bygningen kender allerede
+maskerne (`RIM` i `tools/build-sprites.mjs`); den skal blot lægge dem oven på
+arket i stedet for at skrive dem ved siden af, og `AnimDef.rim` + rim-laget i
+`SpriteSheet` kan så ryge ud.
+
+### Opløsningen: en fejlslutning rettet 21. juli
+
+Kommentaren i `build-sprites.mjs` afviste at gå fra 128 til 96 px celler,
+fordi det kun sparede 16-25% af **filstørrelsen**. Det var målt på det
+forkerte: i hukommelsen er besparelsen præcis kvadratisk — **96 sparer 44%,
+64 sparer 75%**. Mod 150 MB er det rigtige penge. Prisen er skarphed:
+ridderen tegnes ved præcis 128, så mindre ark skal skaleres op igen.
+Lysmaskerne kunne derimod sagtens være halve — kanten er 2 px og blød.
 
 Konklusionen for effekter: at bytte hukommelse for frames er rigtigt, men
 budgettet er ikke uendeligt. Regnens ~4 MB for at fjerne 230 permanente lag
