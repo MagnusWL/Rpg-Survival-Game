@@ -28,22 +28,23 @@ ethvert andet ark. Ingen video findes.
   `defold-port/main/tiles/tear.atlas` (animation "tear",
   PLAYBACK_ONCE_FORWARD).
 
-**MANGLER (næste skridt efter compact):**
-1. `defold-port/main/gui/menu.gui`: tilføj textures-blok med
-   `name: "tear" texture: "/main/tiles/tear.atlas"` (samme form som "ui").
-2. `defold-port/main/gui/menu.gui_script`: byg skjult tear-node i init
-   (centrum **(195.0, 206.5)** i gui-koordinater (y op), størrelse
-   **390×413** — tal fra placement.json). Plaque-tryk: i stedet for straks
-   `session.actions.start_new_run()` → sæt `self.tearing`, skjul
-   `self.plaque` (gui.set_enabled false), vis tear-noden,
-   `gui.play_flipbook(node, hash("tear"), function() start_new_run() end)`.
-   Ved `self.tearing`: slug al input (menuen er en dør, ikke et panel).
-   Kun plaquen river — Continue/Test run starter stadig straks (som web).
-   ui-hjælperne: `ui.tex_box` sætter texture "ui" — tear-noden skal have
-   `gui.set_texture(n, "tear")` i stedet; skriv den manuelt eller udvid
-   hjælperen.
-3. Nicolai F5-tester: rivning → spilstart når filmen er færdig (~1,3 s).
-4. Er 15 fps for hakket i snappet, er alternativet halv opløsning @ 30 fps
+**Syet ind (22. juli): menu.gui har tear-atlasset som texture, menu.gui_script
+bygger den skjulte tear-node (centrum (195.0, 206.5), 390×413 — direkte fra
+placement.json-tallene i TEAR_BOX) og plaque-trykket skjuler plaquen, spiller
+flipbogen og starter runnet i slut-callbacken. `self.tearing` sluger al input
+imens. Vigtig detalje fundet i main.script: menuen genstartes IKKE ved
+hjemkomst fra et run (kun enable/disable) — derfor stiller slut-callbacken
+plaquen tilbage og skjuler filmen FØR start_new_run, i samme frame som
+skærmskiftet skjuler menuen. Continue/Test run starter stadig straks.
+Lyd: uændret parity med web — stilhed ved trykket, klikket falder ved
+spilstart når filmen er færdig. Vil Nicolai have en riv-lyd, leverer han én.**
+
+**MANGLER:**
+1. Nicolai F5-tester: rivning → spilstart når filmen er færdig (~1,3 s).
+   Se efter: sømløst skifte plaque→film (billede 0 er den intakte plaque),
+   stumperne falder hen over link-rækken, plaquen er tilbage næste gang
+   menuen ses.
+2. Er 15 fps for hakket i snappet, er alternativet halv opløsning @ 30 fps
    (~6,8 MB) — én linje i pack-tear (resize før crop) + ny pakning.
 
 **Genbrug:** samme studie (server + virtuel-tid-harness + pakker) er skabelonen

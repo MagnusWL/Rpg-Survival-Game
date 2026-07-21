@@ -7,5 +7,9 @@ textures {
   name: "ui"
   texture: "/main/tiles/ui.atlas"
 }
+textures {
+  name: "tear"
+  texture: "/main/tiles/tear.atlas"
+}
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 1024

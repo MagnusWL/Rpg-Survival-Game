@@ -12,6 +12,10 @@ local BUTTON_TOP = 474 / 675
 local BUTTON_WIDTH = 322 / 380
 local BUTTON_ASPECT = 322 / 115
 
+-- The baked tear film's crop box, measured by tools/pack-tear.mjs and echoed
+-- in /assets/sprites/tear/placement.json (screen coordinates, y downwards).
+local TEAR_BOX = { x = 0, y = 431, w = 390, h = 413 }
+
 -- Intro schedule (IntroSequence.tsx): logo, then three story cards.
 local LOGO_MS = 2.0
 local CARD_MS = 5.0
@@ -67,7 +71,21 @@ function init(self)
 	local by = H - (H * BUTTON_TOP) - bh / 2
 	self.plaque = ui.tex_box(W / 2, by, bw, bh, "button")
 	ui.button(self.buttons, self.plaque, function()
-		if session.actions then session.actions.start_new_run() end
+		if not session.actions or self.tearing then return end
+		-- Swap the plaque for its baked tear film (same pixels, frame 0 is the
+		-- intact plaque) and start the run when the last piece has fallen.
+		self.tearing = true
+		gui.set_enabled(self.plaque, false)
+		gui.set_enabled(self.tear, true)
+		gui.play_flipbook(self.tear, hash("tear"), function()
+			-- Put the menu back together before leaving: init does not run
+			-- again when this GUI is re-enabled after the run, and the screen
+			-- switch hides it this same frame, so nothing of the reset shows.
+			self.tearing = false
+			gui.set_enabled(self.tear, false)
+			gui.set_enabled(self.plaque, true)
+			session.actions.start_new_run()
+		end)
 	end)
 
 	-- Minor links row under the plaque.
@@ -87,6 +105,17 @@ function init(self)
 	self.gear = ui.box(W - 29, H - 29, 34, 34, { 0.067, 0.067, 0.133 }, 0.7)
 	ui.button(self.buttons, self.gear, function() session.overlay = "settings" end)
 	self.gear_label = ui.text(W - 29, H - 29, "*", 18, { 1, 1, 1 })
+
+	-- The tear film, hidden until the plaque is pressed. Its own atlas, so it
+	-- cannot use ui.tex_box (which is married to the "ui" texture). Created
+	-- after the links so the falling pieces pass over them, before the
+	-- settings overlay so that stays on top.
+	self.tearing = false
+	self.tear = gui.new_box_node(
+		vmath.vector3(TEAR_BOX.x + TEAR_BOX.w / 2, H - (TEAR_BOX.y + TEAR_BOX.h / 2), 0),
+		vmath.vector3(TEAR_BOX.w, TEAR_BOX.h, 0))
+	gui.set_texture(self.tear, "tear")
+	gui.set_enabled(self.tear, false)
 
 	-- Settings overlay (shared shape with the in-game one).
 	self.settings = require("main.gui.settings_overlay").build(self.buttons)
@@ -124,6 +153,9 @@ end
 
 function on_input(self, action_id, action)
 	if session.screen ~= "menu" then return false end
+	-- While the plaque tears, the menu is spoken for: no second press, no
+	-- links, no gear. The film's end callback is the only way forward.
+	if self.tearing then return true end
 	if action_id == hash("touch") and action.pressed then
 		-- A tap during the story advances it a step, as the React intro does:
 		-- logo to first card, card to card, last card to the menu.
