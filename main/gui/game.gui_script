@@ -208,7 +208,7 @@ function init(self)
 	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's is still lost in the dark", 15, { 1, 1, 1 }))
 	self.go_gold = ui.overlay(ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 }))
 	self.go_btn = ui.overlay(ui.plaque_button(W / 2, H / 2 - 60, 140, 44))
-	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Main Menu", 13, { 1, 1, 1 }))
+	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Try Again", 13, { 1, 1, 1 }))
 end
 
 -- ---- overlays --------------------------------------------------------------
@@ -312,7 +312,14 @@ local function build_mobstats(self)
 	for _, row in ipairs(combat.wave_composition(shown_wave)) do
 		local meta = combat.MOB_TYPE_META[row.type]
 		local stats = combat.mob_type_stats(row.type, shown_wave)
-		add(self, ui.box(W / 2 - 130, y, 26, 26, meta.color, 1))
+		if row.type == "melee" then
+			local zombie = gui.new_box_node(vmath.vector3(W / 2 - 140, y, 0), vmath.vector3(60, 60, 0))
+			gui.set_texture(zombie, "zombie_walk")
+			gui.play_flipbook(zombie, "f0")
+			add(self, zombie)
+		else
+			add(self, ui.box(W / 2 - 130, y, 26, 26, meta.color, 1))
+		end
 		add(self, ui.text(W / 2 - 105, y + 7, ("%s · x%d"):format(meta.name, row.count), 12, { 1, 1, 1 }, gui.PIVOT_W))
 		add(self, ui.text(W / 2 - 105, y - 10, ("HP %d · DMG %d"):format(stats.hp, stats.damage), 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
 		y = y - 60
@@ -416,13 +423,7 @@ local function sync_hud(self, s)
 	gui.set_enabled(self.exit_btn, not s.game_over)
 	gui.set_enabled(self.exit_text, not s.game_over)
 
-	-- Berserker (the "ranged" id) grants the flat health passive while equipped.
-	local berserker = false
-	for k = 1, 3 do
-		if s.abilities[k].skill == "ranged" then berserker = true end
-	end
-	local hp_bonus = berserker and skills.BERSERKER_BONUS_HP or 0
-	local max_hp = p.max_hp + hp_bonus
+	local max_hp = p.max_hp
 
 	local hp_frac = max_hp > 0 and p.hp / max_hp or 0
 	gui.set_text(self.hp_text, ("HP %d/%d"):format(math.floor(p.hp + 0.5), math.floor(max_hp + 0.5)))
@@ -517,9 +518,12 @@ local function sync_field(self, s)
 		bars[#bars + 1] = { id = "a" .. a.id, x = a.pos.x, y = a.pos.y - combat.ALLY_RADIUS - 8, w = combat.ALLY_RADIUS * 2, frac = a.hp / a.max_hp, color = { 0.494, 0.341, 0.761 } }
 	end
 	pool_sync(self.pool_hp, bars, function(n, e)
-		gui.set_position(n.bg, vmath.vector3(e.x, gy(e.y), 0))
+		-- A mob at the arena's top edge can place its overhead bar above the
+		-- playfield; keep all actor bars just beneath the top UI boundary.
+		local bar_y = math.min(layout.PLAY_TOP - 2, gy(e.y))
+		gui.set_position(n.bg, vmath.vector3(e.x, bar_y, 0))
 		gui.set_size(n.bg, vmath.vector3(e.w, 4, 0))
-		gui.set_position(n.fill, vmath.vector3(e.x - e.w / 2, gy(e.y), 0))
+		gui.set_position(n.fill, vmath.vector3(e.x - e.w / 2, bar_y, 0))
 		gui.set_size(n.fill, vmath.vector3(e.w * math.max(0, e.frac), 4, 0))
 		gui.set_color(n.fill, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
 	end)

@@ -7,4 +7,7 @@ return {
 	push = "shieldcharge",
 	burn = "hellfire",
 	fireball = "meteor",
+	seagull = "nightswarm",
+	chainlightning = "chain",
+	swordthrow = "cleave",
 }

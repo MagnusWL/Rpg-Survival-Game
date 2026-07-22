@@ -1,6 +1,6 @@
 -- Skill catalog, stat curves and cone math, ported from skills.tsx.
 -- Passives (Summon Regen, Haste, Pierce) have moved to game.upgrades; every
--- skill here is an active, one root plus one child per tree.
+-- skill here is active; roots can have multiple child branches.
 local layout = require("game.layout")
 local combat = require("game.combat")
 
@@ -24,7 +24,10 @@ M.CONE_DAMAGE_RIDES_WAVE = true
 M.RUPTURE_ZONE_FRAME = 12
 M.RUPTURE_ZONE_DELAY = combat.frame_start_time(combat.ANIMS.rupture, M.RUPTURE_ZONE_FRAME)
 
-M.ALL_SKILLS = { "summon", "cone", "ranged", "fireball", "burn", "push" }
+M.ALL_SKILLS = {
+	"summon", "cone", "ranged", "fireball", "seagull", "burn", "chainlightning",
+	"push", "swordthrow",
+}
 M.ROOT_SKILLS = { "summon", "cone", "ranged" }
 M.MAX_EQUIPPED = 3
 -- Equip slots are unlocked with gold in the skill tree: slot 1 is free, slot 2
@@ -33,7 +36,9 @@ M.SLOT_COSTS = { 0, 10, 20 }
 
 M.SKILL_PARENT = {
 	summon = nil, cone = nil, ranged = nil,
-	fireball = "summon", burn = "cone", push = "ranged",
+	fireball = "summon", seagull = "summon",
+	burn = "cone", chainlightning = "cone",
+	push = "ranged", swordthrow = "ranged",
 }
 
 -- Ids stay the same (summon/cone/ranged) for save compatibility; only the
@@ -43,15 +48,16 @@ M.SKILL_META = {
 	summon = { label = "Wild Boar", icon = "Z", color = { 0.494, 0.341, 0.761 }, cast = "instant", cooldown = 12 },
 	cone = { label = "Shockwave", icon = "V", color = { 1.0, 0.541, 0.314 }, cast = "instant", cooldown = 5 },
 	ranged = { label = "Berserker", icon = "R", color = { 0.4, 0.733, 0.416 }, cast = "instant", cooldown = 15 },
-	fireball = { label = "Fireball", icon = "F", color = { 0.361, 0.42, 0.753 }, cast = "instant", cooldown = 8 },
+	fireball = { label = "Fire Enrage", icon = "F", color = { 0.361, 0.42, 0.753 }, cast = "instant", cooldown = 8 },
+	seagull = { label = "Seagull", icon = "G", color = { 0.45, 0.75, 0.9 }, cast = "instant", cooldown = 12 },
 	burn = { label = "Burn", icon = "B", color = { 0.937, 0.325, 0.314 }, cast = "instant", cooldown = 6 },
+	chainlightning = { label = "Chain Lightning", icon = "L", color = { 0.45, 0.75, 1.0 }, cast = "instant", cooldown = 8 },
 	push = { label = "Push", icon = "P", color = { 0.263, 0.627, 0.278 }, cast = "instant", cooldown = 8 },
+	swordthrow = { label = "Sword Throw", icon = "T", color = { 0.82, 0.86, 0.95 }, cast = "instant", cooldown = 8 },
 }
 
--- Berserker's flat passive (no per-level scaling): a health pool and regen
--- just for having it equipped, on top of the +50% attack-speed tap.
-M.BERSERKER_BONUS_HP = 100
-M.BERSERKER_REGEN = 10
+-- Berserker has no passive effect; these apply only during its active buff.
+M.BERSERKER_LIFESTEAL = 0.5
 
 -- Per-skill progression: every skill starts owned at rank 1 and ranks up on
 -- this curve from two income streams (see game.sim) -- half from clearing
@@ -63,22 +69,28 @@ end
 
 local function pick(t, level) return t[level] or 0 end
 
--- Fireball is now an enrage buff on your summons: +50% attack speed and a
--- burning aura dealing this much damage per second to nearby enemies.
+-- Fire Enrage buffs every living summon with +50% attack speed and bonus fire
+-- damage on each attack.
 M.FIREBALL_ENRAGE_DURATION = 5
 M.FIREBALL_ENRAGE_ATKSPD = 0.5
-M.FIREBALL_AURA_RADIUS = 95
-function M.fireball_aura_dps(level) return pick({ 20, 30, 40, 50 }, level) end
+function M.fireball_attack_damage(level) return pick({ 20, 30, 40, 50 }, level) end
 function M.burn_explode_percent(level) return pick({ 0.5, 0.6, 0.7, 1.0 }, level) end
 M.BURN_EXPLODE_RADIUS = 140 -- widened from 90
 function M.burn_damage_per_sec(level) return pick({ 5, 10, 15, 20 }, level) end
 function M.push_damage_percent(level) return pick({ 0.5, 1.0, 1.5, 2.0 }, level) end
+function M.chain_lightning_hits(level) return pick({ 3, 4, 5, 6 }, level) end
+function M.chain_lightning_damage(level) return pick({ 50, 100, 150, 200 }, level) end
+M.CHAIN_LIGHTNING_FALLOFF = 0.8
+function M.sword_throw_percent(level) return pick({ 2.0, 2.5, 3.0, 3.5 }, level) end
 M.PUSH_SPEED = 360 -- gentler shove, so ranged enemies aren't knocked out of reach
 -- How close to a pierced shot's line an enemy must be to be swept up in it.
 M.PIERCE_WIDTH = 26
 
 function M.ability1_stats(level)
-	return { hp = 40 + (level - 1) * 30, damage = 5 * level }
+	return { hp = pick({ 40, 100, 200, 400 }, level), damage = 5 * level }
+end
+function M.seagull_stats(level)
+	return { hp = pick({ 40, 80, 120, 160 }, level), damage = pick({ 10, 20, 30, 40 }, level) }
 end
 function M.ability2_base_damage(level) return 10 * level end
 function M.ability2_damage_percent(level) return 0.1 + (level - 1) * 0.05 end
@@ -128,16 +140,27 @@ function M.skill_description(skill)
 	if skill == "summon" then
 		local hps = bracket(function(l) return M.ability1_stats(l).hp end)
 		local dmgs = bracket(function(l) return M.ability1_stats(l).damage end)
-		return ("Calls 1/2/3/4 allied mobs (at level 4: 2 melee, 2 ranged) that fight for you. HP %s, DMG %s."):format(hps, dmgs)
+		return ("Summons one Wild Boar at every level. HP %s, DMG %s."):format(hps, dmgs)
 	elseif skill == "cone" then
 		local bases = bracket(M.ability2_base_damage)
 		local pcts = bracket(function(l) return math.floor(M.ability2_damage_percent(l) * 100 + 0.5) .. "%" end)
 		return ("Deals %s damage plus %s of each enemy's max HP in a widening cone. Auto-aims at the nearest enemy, turning you to face it."):format(bases, pcts)
 	elseif skill == "ranged" then
-		return "Gain 100 health and 10 health regen/second. Tap to gain +50% attack speed for 5s."
+		return "Tap to gain +50% attack speed and 50% lifesteal for 5s"
 	elseif skill == "fireball" then
-		local dps = bracket(M.fireball_aura_dps)
-		return ("Enrage your summons for 5s: +50%% attack speed and a burning aura dealing %s damage/s to nearby enemies."):format(dps)
+		local damage = bracket(M.fireball_attack_damage)
+		return ("Enrage all summons for 5s: +50%% attack speed and %s bonus fire damage on every attack."):format(damage)
+	elseif skill == "seagull" then
+		local hps = bracket(function(l) return M.seagull_stats(l).hp end)
+		local dmgs = bracket(function(l) return M.seagull_stats(l).damage end)
+		return ("Summons one flying ranged Seagull. Only ranged enemies can damage it. HP %s, DMG %s."):format(hps, dmgs)
+	elseif skill == "chainlightning" then
+		local hits = bracket(M.chain_lightning_hits)
+		local damage = bracket(M.chain_lightning_damage)
+		return ("Chains through %s enemies for %s initial damage, reduced by 20%% after each jump."):format(hits, damage)
+	elseif skill == "swordthrow" then
+		local pcts = bracket(function(l) return math.floor(M.sword_throw_percent(l) * 100 + 0.5) .. "%" end)
+		return ("Throws your sword at the nearest enemy for %s attack damage. A kill immediately refreshes the cooldown."):format(pcts)
 	elseif skill == "burn" then
 		local pcts = bracket(function(l) return math.floor(M.burn_explode_percent(l) * 100 + 0.5) .. "%" end)
 		return ("Sets the closest enemy afire. When it dies it explodes, dealing %s of its max health to nearby enemies."):format(pcts)

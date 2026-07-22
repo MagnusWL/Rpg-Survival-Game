@@ -272,22 +272,24 @@ function on_input(self, action_id, action)
 		if session.overlay == "settings" then
 			return require("main.gui.settings_overlay").input(self.settings, action)
 		end
-		-- Checked before the tooltip's own input handler so a tap on a
-		-- different loadout icon (re)shows its tooltip immediately, instead
-		-- of that tap being swallowed as a close-on-tap-elsewhere first.
+		-- Tooltips are modal so controls underneath cannot receive the same tap.
+		if self.skill_tip.open then
+			skill_tip_ui.input(self.skill_tip, action)
+			return true
+		end
+		-- Tapping a filled loadout icon shows its skill tooltip.
 		local m = session.meta
 		if m then
 			for i, pod in ipairs(self.loadout_icons) do
 				local sid = m.loadout[i]
 				if sid and gui.pick_node(pod.disc, action.x, action.y) then
-					local p = gui.get_position(pod.disc)
+					local p = gui.get_screen_position(pod.disc)
 					local level = m.skill_levels[sid] or 1
 					skill_tip_ui.show(self.skill_tip, sid, level, m.skill_xp[sid] or 0, skills.skill_xp_to_next(level), p.x, p.y)
 					return true
 				end
 			end
 		end
-		if skill_tip_ui.input(self.skill_tip, action) then return true end
 		return ui.hit(self.buttons, action.x, action.y)
 	end
 	return false

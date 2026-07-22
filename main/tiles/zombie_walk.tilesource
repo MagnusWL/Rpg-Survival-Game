@@ -5,7 +5,7 @@ animations {
   id: "f0"
   start_tile: 1
   end_tile: 15
-  playback: PLAYBACK_ONCE_FORWARD
+  playback: PLAYBACK_LOOP_FORWARD
   fps: 12
 }
 animations {

@@ -40,9 +40,36 @@ function M.run()
 	local q = combat.build_wave_queue(6)
 	check("wave 6 queue ends with boss", q[#q] == "boss")
 	check("wave 6 queue size", #q == combat.mob_count_for_wave(6) + 1)
+	check("mob spawn interval doubled", near(combat.WAVE_SPAWN_INTERVAL, 2.0))
 	local st = combat.mob_type_stats("ranged", 5)
-	check("ranged hp wave 5", st.hp == math.floor((20 + 4 * 8) * 0.7 + 0.5))
-	check("boss stats wave 6", combat.mob_type_stats("boss", 6).hp == 500 * 2 + 6 * 10)
+	check("ranged hp is flat", st.hp == 14 and combat.mob_type_stats("ranged", 20).hp == 14)
+	check("melee hp is flat", combat.mob_type_stats("melee", 1).hp == 20
+		and combat.mob_type_stats("melee", 20).hp == 20)
+	check("boss stats are flat", combat.mob_type_stats("boss", 3).hp == 530
+		and combat.mob_type_stats("boss", 30).hp == 530)
+	check("melee damage is flat swapped value", combat.mob_type_stats("melee", 1).damage == 2
+		and combat.mob_type_stats("melee", 20).damage == 2)
+	check("ranged damage is flat swapped value", combat.mob_type_stats("ranged", 1).damage == 3
+		and combat.mob_type_stats("ranged", 20).damage == 3)
+	check("boss damage is flat", combat.mob_type_stats("boss", 3).damage == 12
+		and combat.mob_type_stats("boss", 30).damage == 12)
+	local close_shove = combat.spawn_mob("melee", 1)
+	close_shove.pos = { x = 20, y = 0 }
+	combat.shove_mob(close_shove, { x = 0, y = 0 }, combat.PLAYER_ATTACK_RANGE)
+	local edge_shove = combat.spawn_mob("melee", 1)
+	edge_shove.pos = { x = combat.PLAYER_ATTACK_RANGE, y = 0 }
+	combat.shove_mob(edge_shove, { x = 0, y = 0 }, combat.PLAYER_ATTACK_RANGE)
+	check("player shove is stronger up close", close_shove.knock.x > edge_shove.knock.x)
+	check("player shove is zero at max range", near(edge_shove.knock.x, 0))
+	local top_allies = combat.make_allies_for_level(2, { x = 100, y = 0 }, skills.ability1_stats)
+	check("wild boar always summons one ally", #top_allies == 1)
+	local allies_outside_top_buffer = true
+	for _, ally in ipairs(top_allies) do
+		if ally.pos.y < combat.ALLY_RADIUS + combat.PLAYER_TOP_BUFFER then
+			allies_outside_top_buffer = false
+		end
+	end
+	check("summoned allies spawn below top buffer", allies_outside_top_buffer)
 
 	-- facing math: east is row 0, south row 2 (y down), north row 6
 	check("facing east", combat.facing_from_delta(1, 0) == 0)
@@ -92,10 +119,22 @@ function M.run()
 	-- skills: catalog and per-skill xp curve. No passives here any more --
 	-- Haste/Summon Regen/Pierce moved to game.upgrades.
 	check("cone range", near(skills.CONE_RANGE, math.sqrt(390 ^ 2 + 686 ^ 2)))
-	check("ability1 lvl3", skills.ability1_stats(3).hp == 100 and skills.ability1_stats(3).damage == 15)
+	check("wild boar lvl3", skills.ability1_stats(3).hp == 200 and skills.ability1_stats(3).damage == 15)
+	check("wild boar health curve", skills.ability1_stats(1).hp == 40 and skills.ability1_stats(4).hp == 400)
+	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 160 and skills.seagull_stats(4).damage == 40)
+	check("seagull requires wild boar", skills.SKILL_PARENT.seagull == "summon")
+	check("fire enrage damage curve", skills.fireball_attack_damage(1) == 20 and skills.fireball_attack_damage(4) == 50)
+	check("chain lightning curve", skills.chain_lightning_hits(1) == 3 and skills.chain_lightning_hits(4) == 6
+		and skills.chain_lightning_damage(1) == 50 and skills.chain_lightning_damage(4) == 200)
+	check("chain lightning requires shockwave", skills.SKILL_PARENT.chainlightning == "cone")
+	check("sword throw curve", near(skills.sword_throw_percent(1), 2.0) and near(skills.sword_throw_percent(4), 3.5))
+	check("sword throw requires berserker", skills.SKILL_PARENT.swordthrow == "ranged")
 	check("burn pct lvl4", skills.burn_explode_percent(4) == 1.0)
 	check("xp to next lvl1", skills.skill_xp_to_next(1) == 150)
 	check("xp to next lvl4 (maxed)", skills.skill_xp_to_next(4) == nil)
+	check("berserker active lifesteal", near(skills.BERSERKER_LIFESTEAL, 0.5))
+	check("berserker has no health passive", skills.BERSERKER_BONUS_HP == nil and skills.BERSERKER_REGEN == nil)
+	check("berserker tooltip copy", skills.skill_description("ranged") == "Tap to gain +50% attack speed and 50% lifesteal for 5s")
 	local no_passives = true
 	for _, sid in ipairs(skills.ALL_SKILLS) do
 		if sid == "pierce" or sid == "cdreduce" or sid == "summonregen" then no_passives = false end
@@ -194,6 +233,7 @@ function M.run()
 	check("upgrade recorded", #s.upgrades == 1)
 	sim.tap_field(s, 10, 10)
 	check("move accepted once answered", s.player.target ~= nil and s.player.target.x == 10)
+	check("player target respects top buffer", s.player.target.y == combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER)
 
 	-- sim: cone cast queues wave-riding hits, and kills with it level the skill
 	local gs2 = meta_mod.build_fresh_state(dm)
@@ -266,6 +306,75 @@ function M.run()
 	for _ = 1, 120 do sim.update(s9, 1 / 60) end
 	check("vampire lifesteal heals the player", s9.player.hp > hp_before_ls)
 
+	-- sim: Berserker's five-second active grants lifesteal without Vampire.
+	local s10 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	s10.player.intro_phase = "done"
+	s10.player.target = nil
+	s10.player.pos = { x = 195, y = 400 }
+	s10.player.max_hp = 200
+	s10.player.hp = 100
+	s10.abilities = { { skill = "ranged", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	sim.update(s10, 1)
+	check("player has two health regen per second", near(s10.player.hp, 102))
+	local berserker_mob = combat.spawn_mob("melee", 1)
+	berserker_mob.pos = { x = s10.player.pos.x + 10, y = s10.player.pos.y }
+	berserker_mob.hp, berserker_mob.max_hp = 9999, 9999
+	berserker_mob.damage = 0
+	s10.mobs = { berserker_mob }
+	sim.press_ability(s10, 1)
+	local hp_before_berserker = s10.player.hp
+	for _ = 1, 120 do sim.update(s10, 1 / 60) end
+	check("berserker active lifesteal heals the player", s10.player.hp > hp_before_berserker)
+
+	-- sim: clearing a wave does not restore health beyond normal regeneration.
+	local no_clear_heal = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	no_clear_heal.player.intro_phase = "done"
+	no_clear_heal.player.hp = 50
+	no_clear_heal.loot_owed = { 1 }
+	sim.update(no_clear_heal, 1)
+	check("wave clear does not heal to full", near(no_clear_heal.player.hp, 52))
+
+	-- sim: ranged enemies cannot acquire or shoot until below the top buffer.
+	local ranged_exit = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	ranged_exit.player.intro_phase = "done"
+	ranged_exit.player.pos = { x = 195, y = combat.MOB_RADIUS + 5 }
+	local top_ranged = combat.spawn_mob("ranged", 1)
+	top_ranged.pos = { x = 195, y = combat.MOB_RADIUS }
+	ranged_exit.mobs = { top_ranged }
+	sim.update(ranged_exit, 0.1)
+	check("ranged mob walks out of top buffer before attacking",
+		top_ranged.pos.y > combat.MOB_RADIUS and #ranged_exit.projectiles == 0)
+
+	-- sim: Chain Lightning follows nearest-neighbour order with 20% falloff.
+	local chain_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	chain_state.player.intro_phase = "done"
+	chain_state.abilities = { { skill = "chainlightning", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	chain_state.mobs = {}
+	for i = 1, 4 do
+		local mob = combat.spawn_mob("melee", 1)
+		mob.pos = { x = chain_state.player.pos.x + i * 30, y = chain_state.player.pos.y }
+		mob.hp, mob.max_hp, mob.damage = 1000, 1000, 0
+		chain_state.mobs[#chain_state.mobs + 1] = mob
+	end
+	sim.press_ability(chain_state, 1)
+	check("chain lightning hits configured count", near(chain_state.mobs[1].hp, 950)
+		and near(chain_state.mobs[2].hp, 960) and near(chain_state.mobs[3].hp, 968)
+		and near(chain_state.mobs[4].hp, 1000))
+
+	-- sim: a lethal Sword Throw impact immediately clears its own cooldown.
+	local sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	sword_state.player.intro_phase = "done"
+	sword_state.player.target = nil
+	sword_state.abilities = { { skill = "swordthrow", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local sword_target = combat.spawn_mob("melee", 1)
+	sword_target.pos = { x = sword_state.player.pos.x + 200, y = sword_state.player.pos.y }
+	sword_target.hp, sword_target.max_hp, sword_target.damage = 10, 10, 0
+	sword_state.mobs = { sword_target }
+	sim.press_ability(sword_state, 1)
+	check("sword throw starts cooldown", sword_state.abilities[1].cooldown > 0)
+	for _ = 1, 60 do sim.update(sword_state, 1 / 60) end
+	check("lethal sword throw refreshes cooldown", near(sword_state.abilities[1].cooldown, 0))
+
 	-- sim: burn explosion chain
 	local s3 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	s3.player.intro_phase = "done"
@@ -330,7 +439,7 @@ function M.run()
 	local s5 = sim.new(meta_mod.build_fresh_state(dm), { run_id = "r-go", is_test_run = false })
 	s5.player.intro_phase = "done"
 	s5.player.target = nil
-	-- No Berserker equipped, so its passive regen can't revive him from 0.
+	-- No passive regeneration can revive the player from 0.
 	s5.abilities = { { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
 	s5.player.hp = 0
 	local saw_over = false

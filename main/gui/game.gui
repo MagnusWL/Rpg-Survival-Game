@@ -11,6 +11,10 @@ textures {
   name: "skilltree"
   texture: "/main/tiles/skilltree.atlas"
 }
+textures {
+  name: "zombie_walk"
+  texture: "/main/tiles/zombie_walk.tilesource"
+}
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 4096
 layers {

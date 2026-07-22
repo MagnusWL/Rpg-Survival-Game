@@ -8,6 +8,8 @@ local PLAY_H = layout.PLAY_H
 
 M.PLAYER_RADIUS = 18
 M.PLAYER_SPEED = 170
+M.PLAYER_TOP_BUFFER = 72
+M.PLAYER_HEALTH_REGEN = 2
 
 M.SPRITE_CELL = 128
 M.SPRITE_COLS = 15
@@ -251,7 +253,7 @@ M.MOB_ATTACK_RANGE = 40
 M.MOB_RANGED_FIRE_RANGE = 170
 M.MOB_ATTACK_COOLDOWN = 1.2
 M.MOB_MAX_HP = 20
-M.MOB_DAMAGE = 5
+M.MOB_DAMAGE = 2
 M.MOB_XP_REWARD = 15
 M.BOSS_XP_REWARD = 120
 M.MOB_COIN_CHANCE = 0.5
@@ -262,7 +264,7 @@ M.KNOCKBACK_VARIATION = 0.45
 M.KNOCKBACK_TAU = 0.085
 M.KNOCKBACK_STOP = 8
 
-M.WAVE_SPAWN_INTERVAL = 1.0 -- doubled: twice the gap between each mob spawn
+M.WAVE_SPAWN_INTERVAL = 2.0 -- twice the previous gap between each mob spawn
 
 M.ALLY_RADIUS = 12
 M.ALLY_SPEED = 90
@@ -293,20 +295,31 @@ M.XP_TEXT_COLOR = { 1, 0.835, 0.31 }
 
 -- Mutators -------------------------------------------------------------------
 
-function M.shove_mob(m, from)
+function M.shove_mob(m, from, max_range)
 	local dx = m.pos.x - from.x
 	local dy = m.pos.y - from.y
 	local len = math.sqrt(dx * dx + dy * dy)
 	if len > 0.001 then
+		-- Player shoves fade linearly with distance: strongest up close and zero
+		-- at the edge of the attack. The sim also uses this limit as a hard stop
+		-- so frame timing and random variation can never carry the mob past it.
+		local proximity = 1
+		if max_range then
+			proximity = math.max(0, math.min(1, (max_range - len) / max_range))
+			m.knock_limit = { x = from.x, y = from.y, range = max_range }
+		else
+			m.knock_limit = nil
+		end
 		local vary = 1 + (math.random() * 2 - 1) * M.KNOCKBACK_VARIATION
-		local speed = M.KNOCKBACK_SPEED * vary * (M.MOB_RADIUS / m.radius)
+		local speed = M.KNOCKBACK_SPEED * proximity * vary * (M.MOB_RADIUS / m.radius)
 		m.knock = { x = dx / len * speed, y = dy / len * speed }
+		if speed <= 0 then m.knock_limit = nil end
 	end
 end
 
-function M.hurt_mob(m, from)
+function M.hurt_mob(m, from, max_shove_range)
 	m.flash_time = M.MOB_FLASH_TIME
-	if from then M.shove_mob(m, from) end
+	if from then M.shove_mob(m, from, max_shove_range) end
 	local def = M.MOB_ANIMS[m.anim]
 	local busy = (not def.loop) and m.anim_time < M.anim_duration(def)
 	if not busy and m.hurt_gap <= 0 then
@@ -337,8 +350,9 @@ local mob_id_counter = 0
 local ally_id_counter = 0
 local floating_text_id_counter = 0
 
-function M.mob_hp_for_wave(wave) return M.MOB_MAX_HP + (wave - 1) * 8 end
-function M.mob_damage_for_wave(wave) return M.MOB_DAMAGE + math.floor((wave - 1) * 1.5) end
+function M.mob_hp_for_wave(_wave) return M.MOB_MAX_HP end
+function M.mob_damage_for_wave(_wave) return M.MOB_DAMAGE end
+function M.ranged_damage_for_wave(_wave) return 3 end
 function M.mob_count_for_wave(wave) return 4 + wave end
 
 -- Bosses arrive on wave 3 and every third wave after (3, 6, 9, ...), each a
@@ -359,9 +373,11 @@ function M.mob_type_stats(mob_type, wave)
 	local melee_hp = M.mob_hp_for_wave(wave)
 	local melee_dmg = M.mob_damage_for_wave(wave)
 	if mob_type == "melee" then return { hp = melee_hp, damage = melee_dmg } end
-	if mob_type == "ranged" then return { hp = math.floor(melee_hp * 0.7 + 0.5), damage = melee_dmg } end
-	local tier = math.max(1, M.boss_tier_for_wave(wave))
-	return { hp = 500 * tier + wave * 10, damage = 15 + tier * 6 }
+	if mob_type == "ranged" then
+		return { hp = math.floor(melee_hp * 0.7 + 0.5), damage = M.ranged_damage_for_wave(wave) }
+	end
+	-- Bosses keep their first-encounter stats at every tier.
+	return { hp = 530, damage = 12 }
 end
 
 function M.wave_composition(wave)
@@ -415,24 +431,49 @@ function M.spawn_mob(mob_type, wave)
 end
 
 function M.make_allies_for_level(level, origin, ability1_stats)
-	local count = level
+	local count = 1
 	local stats = ability1_stats(level)
 	local result = {}
 	for i = 0, count - 1 do
 		ally_id_counter = ally_id_counter + 1
 		local offset_x = (i - (count - 1) / 2) * 36
-		local ranged = level == 4 and i >= 2
+		local ranged = false
 		result[#result + 1] = {
 			id = ally_id_counter,
-			pos = { x = origin.x + offset_x, y = math.max(M.ALLY_RADIUS, origin.y - 50) },
+			pos = {
+				x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.ALLY_RADIUS, origin.x + offset_x)),
+				y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
+					math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
+			},
 			hp = stats.hp,
 			max_hp = stats.hp,
 			damage = stats.damage,
 			attack_cooldown = 0,
 			ranged = ranged,
+			source_skill = "summon",
 		}
 	end
 	return result
+end
+
+function M.make_seagull(level, origin, seagull_stats)
+	ally_id_counter = ally_id_counter + 1
+	local stats = seagull_stats(level)
+	return {
+		id = ally_id_counter,
+		pos = {
+			x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.ALLY_RADIUS, origin.x)),
+			y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
+				math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
+		},
+		hp = stats.hp,
+		max_hp = stats.hp,
+		damage = stats.damage,
+		attack_cooldown = 0,
+		ranged = true,
+		flying = true,
+		source_skill = "seagull",
+	}
 end
 
 function M.make_floating_text(text, pos, color, now)

@@ -220,7 +220,8 @@ local function sync_allies(self, s)
 			if not id then return end
 			view = { id = id }
 			self.ally_views[a.id] = view
-			local c = a.ranged and { 0.702, 0.616, 0.859 } or { 0.584, 0.459, 0.804 }
+			local c = a.flying and { 0.45, 0.82, 0.95 }
+				or (a.ranged and { 0.702, 0.616, 0.859 } or { 0.584, 0.459, 0.804 })
 			go.set(msg.url(nil, id, "circle"), "tint", vmath.vector4(c[1], c[2], c[3], 1))
 		end
 		place(view.id, a.pos.x, a.pos.y, actor_z(a.pos.y))

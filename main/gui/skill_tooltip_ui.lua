@@ -1,6 +1,6 @@
 -- The skill tooltip: label, the current rank (or "Locked"), the description,
 -- and -- in the skill tree -- an action button to Unlock or Equip the skill.
--- A small popup anchored just above wherever it was tapped, sized to its
+-- A small popup anchored just above the skill icon, sized to its
 -- contents. Shared by the main menu's loadout preview (read-only, no button)
 -- and the skill tree's pods and loadout bar. Each screen builds its own copy
 -- of the nodes (a gui scene cannot borrow another screen's).
@@ -55,8 +55,9 @@ function M.build()
 	return o
 end
 
--- opts (optional, skill tree only): { locked, cost, equipped, equip_slot,
--- on_action }. on_action(kind) is called with "unlock" | "equip" | "unequip".
+-- opts (optional, skill tree only): { locked, cost, can_afford, equipped,
+-- equip_slot, anchor_gap, on_action }. on_action(kind) is called with
+-- "unlock" | "equip" | "unequip".
 function M.show(o, skill, level, xp, needed, x, y, opts)
 	opts = opts or {}
 	local meta = skills.SKILL_META[skill]
@@ -79,6 +80,7 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 		kind, label = "equip", ("Equip (Slot %d)"):format(opts.equip_slot)
 	end
 	o.action_kind = kind
+	o.action_enabled = kind ~= "unlock" or opts.can_afford ~= false
 	o.on_action = opts.on_action
 
 	local desc_h = wrapped_line_count(desc_text) * DESC_LINE_H
@@ -86,7 +88,7 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC + desc_h + btn_block
 
 	local cx = math.max(PANEL_W / 2 + 4, math.min(W - PANEL_W / 2 - 4, x))
-	local cy = math.min(H - panel_h / 2 - 4, y + panel_h / 2 + 26)
+	local cy = math.min(H - panel_h / 2 - 4, y + panel_h / 2 + (opts.anchor_gap or 26))
 	local left = cx - PANEL_W / 2 + PAD
 	local top = cy + panel_h / 2 - PAD
 
@@ -106,6 +108,13 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 		gui.set_position(o.action_btn, vmath.vector3(cx, by, 0))
 		gui.set_position(o.action_text, vmath.vector3(cx, by, 0))
 		gui.set_text(o.action_text, label)
+		if o.action_enabled then
+			gui.set_color(o.action_btn, vmath.vector4(1, 1, 1, 1))
+			gui.set_color(o.action_text, vmath.vector4(0.965, 0.86, 0.6, 1))
+		else
+			gui.set_color(o.action_btn, vmath.vector4(0.35, 0.35, 0.35, 1))
+			gui.set_color(o.action_text, vmath.vector4(0.55, 0.55, 0.55, 1))
+		end
 		gui.set_enabled(o.action_btn, true)
 		gui.set_enabled(o.action_text, true)
 	else
@@ -121,13 +130,14 @@ function M.hide(o)
 	end
 	o.open = false
 	o.action_kind = nil
+	o.action_enabled = false
 end
 
--- A tap on the action button fires its action; any other tap dismisses. The
--- caller checks o.open first so its own controls don't also react.
+-- A tap on the action button fires its action; any other tap dismisses. Screen
+-- input handlers call this before their controls so nothing beneath reacts.
 function M.input(o, action)
 	if not o.open then return false end
-	if o.action_kind and gui.is_enabled(o.action_btn) and gui.pick_node(o.action_btn, action.x, action.y) then
+	if o.action_kind and o.action_enabled and gui.is_enabled(o.action_btn) and gui.pick_node(o.action_btn, action.x, action.y) then
 		local kind, cb = o.action_kind, o.on_action
 		M.hide(o)
 		if cb then cb(kind) end
