@@ -1,67 +1,14 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# Defold editor and build output
+.internal/
+build/
 
-# dependencies
-node_modules/
+# Local Defold editor downloaded for this workspace
+Defold-x86_64-win32.zip
+tools/Defold/
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
-
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
+# OS files
 .DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
-
-# Claude Code runtime state
-.claude/scheduled_tasks.lock
-
-# Raw source material, kept out of the history. The game ships what the build
-# scripts produce under assets/ instead. See tools/README.md.
-#
-# Anchored with a leading slash on purpose: without it these match at any depth,
-# and a bare "Music/" pattern would swallow the built assets/music/ as well.
-#
-# Raw_Assets/ is the human inbox: Nicolai drops raw art in Grafik/, raw sound
-# in Lyde/ and raw tracks in Music/, all inside this one ignored root. The
-# mills in tools/ read from here and write game-ready files to assets/ (web)
-# -- nothing raw may enter the repo.
-/Raw_Assets/
-
-# Generated tuning pages -- rebuilt by "npm run build:eq" and "build:rain", and
-# they embed the audio and the ground, so there is no reason to version them.
-tools/eq-preview.html
-tools/rain-preview.html
-
-# Local-only archive: never in git; the tracked arkiv/ entries are enough.
-/arkiv/lokalt/
-
-# Recordings are mill intermediates: regenerable from the harness pages.
-/tools/recordings/
+Thumbs.db
+/.editor_settings
+/.internal
+/build
