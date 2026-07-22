@@ -198,7 +198,7 @@ function init(self)
 
 	-- Game over.
 	self.go_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75))
-	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's all alone now", 15, { 1, 1, 1 }))
+	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 76, "She's all alone now", 15, { 1, 1, 1 }))
 	-- A small constructed treasure chest replaces the plain reward text.
 	self.go_chest_body = ui.overlay(ui.button_frame(W / 2, H / 2 - 4, 76, 38, "btn_gold"))
 	self.go_chest_lid = ui.overlay(ui.button_frame(W / 2, H / 2 + 19, 84, 18, "btn_gold"))
@@ -208,23 +208,32 @@ function init(self)
 	self.reward_open = false
 	self.reward_lid_y = H / 2 + 19
 	self.reward_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.45))
-	self.reward_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, W - 100, 210))
-	self.reward_grain = ui.grain(W / 2, H / 2, W - 100, 210, 0.16, "overlay")
-	self.reward_title = ui.overlay(ui.text(W / 2, H / 2 + 62, "Treasure Chest", 17, { 1, 1, 1 }))
-	self.reward_gold = ui.overlay(ui.text(W / 2, H / 2, "", 22, { 1, 0.835, 0.31 }))
-	self.reward_item_btn = ui.overlay(ui.box(W / 2, H / 2 - 35, W - 140, 58, { 0.14, 0.105, 0.072 }, 1))
-	self.reward_item_text = ui.overlay(ui.text(W / 2, H / 2 - 35, "", 11, { 0.95, 0.86, 0.62 }))
-	self.reward_back = ui.overlay(ui.plaque_button(27, H - 26, 34, 34))
-	self.reward_back_icon = ui.overlay(ui.tex_box(27, H - 26, 17, 17, "arrow_up"))
+	local reward_w, reward_h = 620, 230
+	self.reward_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, reward_w, reward_h))
+	self.reward_grain = ui.grain(W / 2, H / 2, reward_w, reward_h, 0.16, "overlay")
+	self.reward_title = ui.overlay(ui.text(W / 2, H / 2 + 78, "Treasure Chest", 17, { 1, 1, 1 }))
+	self.reward_gold = ui.overlay(ui.text(W / 2, H / 2 + 28, "", 18, { 1, 0.835, 0.31 }))
+	self.reward_item_btn = ui.overlay(ui.box(W / 2, H / 2 - 42, reward_w - 54, 70, { 0.14, 0.105, 0.072 }, 1))
+	self.reward_item_text = ui.overlay(ui.text(W / 2, H / 2 - 42, "", 11, { 0.95, 0.86, 0.62 }))
+	local back_x, back_y = W / 2 - reward_w / 2 + 27, H / 2 + reward_h / 2 - 27
+	self.reward_back = ui.overlay(ui.plaque_button(back_x, back_y, 38, 38))
+	self.reward_back_icon = ui.overlay(ui.tex_box(back_x, back_y, 18, 18, "arrow_up"))
 	gui.set_rotation(self.reward_back_icon, vmath.quat_rotation_z(math.rad(90)))
-	self.reward_compare_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, W - 70, 300))
-	self.reward_compare_text = ui.overlay(ui.text(W / 2 - 130, H / 2 + 105, "", 10, { 0.92, 0.89, 0.80 }, gui.PIVOT_W))
+	local compare_w, compare_h = 650, 270
+	self.reward_compare_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, compare_w, compare_h))
+	self.reward_compare_title = ui.overlay(ui.text(W / 2, H / 2 + 105, "Compare Equipment", 16, { 1, 1, 1 }))
+	self.reward_compare_text = ui.overlay(ui.text(W / 2 - 285, H / 2 + 70, "", 10, { 0.92, 0.89, 0.80 }, gui.PIVOT_W))
 	gui.set_line_break(self.reward_compare_text, true)
-	gui.set_size(self.reward_compare_text, vmath.vector3(620, 220, 0))
-	self.reward_equip = ui.overlay(ui.button_frame(W / 2, H / 2 - 105, 150, 42, "btn_gold"))
-	self.reward_equip_text = ui.overlay(ui.text(W / 2, H / 2 - 105, "Equip item", 12, { 0.15, 0.10, 0.04 }))
-	self.reward_compare_nodes = { self.reward_compare_panel, self.reward_compare_text,
-		self.reward_equip, self.reward_equip_text }
+	gui.set_size(self.reward_compare_text, vmath.vector3(570, 150, 0))
+	-- Match Try Again and every other primary action: carved plaque, pale text.
+	self.reward_equip = ui.overlay(ui.plaque_button(W / 2, H / 2 - 100, 180, 46))
+	self.reward_equip_text = ui.overlay(ui.text(W / 2, H / 2 - 100, "Equip Item", 12, { 0.878, 0.831, 0.729 }))
+	local compare_back_x, compare_back_y = W / 2 - compare_w / 2 + 27, H / 2 + compare_h / 2 - 27
+	self.reward_compare_back = ui.overlay(ui.plaque_button(compare_back_x, compare_back_y, 38, 38))
+	self.reward_compare_back_icon = ui.overlay(ui.tex_box(compare_back_x, compare_back_y, 18, 18, "arrow_up"))
+	gui.set_rotation(self.reward_compare_back_icon, vmath.quat_rotation_z(math.rad(90)))
+	self.reward_compare_nodes = { self.reward_compare_panel, self.reward_compare_title, self.reward_compare_text,
+		self.reward_equip, self.reward_equip_text, self.reward_compare_back, self.reward_compare_back_icon }
 	self.reward_nodes = { self.reward_shade, self.reward_panel, self.reward_grain,
 		self.reward_title, self.reward_gold, self.reward_item_btn, self.reward_item_text,
 		self.reward_back, self.reward_back_icon }
@@ -768,15 +777,20 @@ function update(self, dt)
 	if over and self.reward_open and self.reward_compare and session.reward_item then
 		local item = session.reward_item
 		local old = session.meta.equipment and session.meta.equipment[item.slot]
-		local lines = { ("NEW  iLvl %d %s"):format(item.level, item.name) }
+		local lines = { ("NEW ITEM   iLvl %d   %s"):format(item.level, item.name) }
 		for _, line in ipairs(inventory.describe(item)) do lines[#lines + 1] = "  " .. line end
 		if old then
 			lines[#lines + 1] = ""
-			lines[#lines + 1] = ("EQUIPPED  iLvl %d %s"):format(old.level, old.name)
+			lines[#lines + 1] = ("CURRENTLY EQUIPPED   iLvl %d   %s"):format(old.level, old.name)
+			local changes = 0
 			for _, stat in ipairs(inventory.STAT_ORDER) do
 				local delta = (item.stats[stat] or 0) - (old.stats[stat] or 0)
-				if delta ~= 0 then lines[#lines + 1] = ("  %s  %s"):format(inventory.STAT_LABELS[stat], inventory.stat_text(stat, delta, true)) end
+				if delta ~= 0 then
+					changes = changes + 1
+					lines[#lines + 1] = ("  %s  %s"):format(inventory.STAT_LABELS[stat], inventory.stat_text(stat, delta, true))
+				end
 			end
+			if changes == 0 then lines[#lines + 1] = "  No stat change" end
 		else
 			lines[#lines + 1] = ""
 			lines[#lines + 1] = "No item equipped in this slot"
@@ -812,8 +826,10 @@ function on_input(self, action_id, action)
 				if self.reward_compare and gui.pick_node(self.reward_equip, action.x, action.y) then
 					session.equip_reward()
 					self.reward_compare = false
-				elseif gui.pick_node(self.reward_back, action.x, action.y) then
-					if self.reward_compare then self.reward_compare = false else self.reward_open = false end
+				elseif self.reward_compare and gui.pick_node(self.reward_compare_back, action.x, action.y) then
+					self.reward_compare = false
+				elseif not self.reward_compare and gui.pick_node(self.reward_back, action.x, action.y) then
+					self.reward_open = false
 				elseif session.reward_item and gui.pick_node(self.reward_item_btn, action.x, action.y) then
 					self.reward_compare = true
 				end
