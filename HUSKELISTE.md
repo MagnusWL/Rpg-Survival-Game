@@ -4,6 +4,17 @@ Alt herunder er ikke glemt, men heller ikke færdigt. Filen er kun til os to.
 
 Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
 
+> **23. juli, morgen — MAGNUS'S NATTEOMLÆGNING (10 commits):** Spillet er nu
+> **LIGGENDE (844×390)**. Web-projektet er fjernet fra git og `defold-port/`
+> flyttet til RODEN — `game.project` ligger nu i projektroden, og Defold
+> åbnes med DEN. Items-system + nye skills-priser er hans. ALLE vores
+> systemer overlevede i koden (blomst/opvågning, rivning, intro-fx,
+> shockwave, bane-knap) — men de er BYGGET TIL PORTRÆT: rivningsfilmen,
+> intro-kortene og shockwave-skalaen (SCREEN_H nu 390) skal ses efter i
+> landskab. Stier og portræt-tal i afsnittene herunder er fra FØR
+> omlægningen — opdateres efter dagens F5. Editor-state fra før ligger i
+> stash: "defold editor-state foer Magnus-pull 23. juli".
+
 ---
 
 ## I GANG LIGE NU: skilltræ-blomsten (afventer F5)
