@@ -12,6 +12,7 @@ local ui = require("game.ui")
 local skill_icon_ui = require("main.gui.skill_icon_ui")
 local upgrade_icons = require("main.gui.upgrade_icons")
 local inventory = require("game.inventory")
+local item_icons = require("main.gui.item_icons")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 local PLAY_H = layout.PLAY_H
@@ -214,7 +215,8 @@ function init(self)
 	self.reward_title = ui.overlay(ui.text(W / 2, H / 2 + 78, "Treasure Chest", 17, { 1, 1, 1 }))
 	self.reward_gold = ui.overlay(ui.text(W / 2, H / 2 + 28, "", 18, { 1, 0.835, 0.31 }))
 	self.reward_item_btn = ui.overlay(ui.box(W / 2, H / 2 - 42, reward_w - 54, 70, { 0.14, 0.105, 0.072 }, 1))
-	self.reward_item_text = ui.overlay(ui.text(W / 2, H / 2 - 42, "", 11, { 0.95, 0.86, 0.62 }))
+	self.reward_item_icon = ui.overlay(ui.tex_box(W / 2 - reward_w / 2 + 62, H / 2 - 42, 54, 54, "item_weapon"))
+	self.reward_item_text = ui.overlay(ui.text(W / 2 + 18, H / 2 - 42, "", 11, { 0.95, 0.86, 0.62 }))
 	local back_x, back_y = W / 2 - reward_w / 2 + 27, H / 2 + reward_h / 2 - 27
 	self.reward_back = ui.overlay(ui.plaque_button(back_x, back_y, 38, 38))
 	self.reward_back_icon = ui.overlay(ui.tex_box(back_x, back_y, 18, 18, "arrow_up"))
@@ -225,6 +227,7 @@ function init(self)
 	self.reward_compare_text = ui.overlay(ui.text(W / 2 - 285, H / 2 + 70, "", 10, { 0.92, 0.89, 0.80 }, gui.PIVOT_W))
 	gui.set_line_break(self.reward_compare_text, true)
 	gui.set_size(self.reward_compare_text, vmath.vector3(570, 150, 0))
+	self.reward_compare_icon = ui.overlay(ui.tex_box(W / 2 + 255, H / 2 + 48, 72, 72, "item_weapon"))
 	-- Match Try Again and every other primary action: carved plaque, pale text.
 	self.reward_equip = ui.overlay(ui.plaque_button(W / 2, H / 2 - 100, 180, 46))
 	self.reward_equip_text = ui.overlay(ui.text(W / 2, H / 2 - 100, "Equip Item", 12, { 0.878, 0.831, 0.729 }))
@@ -232,10 +235,10 @@ function init(self)
 	self.reward_compare_back = ui.overlay(ui.plaque_button(compare_back_x, compare_back_y, 38, 38))
 	self.reward_compare_back_icon = ui.overlay(ui.tex_box(compare_back_x, compare_back_y, 18, 18, "arrow_up"))
 	gui.set_rotation(self.reward_compare_back_icon, vmath.quat_rotation_z(math.rad(90)))
-	self.reward_compare_nodes = { self.reward_compare_panel, self.reward_compare_title, self.reward_compare_text,
+	self.reward_compare_nodes = { self.reward_compare_panel, self.reward_compare_title, self.reward_compare_text, self.reward_compare_icon,
 		self.reward_equip, self.reward_equip_text, self.reward_compare_back, self.reward_compare_back_icon }
 	self.reward_nodes = { self.reward_shade, self.reward_panel, self.reward_grain,
-		self.reward_title, self.reward_gold, self.reward_item_btn, self.reward_item_text,
+		self.reward_title, self.reward_gold, self.reward_item_btn, self.reward_item_icon, self.reward_item_text,
 		self.reward_back, self.reward_back_icon }
 	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, false) end
 	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, false) end
@@ -396,9 +399,12 @@ local function build_playerstats(self)
 	add(self, ui.text(W / 2 + 25, H / 2 + 102, "EQUIPMENT", 11, { 0.95, 0.80, 0.42 }, gui.PIVOT_W))
 	for i, slot in ipairs(inventory.SLOTS) do
 		local item = session.meta.equipment and session.meta.equipment[slot]
+		local icon = add(self, ui.tex_box(W / 2 + 42, H / 2 + 72 - (i - 1) * 35, 26, 26,
+			item_icons.for_slot(slot, item ~= nil)))
+		ui.set_alpha(icon, item and 1 or 0.42)
 		local label = item and (("%s  iLvl %d  %s"):format(inventory.SLOT_LABELS[slot], item.level, item.name))
 			or (inventory.SLOT_LABELS[slot] .. "  Empty")
-		add(self, ui.text(W / 2 + 25, H / 2 + 72 - (i - 1) * 35, label, 9,
+		add(self, ui.text(W / 2 + 62, H / 2 + 72 - (i - 1) * 35, label, 9,
 			item and { 0.88, 0.86, 0.80 } or { 0.50, 0.48, 0.44 }, gui.PIVOT_W))
 	end
 	self.playerstats_built = true
@@ -581,7 +587,7 @@ local function sync_field(self, s)
 	local player_frac = p.hp / p.max_hp
 	local bars = {
 		{ id = "player", x = p.pos.x,
-			y = p.pos.y - (combat.PLAYER_SPRITE_SIZE - combat.PLAYER_SPRITE_FOOT_OFFSET) + 10,
+			y = p.pos.y - (combat.PLAYER_SPRITE_SIZE - combat.PLAYER_SPRITE_FOOT_OFFSET) + 18,
 			w = 44, frac = player_frac, color = hp_bar_color(player_frac) },
 	}
 	for _, m in ipairs(s.mobs) do
@@ -766,6 +772,10 @@ function update(self, dt)
 		gui.set_text(self.reward_gold, session.is_test_run and "No gold earned"
 			or ("%d gold"):format(session.last_run_gold))
 		local item = session.reward_item
+		if item then
+			gui.play_flipbook(self.reward_item_icon, item_icons.for_slot(item.slot, true))
+			gui.play_flipbook(self.reward_compare_icon, item_icons.for_slot(item.slot, true))
+		end
 		gui.set_text(self.reward_item_text, item and (("iLvl %d %s\n%s - tap to compare"):format(
 			item.level, item.name, inventory.SLOT_LABELS[item.slot])) or "Item equipped")
 	elseif self.reward_open then
@@ -774,6 +784,8 @@ function update(self, dt)
 	end
 	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, over and self.reward_open) end
 	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, over and self.reward_open and self.reward_compare) end
+	gui.set_enabled(self.reward_item_icon, over and self.reward_open and session.reward_item ~= nil)
+	gui.set_enabled(self.reward_compare_icon, over and self.reward_open and self.reward_compare and session.reward_item ~= nil)
 	if over and self.reward_open and self.reward_compare and session.reward_item then
 		local item = session.reward_item
 		local old = session.meta.equipment and session.meta.equipment[item.slot]

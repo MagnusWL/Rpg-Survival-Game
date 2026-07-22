@@ -8,6 +8,7 @@ local ui = require("game.ui")
 local skill_tip_ui = require("main.gui.skill_tooltip_ui")
 local skill_icon_ui = require("main.gui.skill_icon_ui")
 local inventory = require("game.inventory")
+local item_icons = require("main.gui.item_icons")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 
@@ -183,8 +184,9 @@ function init(self)
 		local row_index = math.floor((i - 1) / 2)
 		local x, y = W / 2 + (col == 0 and -190 or 190), H - 112 - row_index * 55
 		local box = inv_node(ui.box(x, y, 350, 42, { 0.14, 0.105, 0.072 }, 1))
-		local text = inv_node(ui.text(x - 155, y, "", 10, { 0.88, 0.86, 0.80 }, gui.PIVOT_W))
-		self.inventory_rows[#self.inventory_rows + 1] = { slot = slot, box = box, text = text }
+		local icon = inv_node(ui.tex_box(x - 150, y, 34, 34, item_icons.for_slot(slot, false)))
+		local text = inv_node(ui.text(x - 125, y, "", 10, { 0.88, 0.86, 0.80 }, gui.PIVOT_W))
+		self.inventory_rows[#self.inventory_rows + 1] = { slot = slot, box = box, icon = icon, text = text }
 	end
 	self.inventory_detail = inv_node(ui.text(W / 2, 68, "Tap an equipped item to inspect it.", 10, { 0.95, 0.84, 0.55 }))
 	gui.set_line_break(self.inventory_detail, true)
@@ -245,6 +247,8 @@ function update(self, dt)
 	if inventory_open and session.meta then
 		for _, row in ipairs(self.inventory_rows) do
 			local item = session.meta.equipment and session.meta.equipment[row.slot]
+			gui.play_flipbook(row.icon, item_icons.for_slot(row.slot, item ~= nil))
+			ui.set_alpha(row.icon, item and 1 or 0.48)
 			gui.set_text(row.text, ("%s     %s"):format(inventory.SLOT_LABELS[row.slot],
 				item and (("iLvl %d  %s"):format(item.level, item.name)) or "Empty"))
 		end

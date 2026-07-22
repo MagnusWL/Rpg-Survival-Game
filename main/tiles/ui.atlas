@@ -52,3 +52,15 @@ images {
 images {
   image: "/assets/sprites/prim/btn_plaque.png"
 }
+images { image: "/assets/sprites/items/item_weapon.png" }
+images { image: "/assets/sprites/items/item_helmet.png" }
+images { image: "/assets/sprites/items/item_chest.png" }
+images { image: "/assets/sprites/items/item_gloves.png" }
+images { image: "/assets/sprites/items/item_boots.png" }
+images { image: "/assets/sprites/items/item_charm.png" }
+images { image: "/assets/sprites/items/item_weapon_empty.png" }
+images { image: "/assets/sprites/items/item_helmet_empty.png" }
+images { image: "/assets/sprites/items/item_chest_empty.png" }
+images { image: "/assets/sprites/items/item_gloves_empty.png" }
+images { image: "/assets/sprites/items/item_boots_empty.png" }
+images { image: "/assets/sprites/items/item_charm_empty.png" }
