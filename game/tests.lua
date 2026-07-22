@@ -8,6 +8,7 @@ local meta_mod = require("game.meta")
 local sim = require("game.sim")
 local session = require("game.session")
 local layout = require("game.layout")
+local inventory = require("game.inventory")
 
 local M = {}
 
@@ -28,6 +29,22 @@ end
 
 function M.run()
 	math.randomseed(42)
+
+	-- persistent equipment: one fixed slot, level per cleared ninth wave, and
+	-- additive stat aggregation without a loose-item bag.
+	check("item level starts at one", inventory.item_level(0) == 1)
+	check("item level follows ninth-wave milestones", inventory.item_level(9) == 1 and inventory.item_level(18) == 2)
+	local item = inventory.roll(3)
+	check("rolled item has valid slot and level", inventory.SLOT_LABELS[item.slot] ~= nil and item.level == 3)
+	local raw_gear = { [item.slot] = item }
+	local invalid_slot = item.slot == "weapon" and "helmet" or "weapon"
+	raw_gear[invalid_slot] = { slot = item.slot, stats = {} }
+	local clean_gear = inventory.sanitize_equipment(raw_gear)
+	check("equipment sanitizer keeps only matching slots", clean_gear[item.slot] == item and clean_gear[invalid_slot] == nil)
+	local gear_bonus = inventory.bonuses({ [item.slot] = item })
+	local has_bonus = false
+	for _, value in pairs(gear_bonus) do if value > 0 then has_bonus = true end end
+	check("equipped item contributes bonuses", has_bonus)
 
 	-- wave math
 	check("mob_count wave 3", combat.mob_count_for_wave(3) == 6)
@@ -130,9 +147,9 @@ function M.run()
 	-- skills: catalog and per-skill xp curve. No passives here any more --
 	-- Haste/Summon Regen/Pierce moved to game.upgrades.
 	check("cone range", near(skills.CONE_RANGE, math.sqrt(layout.SCREEN_W ^ 2 + layout.PLAY_H ^ 2)))
-	check("wild boar lvl3", skills.ability1_stats(3).hp == 400 and skills.ability1_stats(3).damage == 30)
-	check("wild boar health curve", skills.ability1_stats(1).hp == 80 and skills.ability1_stats(4).hp == 800)
-	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 320 and skills.seagull_stats(4).damage == 80)
+	check("wild boar lvl3", skills.ability1_stats(3).hp == 150 and skills.ability1_stats(3).damage == 30)
+	check("wild boar health curve", skills.ability1_stats(1).hp == 50 and skills.ability1_stats(4).hp == 200)
+	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 120 and skills.seagull_stats(4).damage == 80)
 	check("seagull requires wild boar", skills.SKILL_PARENT.seagull == "summon")
 	check("fire enrage damage curve", skills.fireball_attack_damage(1) == 20 and skills.fireball_attack_damage(4) == 50)
 	check("chain lightning curve", skills.chain_lightning_hits(1) == 3 and skills.chain_lightning_hits(4) == 6
@@ -211,11 +228,14 @@ function M.run()
 	s.abilities = meta_mod.make_abilities({ "summon", "cone", "ranged" }, { summon = 1, cone = 1, ranged = 1 })
 	s.wave_countdown = nil -- drive waves manually here, no auto-launch
 	check("player starts entering", s.player.intro_phase == "enter")
-	check("player enters from the left", s.player.pos.x < 0
-		and s.player.target.x > 0 and s.player.facing == 0)
+	check("player enters from the top", s.player.pos.y < 0
+		and near(s.player.pos.x, layout.SCREEN_W / 2)
+		and near(s.player.target.x, layout.SCREEN_W / 2)
+		and s.player.target.y > 0 and s.player.facing == 2)
 	for _ = 1, 600 do sim.update(s, 1 / 60) end
 	check("intro completes", s.player.intro_phase == "done")
 	check("player inside field", s.player.pos.y < layout.PLAY_H)
+	check("player entrance stops one third into field", near(s.player.pos.y, layout.PLAY_H / 3, 1))
 	local saw_draw = false
 	for _, ev in ipairs(sim.take_events(s)) do
 		if ev.type == "sfx" and ev.name == "draw" then saw_draw = true end
@@ -399,8 +419,32 @@ function M.run()
 	check("chain lightning hits configured count", near(chain_state.mobs[1].hp, 950)
 		and near(chain_state.mobs[2].hp, 960) and near(chain_state.mobs[3].hp, 968)
 		and near(chain_state.mobs[4].hp, 1000))
+	check("chain lightning creates one visual link per hit", #chain_state.lightning_links == 3)
 
-	-- sim: a lethal Sword Throw impact immediately clears its own cooldown.
+	local chain_range = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	chain_range.player.intro_phase = "done"
+	chain_range.abilities = { { skill = "chainlightning", level = 4, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local chain_first = combat.spawn_mob("melee", 1)
+	chain_first.pos = { x = chain_range.player.pos.x + 30, y = chain_range.player.pos.y }
+	chain_first.hp, chain_first.max_hp = 1000, 1000
+	local chain_far = combat.spawn_mob("melee", 1)
+	chain_far.pos = { x = chain_first.pos.x + skills.CHAIN_LIGHTNING_JUMP_RANGE + chain_far.radius + 10, y = chain_first.pos.y }
+	chain_far.hp, chain_far.max_hp = 1000, 1000
+	chain_range.mobs = { chain_first, chain_far }
+	sim.press_ability(chain_range, 1)
+	check("chain lightning respects jump range", chain_first.hp < 1000 and chain_far.hp == 1000)
+
+	local chain_out = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	chain_out.player.intro_phase = "done"
+	chain_out.abilities = { { skill = "chainlightning", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local out_target = combat.spawn_mob("melee", 1)
+	out_target.pos = { x = chain_out.player.pos.x + skills.CHAIN_LIGHTNING_CAST_RANGE + out_target.radius + 10, y = chain_out.player.pos.y }
+	chain_out.mobs = { out_target }
+	sim.press_ability(chain_out, 1)
+	check("chain lightning respects cast range",
+		#chain_out.lightning_links == 0 and chain_out.abilities[1].cooldown == 0)
+
+	-- sim: a lethal Sword Throw immediately recasts at the next target.
 	local sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	sword_state.player.intro_phase = "done"
 	sword_state.player.target = nil
@@ -408,11 +452,50 @@ function M.run()
 	local sword_target = combat.spawn_mob("melee", 1)
 	sword_target.pos = { x = sword_state.player.pos.x + 200, y = sword_state.player.pos.y }
 	sword_target.hp, sword_target.max_hp, sword_target.damage = 10, 10, 0
-	sword_state.mobs = { sword_target }
+	local sword_next = combat.spawn_mob("melee", 1)
+	sword_next.pos = { x = sword_state.player.pos.x + 260, y = sword_state.player.pos.y }
+	sword_next.hp, sword_next.max_hp, sword_next.damage = 1000, 1000, 0
+	sword_state.mobs = { sword_target, sword_next }
 	sim.press_ability(sword_state, 1)
 	check("sword throw starts cooldown", sword_state.abilities[1].cooldown > 0)
 	for _ = 1, 60 do sim.update(sword_state, 1 / 60) end
-	check("lethal sword throw refreshes cooldown", near(sword_state.abilities[1].cooldown, 0))
+	check("lethal sword throw recasts at next opponent",
+		sword_next.hp < sword_next.max_hp and sword_state.abilities[1].cooldown > 0)
+	local far_sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	far_sword_state.player.intro_phase = "done"
+	far_sword_state.abilities = { { skill = "swordthrow", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local far_sword_target = combat.spawn_mob("melee", 1)
+	far_sword_target.pos = { x = far_sword_state.player.pos.x + skills.SWORD_THROW_RANGE + far_sword_target.radius + 10, y = far_sword_state.player.pos.y }
+	far_sword_state.mobs = { far_sword_target }
+	sim.press_ability(far_sword_state, 1)
+	check("sword throw respects maximum range",
+		#far_sword_state.projectiles == 0 and far_sword_state.abilities[1].cooldown == 0)
+
+	local left_spawn = combat.spawn_mob("melee", 1, "left")
+	local right_spawn = combat.spawn_mob("melee", 1, "right")
+	check("waves can enter from both sides", left_spawn.pos.x < 100 and right_spawn.pos.x > 700)
+	check("higher-rank summons attack faster",
+		combat.ally_attack_cooldown(4) < combat.ally_attack_cooldown(1))
+
+	local summon_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	summon_state.player.intro_phase = "done"
+	summon_state.abilities = { { skill = "summon", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	sim.press_ability(summon_state, 1)
+	summon_state.abilities[1].cooldown = 0
+	sim.press_ability(summon_state, 1)
+	check("recasting summon keeps existing allies", #summon_state.allies == 2)
+
+	local objective_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	objective_state.player.intro_phase = "done"
+	objective_state.player.pos = { x = 20, y = 20 }
+	local objective_mob = combat.spawn_mob("melee", 1)
+	objective_mob.damage = 7
+	objective_mob.pos = { x = objective_state.girl.pos.x + 20, y = objective_state.girl.pos.y }
+	objective_state.mobs = { objective_mob }
+	sim.update(objective_state, 1 / 60)
+	check("undefended girl is attacked", objective_state.girl.hp == 93)
+	check("mob cannot overlap girl", combat.dist(objective_mob.pos, objective_state.girl.pos)
+		>= objective_mob.radius + objective_state.girl.radius - 0.01)
 
 	-- sim: burn explosion chain
 	local s3 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -430,6 +513,8 @@ function M.run()
 	s3.player.pos = { x = 350, y = 600 } -- far away, no melee interference
 	sim.update(s3, 1 / 60)
 	check("burn blast damaged neighbour by flat amount", s3.mobs[1] ~= nil and s3.mobs[1].hp <= 150)
+	check("burn blast creates range-matched explosion", #s3.explosions == 1
+		and near(s3.explosions[1].radius, skills.BURN_EXPLODE_RADIUS))
 
 	-- sim: push shoves and damages everyone, using upgrades instead of items
 	local s4 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -442,6 +527,21 @@ function M.run()
 	sim.press_ability(s4, 1)
 	check("push damaged", m1.hp < m1.max_hp)
 	check("push shoved", m1.knock.x > 0)
+	local far_push = combat.spawn_mob("melee", 1)
+	far_push.pos = { x = s4.player.pos.x + skills.PUSH_RANGE + far_push.radius + 10, y = s4.player.pos.y }
+	s4.mobs = { far_push }
+	s4.abilities[1].cooldown = 0
+	sim.press_ability(s4, 1)
+	check("push has a maximum range", far_push.hp == far_push.max_hp and far_push.knock.x == 0)
+
+	local held_autostart = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	held_autostart.player.intro_phase = "done"
+	held_autostart.wave_countdown = 0
+	local blocker = combat.spawn_mob("melee", 1)
+	blocker.damage = 0
+	held_autostart.mobs = { blocker }
+	sim.update(held_autostart, 1 / 60)
+	check("auto-start waits for an empty enemy field", held_autostart.wave == 0)
 
 	-- sim: no mana anywhere -- abilities are cooldown-gated only
 	local s4b = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })

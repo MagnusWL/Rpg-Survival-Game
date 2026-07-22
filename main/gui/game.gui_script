@@ -11,6 +11,7 @@ local settings_overlay = require("main.gui.settings_overlay")
 local ui = require("game.ui")
 local skill_icon_ui = require("main.gui.skill_icon_ui")
 local upgrade_icons = require("main.gui.upgrade_icons")
+local inventory = require("game.inventory")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 local PLAY_H = layout.PLAY_H
@@ -77,12 +78,6 @@ function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.buttons = {}
 
-	-- Field overlays, created first so every later node (bars, hud, the top
-	-- strip) draws on top of them -- the range ring in particular sits under
-	-- everything, including the field's own damage numbers and hit flashes.
-	self.range_ring = ui.tex_box(0, 0, 10, 10, "ring_thin")
-	ui.set_alpha(self.range_ring, 0.25)
-
 	self.aim_cone = ui.box(0, 0, 10, 10, { 1, 0.541, 0.314 }, 0.28)
 	gui.set_enabled(self.aim_cone, false)
 
@@ -97,21 +92,6 @@ function init(self)
 	self.gear_text = ui.tex_box(W - 178, top_y, 17, 17, "cog")
 	self.wave_text = ui.text(W - 235, top_y, "Wave 1", 10, { 1, 1, 1 })
 
-	-- HUD: HP alone now, spanning the width where three columns used to sit.
-	-- Built before the quick-cast bar so its background can never draw over
-	-- the quick-cast bar's own text (Defold GUI stacks by creation order,
-	-- and the two strips sit close enough that the old order clipped the
-	-- bottom of the quick-cast labels under the HUD's opaque panel).
-	local hp_w = W * 0.20
-	local hp_x = 51
-	local hp_h = 14
-	self.hp_w = hp_w
-	self.hp_bg = ui.box(hp_x + hp_w / 2, top_y, hp_w, hp_h, { 0, 0, 0 }, 1)
-	self.hp_fill = ui.box(hp_x, top_y, hp_w, hp_h, { 0.298, 0.686, 0.314 }, 1)
-	gui.set_pivot(self.hp_fill, gui.PIVOT_W)
-	-- "HP 82/100", centred inside the bar itself rather than as separate
-	-- labels above it.
-	self.hp_text = ui.text(hp_x + hp_w / 2, top_y, "", 8, { 1, 1, 1 })
 	self.portrait_rim = ui.tex_box(27, top_y, 38, 38, "ring")
 	self.portrait_disc = ui.tex_box(27, top_y, 34, 34, "circle")
 	self.portrait = gui.new_box_node(vmath.vector3(27, top_y, 0), vmath.vector3(34, 34, 0))
@@ -121,7 +101,7 @@ function init(self)
 
 	-- Upgrades sits in the top row immediately after health, with the same
 	-- 30 px footprint as Settings.
-	local upgrade_x = hp_x + hp_w + 22
+	local upgrade_x = 72
 	-- Same skill-face look as an upgrade card (dark disc, light-blue ring),
 	-- since this button is the door to the Upgrades screen.
 	self.bag_btn = ui.tex_box(upgrade_x, top_y, 30, 30, "ring")
@@ -166,10 +146,23 @@ function init(self)
 	self.pool_flash = make_pool(function()
 		return ui.tex_box(0, 0, 20, 20, "circle")
 	end)
+	self.pool_explosion = make_pool(function()
+		return {
+			fill = ui.tex_box(0, 0, 10, 10, "circle"),
+			ring = ui.tex_box(0, 0, 10, 10, "ring"),
+		}
+	end)
 	self.pool_mark = make_pool(function(e)
 		local n = ui.tex_box(0, 0, 10, 10, "ring")
 		gui.set_color(n, vmath.vector4(e.color[1], e.color[2], e.color[3], 1))
 		return n
+	end)
+	self.pool_lightning = make_pool(function()
+		return {
+			ui.box(0, 0, 10, 3, { 0.55, 0.82, 1.0 }, 1),
+			ui.box(0, 0, 10, 3, { 0.72, 0.92, 1.0 }, 1),
+			ui.box(0, 0, 10, 3, { 0.92, 0.98, 1.0 }, 1),
+		}
 	end)
 	self.pool_text = make_pool(function(e)
 		return ui.text(0, 0, e.text, 11, e.color)
@@ -205,10 +198,39 @@ function init(self)
 
 	-- Game over.
 	self.go_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75))
-	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's still lost in the dark", 15, { 1, 1, 1 }))
-	self.go_gold = ui.overlay(ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 }))
+	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's all alone now", 15, { 1, 1, 1 }))
+	-- A small constructed treasure chest replaces the plain reward text.
+	self.go_chest_body = ui.overlay(ui.button_frame(W / 2, H / 2 - 4, 76, 38, "btn_gold"))
+	self.go_chest_lid = ui.overlay(ui.button_frame(W / 2, H / 2 + 19, 84, 18, "btn_gold"))
+	self.go_chest_lock = ui.overlay(ui.box(W / 2, H / 2 + 2, 12, 15, { 0.95, 0.76, 0.18 }, 1))
 	self.go_btn = ui.overlay(ui.plaque_button(W / 2, H / 2 - 60, 140, 44))
 	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Try Again", 13, { 1, 1, 1 }))
+	self.reward_open = false
+	self.reward_lid_y = H / 2 + 19
+	self.reward_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.45))
+	self.reward_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, W - 100, 210))
+	self.reward_grain = ui.grain(W / 2, H / 2, W - 100, 210, 0.16, "overlay")
+	self.reward_title = ui.overlay(ui.text(W / 2, H / 2 + 62, "Treasure Chest", 17, { 1, 1, 1 }))
+	self.reward_gold = ui.overlay(ui.text(W / 2, H / 2, "", 22, { 1, 0.835, 0.31 }))
+	self.reward_item_btn = ui.overlay(ui.box(W / 2, H / 2 - 35, W - 140, 58, { 0.14, 0.105, 0.072 }, 1))
+	self.reward_item_text = ui.overlay(ui.text(W / 2, H / 2 - 35, "", 11, { 0.95, 0.86, 0.62 }))
+	self.reward_back = ui.overlay(ui.plaque_button(27, H - 26, 34, 34))
+	self.reward_back_icon = ui.overlay(ui.tex_box(27, H - 26, 17, 17, "arrow_up"))
+	gui.set_rotation(self.reward_back_icon, vmath.quat_rotation_z(math.rad(90)))
+	self.reward_compare_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, W - 70, 300))
+	self.reward_compare_text = ui.overlay(ui.text(W / 2 - 130, H / 2 + 105, "", 10, { 0.92, 0.89, 0.80 }, gui.PIVOT_W))
+	gui.set_line_break(self.reward_compare_text, true)
+	gui.set_size(self.reward_compare_text, vmath.vector3(620, 220, 0))
+	self.reward_equip = ui.overlay(ui.button_frame(W / 2, H / 2 - 105, 150, 42, "btn_gold"))
+	self.reward_equip_text = ui.overlay(ui.text(W / 2, H / 2 - 105, "Equip item", 12, { 0.15, 0.10, 0.04 }))
+	self.reward_compare_nodes = { self.reward_compare_panel, self.reward_compare_text,
+		self.reward_equip, self.reward_equip_text }
+	self.reward_nodes = { self.reward_shade, self.reward_panel, self.reward_grain,
+		self.reward_title, self.reward_gold, self.reward_item_btn, self.reward_item_text,
+		self.reward_back, self.reward_back_icon }
+	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, false) end
+	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, false) end
+	self.reward_compare = false
 end
 
 -- ---- overlays --------------------------------------------------------------
@@ -224,6 +246,7 @@ local function clear_overlay(self)
 	self.upgrades_max_scroll = nil
 	self.upgrades_scroll = nil
 	self.upg_drag = nil
+	self.mobstats_back = nil
 end
 
 -- Every dynamically-built overlay node (upgrades list, mob stats) goes on
@@ -306,27 +329,30 @@ local function build_mobstats(self)
 	local s = session.sim
 	local shown_wave = s.wave_active and s.wave or s.wave + 1
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.box(W / 2, H / 2, W - 40, 350, { 0.14, 0.105, 0.072 }, 1))
+	add(self, ui.plaque_button(W / 2, H / 2, W - 40, 350))
 	add(self, ui.grain(W / 2, H / 2, W - 40, 350, 0.16, "overlay"))
-	add(self, ui.text(W / 2, H / 2 + 150, ("Mobs · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
+	add(self, ui.text(W / 2, H / 2 + 150, ("Mobs - Wave %d"):format(shown_wave), 17, { 1, 1, 1 }))
+	self.mobstats_back = add(self, ui.plaque_button(27, H - 26, 34, 34))
+	local back_icon = add(self, ui.tex_box(27, H - 26, 17, 17, "arrow_up"))
+	gui.set_rotation(back_icon, vmath.quat_rotation_z(math.rad(90)))
 	local y = H / 2 + 108
 	for _, row in ipairs(combat.wave_composition(shown_wave)) do
 		local meta = combat.mob_type_meta(row.type)
 		local stats = combat.mob_type_stats(row.type, shown_wave)
 		local base, level = combat.base_mob_type(row.type)
 		if base == "melee" then
-			local zombie = gui.new_box_node(vmath.vector3(W / 2 - 140, y, 0), vmath.vector3(42, 42, 0))
+			local zombie = gui.new_box_node(vmath.vector3(W / 2 - 150, y, 0), vmath.vector3(84, 84, 0))
 			gui.set_texture(zombie, "zombie_walk")
 			gui.play_flipbook(zombie, "f0")
 			local tint = combat.mob_level_tint(level)
 			gui.set_color(zombie, vmath.vector4(tint[1], tint[2], tint[3], 1))
 			add(self, zombie)
 		else
-			add(self, ui.box(W / 2 - 130, y, 26, 26, meta.color, 1))
+			add(self, ui.box(W / 2 - 150, y, 52, 52, meta.color, 1))
 		end
-		add(self, ui.text(W / 2 - 105, y + 6, ("%s · x%d"):format(meta.name, row.count), 10, { 1, 1, 1 }, gui.PIVOT_W))
-		add(self, ui.text(W / 2 - 105, y - 8, ("HP %d · DMG %d"):format(stats.hp, stats.damage), 9, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
-		y = y - 43
+		add(self, ui.text(W / 2 - 100, y + 8, ("%s - x%d"):format(meta.name, row.count), 12, { 1, 1, 1 }, gui.PIVOT_W))
+		add(self, ui.text(W / 2 - 100, y - 10, ("HP %d - DMG %d"):format(stats.hp, stats.damage), 11, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
+		y = y - 60
 	end
 	self.mobstats_built = true
 end
@@ -335,28 +361,36 @@ local function build_playerstats(self)
 	clear_overlay(self)
 	local s, p = session.sim, session.sim.player
 	local bonus = upgrades.bonuses(s.upgrades)
-	local attack_cd = combat.PLAYER_ATTACK_COOLDOWN / (1 + bonus.attack_speed)
+	local gear = s.gear_bonus
+	local attack_cd = combat.PLAYER_ATTACK_COOLDOWN / (1 + bonus.attack_speed + gear.attack_speed)
 		* (p.haste_timer > 0 and (1 / 1.5) or 1)
-	local lifesteal = bonus.lifesteal or 0
+	local lifesteal = (bonus.lifesteal or 0) + gear.lifesteal
 	if p.haste_timer > 0 then lifesteal = lifesteal + skills.BERSERKER_LIFESTEAL end
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.box(W / 2, H / 2, 360, 310, { 0.14, 0.105, 0.072 }, 1))
-	add(self, ui.grain(W / 2, H / 2, 360, 310, 0.16, "overlay"))
-	add(self, ui.text(W / 2, H / 2 + 112, "Knight Stats", 16, { 1, 1, 1 }))
+	add(self, ui.box(W / 2, H / 2, W - 70, 340, { 0.14, 0.105, 0.072 }, 1))
+	add(self, ui.grain(W / 2, H / 2, W - 70, 340, 0.16, "overlay"))
+	add(self, ui.text(W / 2, H / 2 + 142, "Knight Stats", 16, { 1, 1, 1 }))
 	local rows = {
 		("Health                 %d / %d"):format(math.floor(p.hp + 0.5), p.max_hp),
-		("Health regeneration    %.1f / sec"):format(combat.PLAYER_HEALTH_REGEN),
-		("Attack damage          %d"):format(combat.PLAYER_BASE_DAMAGE + bonus.attack_damage),
+		("Health regeneration    %.1f / sec"):format(combat.PLAYER_HEALTH_REGEN + gear.health_regen),
+		("Attack damage          %d"):format(combat.PLAYER_BASE_DAMAGE + bonus.attack_damage + gear.attack_damage),
 		("Attack speed           %.2f / sec"):format(1 / attack_cd),
-		("Ability power          %d%%"):format(math.floor((1 + bonus.ability_power) * 100 + 0.5)),
+		("Ability power          %d%%"):format(math.floor((1 + bonus.ability_power + gear.ability_power) * 100 + 0.5)),
 		("Lifesteal              %d%%"):format(math.floor(lifesteal * 100 + 0.5)),
-		("Movement speed         %d"):format(combat.PLAYER_SPEED),
+		("Movement speed         %d"):format(combat.PLAYER_SPEED + gear.move_speed),
 		("Upgrades               %d"):format(#s.upgrades),
-		("Wave                   %d"):format(s.wave),
 	}
 	for i, row in ipairs(rows) do
-		add(self, ui.text(W / 2 - 145, H / 2 + 72 - (i - 1) * 25, row, 10,
+		add(self, ui.text(W / 2 - 345, H / 2 + 102 - (i - 1) * 27, row, 10,
 			{ 0.88, 0.86, 0.80 }, gui.PIVOT_W))
+	end
+	add(self, ui.text(W / 2 + 25, H / 2 + 102, "EQUIPMENT", 11, { 0.95, 0.80, 0.42 }, gui.PIVOT_W))
+	for i, slot in ipairs(inventory.SLOTS) do
+		local item = session.meta.equipment and session.meta.equipment[slot]
+		local label = item and (("%s  iLvl %d  %s"):format(inventory.SLOT_LABELS[slot], item.level, item.name))
+			or (inventory.SLOT_LABELS[slot] .. "  Empty")
+		add(self, ui.text(W / 2 + 25, H / 2 + 72 - (i - 1) * 35, label, 9,
+			item and { 0.88, 0.86, 0.80 } or { 0.50, 0.48, 0.44 }, gui.PIVOT_W))
 	end
 	self.playerstats_built = true
 end
@@ -462,14 +496,6 @@ local function sync_hud(self, s)
 	gui.set_color(self.wave_btn, wave_enabled and vmath.vector4(1, 1, 1, 1) or vmath.vector4(0.42, 0.42, 0.42, 1))
 	gui.set_color(self.wave_btn_text, wave_enabled and vmath.vector4(0.965, 0.86, 0.6, 1) or vmath.vector4(0.55, 0.55, 0.55, 1))
 
-	local max_hp = p.max_hp
-
-	local hp_frac = max_hp > 0 and p.hp / max_hp or 0
-	gui.set_text(self.hp_text, ("HP %d/%d"):format(math.floor(p.hp + 0.5), math.floor(max_hp + 0.5)))
-	gui.set_size(self.hp_fill, vmath.vector3(self.hp_w * math.max(0, math.min(1, hp_frac)), 14, 0))
-	local c = hp_bar_color(hp_frac)
-	gui.set_color(self.hp_fill, vmath.vector4(c[1], c[2], c[3], 1))
-
 	-- Quick-cast slots. Every slot shows its ring: a filled skill, an empty
 	-- unlocked slot, or a locked slot (lock icon) past the unlocked count.
 	local slots_unlocked = (session.meta and session.meta.slots_unlocked) or 1
@@ -528,13 +554,6 @@ end
 local function sync_field(self, s)
 	local p = s.player
 
-	-- Range ring around the knight.
-	-- The basic attack is always melee now (Berserker no longer makes it
-	-- ranged), so the reach ring is the melee range regardless of loadout.
-	local range = combat.PLAYER_ATTACK_RANGE
-	gui.set_position(self.range_ring, vmath.vector3(p.pos.x, gy(p.pos.y), 0))
-	gui.set_size(self.range_ring, vmath.vector3(range * 2, range * 2, 0))
-
 	-- Aim preview cone for the aimed cast.
 	if s.aiming_slot and s.aim_point then
 		gui.set_enabled(self.aim_cone, true)
@@ -550,13 +569,30 @@ local function sync_field(self, s)
 	end
 
 	-- HP bars over mobs and allies.
-	local bars = {}
+	local player_frac = p.hp / p.max_hp
+	local bars = {
+		{ id = "player", x = p.pos.x,
+			y = p.pos.y - (combat.PLAYER_SPRITE_SIZE - combat.PLAYER_SPRITE_FOOT_OFFSET) + 10,
+			w = 44, frac = player_frac, color = hp_bar_color(player_frac) },
+	}
 	for _, m in ipairs(s.mobs) do
-		bars[#bars + 1] = { id = "m" .. m.id, x = m.pos.x, y = m.pos.y - m.radius - 8, w = m.radius * 2, frac = m.hp / m.max_hp, color = { 0.298, 0.686, 0.314 } }
+		local base = combat.base_mob_type(m.type)
+		-- Zombies use a tall 128px sprite whose feet sit at m.pos; anchor their
+		-- bars above the sprite artwork instead of above the small collision disc.
+		local bar_y = base == "melee"
+			and (m.pos.y - (combat.MOB_SPRITE_SIZE - combat.MOB_SPRITE_FOOT_OFFSET) + 12)
+			or (m.pos.y - m.radius - 8)
+		bars[#bars + 1] = { id = "m" .. m.id, x = m.pos.x, y = bar_y,
+			w = m.radius * 2, frac = m.hp / m.max_hp, color = { 0.937, 0.196, 0.196 } }
 	end
 	for _, a in ipairs(s.allies) do
-		bars[#bars + 1] = { id = "a" .. a.id, x = a.pos.x, y = a.pos.y - combat.ALLY_RADIUS - 8, w = combat.ALLY_RADIUS * 2, frac = a.hp / a.max_hp, color = { 0.494, 0.341, 0.761 } }
+		local frac = a.hp / a.max_hp
+		bars[#bars + 1] = { id = "a" .. a.id, x = a.pos.x, y = a.pos.y - combat.ALLY_RADIUS - 8,
+			w = combat.ALLY_RADIUS * 2, frac = frac, color = hp_bar_color(frac) }
 	end
+	local girl_frac = s.girl.hp / s.girl.max_hp
+	bars[#bars + 1] = { id = "girl", x = s.girl.pos.x, y = s.girl.pos.y - 68,
+		w = 42, frac = girl_frac, color = hp_bar_color(girl_frac) }
 	pool_sync(self.pool_hp, bars, function(n, e)
 		-- A mob at the arena's top edge can place its overhead bar above the
 		-- playfield; keep all actor bars just beneath the top UI boundary.
@@ -584,7 +620,22 @@ local function sync_field(self, s)
 
 	pool_sync(self.pool_flash, s.hit_flashes, function(n, e)
 		gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+		gui.set_size(n, vmath.vector3(e.size or 20, e.size or 20, 0))
+		local color = e.color or { 1, 1, 1 }
+		gui.set_color(n, vmath.vector4(color[1], color[2], color[3], 1))
 		ui.set_alpha(n, math.max(0, 1 - (s.now - e.created_at) / combat.HIT_FLASH_DURATION))
+	end)
+
+	pool_sync(self.pool_explosion, s.explosions, function(n, e)
+		local t = math.min(1, (s.now - e.created_at) / skills.BURN_EXPLOSION_VISUAL_DURATION)
+		local size = e.radius * 2 * (0.25 + 0.75 * t)
+		for _, node in pairs(n) do
+			gui.set_position(node, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
+			gui.set_size(node, vmath.vector3(size, size, 0))
+			gui.set_color(node, vmath.vector4(1, 0.10, 0.03, 1))
+		end
+		ui.set_alpha(n.fill, 0.32 * (1 - t))
+		ui.set_alpha(n.ring, 0.9 * (1 - t))
 	end)
 
 	pool_sync(self.pool_mark, s.skill_marks, function(n, e)
@@ -598,6 +649,30 @@ local function sync_field(self, s)
 		gui.set_position(n, vmath.vector3(e.pos.x, gy(e.pos.y), 0))
 		gui.set_size(n, vmath.vector3(size, size, 0))
 		ui.set_alpha(n, 0.55 * (1 - t))
+	end)
+
+	pool_sync(self.pool_lightning, s.lightning_links, function(nodes, e)
+		local x1, y1 = e.from.x, gy(e.from.y)
+		local x4, y4 = e.to.x, gy(e.to.y)
+		local dx, dy = x4 - x1, y4 - y1
+		local len = math.max(0.001, math.sqrt(dx * dx + dy * dy))
+		local bend = (e.id % 2 == 0 and 1 or -1) * math.min(10, len * 0.12)
+		local px, py = -dy / len * bend, dx / len * bend
+		local points = {
+			{ x1, y1 },
+			{ x1 + dx / 3 + px, y1 + dy / 3 + py },
+			{ x1 + dx * 2 / 3 - px, y1 + dy * 2 / 3 - py },
+			{ x4, y4 },
+		}
+		local alpha = math.max(0, 1 - (s.now - e.created_at) / skills.CHAIN_LIGHTNING_VISUAL_DURATION)
+		for i = 1, 3 do
+			local a, b, n = points[i], points[i + 1], nodes[i]
+			local sx, sy = b[1] - a[1], b[2] - a[2]
+			gui.set_position(n, vmath.vector3((a[1] + b[1]) / 2, (a[2] + b[2]) / 2, 0))
+			gui.set_size(n, vmath.vector3(math.sqrt(sx * sx + sy * sy) + 2, 3, 0))
+			gui.set_rotation(n, vmath.quat_rotation_z(math.atan2(sy, sx)))
+			ui.set_alpha(n, alpha)
+		end
 	end)
 
 	pool_sync(self.pool_text, s.floating_texts, function(n, e)
@@ -671,11 +746,42 @@ function update(self, dt)
 
 	-- Game over overlay.
 	local over = s.game_over and session.game_over_shown
-	for _, n in ipairs({ self.go_shade, self.go_text, self.go_gold, self.go_btn, self.go_btn_text }) do
+	for _, n in ipairs({ self.go_shade, self.go_text, self.go_chest_body, self.go_chest_lid,
+		self.go_chest_lock, self.go_btn, self.go_btn_text }) do
 		gui.set_enabled(n, over)
 	end
 	if over then
-		gui.set_text(self.go_gold, session.is_test_run and "" or ("+%d gold earned"):format(session.last_run_gold))
+		local ending = s.game_over_cause == "girl" and "You lost all hope"
+			or (s.game_over_cause == "exit" and "Run ended" or "She's all alone now")
+		gui.set_text(self.go_text, ending)
+		gui.set_text(self.reward_gold, session.is_test_run and "No gold earned"
+			or ("%d gold"):format(session.last_run_gold))
+		local item = session.reward_item
+		gui.set_text(self.reward_item_text, item and (("iLvl %d %s\n%s - tap to compare"):format(
+			item.level, item.name, inventory.SLOT_LABELS[item.slot])) or "Item equipped")
+	elseif self.reward_open then
+		self.reward_open = false
+		gui.set_position(self.go_chest_lid, vmath.vector3(W / 2, self.reward_lid_y, 0))
+	end
+	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, over and self.reward_open) end
+	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, over and self.reward_open and self.reward_compare) end
+	if over and self.reward_open and self.reward_compare and session.reward_item then
+		local item = session.reward_item
+		local old = session.meta.equipment and session.meta.equipment[item.slot]
+		local lines = { ("NEW  iLvl %d %s"):format(item.level, item.name) }
+		for _, line in ipairs(inventory.describe(item)) do lines[#lines + 1] = "  " .. line end
+		if old then
+			lines[#lines + 1] = ""
+			lines[#lines + 1] = ("EQUIPPED  iLvl %d %s"):format(old.level, old.name)
+			for _, stat in ipairs(inventory.STAT_ORDER) do
+				local delta = (item.stats[stat] or 0) - (old.stats[stat] or 0)
+				if delta ~= 0 then lines[#lines + 1] = ("  %s  %s"):format(inventory.STAT_LABELS[stat], inventory.stat_text(stat, delta, true)) end
+			end
+		else
+			lines[#lines + 1] = ""
+			lines[#lines + 1] = "No item equipped in this slot"
+		end
+		gui.set_text(self.reward_compare_text, table.concat(lines, "\n"))
 	end
 
 	-- Technical readout: sim entity counts, a cousin of the perf overlay.
@@ -701,14 +807,38 @@ function on_input(self, action_id, action)
 
 	-- Game over screen swallows everything but its button.
 	if s.game_over and session.game_over_shown then
-		if action.pressed and gui.pick_node(self.go_btn, action.x, action.y) then
-			session.actions.leave_game_over()
+		if action.pressed then
+			if self.reward_open then
+				if self.reward_compare and gui.pick_node(self.reward_equip, action.x, action.y) then
+					session.equip_reward()
+					self.reward_compare = false
+				elseif gui.pick_node(self.reward_back, action.x, action.y) then
+					if self.reward_compare then self.reward_compare = false else self.reward_open = false end
+				elseif session.reward_item and gui.pick_node(self.reward_item_btn, action.x, action.y) then
+					self.reward_compare = true
+				end
+			elseif gui.pick_node(self.go_chest_body, action.x, action.y)
+				or gui.pick_node(self.go_chest_lid, action.x, action.y) then
+				self.reward_open = true
+				self.reward_compare = false
+				gui.set_position(self.go_chest_lid, vmath.vector3(W / 2, self.reward_lid_y + 12, 0))
+			elseif gui.pick_node(self.go_btn, action.x, action.y) then
+				session.actions.leave_game_over()
+			end
 		end
 		return true
 	end
 
 	if session.overlay == "settings" then
 		if action.pressed then settings_overlay.input(self.settings, action) end
+		return true
+	end
+	if session.overlay == "mobstats" then
+		if action.pressed and self.mobstats_back
+			and gui.pick_node(self.mobstats_back, action.x, action.y) then
+			session.overlay = nil
+			clear_overlay(self)
+		end
 		return true
 	end
 	-- The wave-clear choice answers before anything else can happen -- but

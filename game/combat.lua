@@ -7,10 +7,10 @@ local SCREEN_W = layout.SCREEN_W
 local PLAY_H = layout.PLAY_H
 
 M.PLAYER_RADIUS = 18
-M.PLAYER_SPEED = 170
+M.PLAYER_SPEED = 100
 M.PLAYER_TOP_BUFFER = 0
 M.PLAYER_RIGHT_BUFFER = 14
-M.PLAYER_HEALTH_REGEN = 2
+M.PLAYER_HEALTH_REGEN = 4
 
 M.SPRITE_CELL = 128
 M.SPRITE_COLS = 15
@@ -18,8 +18,7 @@ M.SPRITE_ROWS = 8
 M.PLAYER_SPRITE_SIZE = 128
 M.PLAYER_SPRITE_FOOT_OFFSET = 49
 
-M.INTRO_START_LEFT = 140
-M.INTRO_STOP_FROM_LEFT = 160
+M.INTRO_START_ABOVE = 140
 M.INTRO_WALK_SPEED = 80
 M.STEPS_PER_CYCLE = 2
 M.WALK_STRIDE = 40
@@ -274,6 +273,12 @@ M.ALLY_ENGAGE_RANGE = 200
 M.ALLY_RANGED_ATTACK_RANGE = 160
 M.ALLY_RANGED_ENGAGE_RANGE = 260
 M.ALLY_ATTACK_COOLDOWN = 1.0
+M.FRIENDLY_SPLASH_RADIUS = 42
+
+function M.ally_attack_cooldown(level)
+	-- Each summon rank attacks 20% faster than the previous rank.
+	return M.ALLY_ATTACK_COOLDOWN / (1 + 0.20 * math.max(0, (level or 1) - 1))
+end
 
 M.PROJECTILE_SPEED = 700
 M.HIT_FLASH_DURATION = 0.15
@@ -363,16 +368,15 @@ function M.hurt_mob(m, from, max_shove_range)
 end
 
 function M.make_player()
-	local entrance_y = (M.PLAYER_RADIUS + M.PLAYER_TOP_BUFFER
-		+ PLAY_H - M.PLAYER_RADIUS) / 2
+	local entrance_y = PLAY_H / 3
 	return {
-		pos = { x = -M.INTRO_START_LEFT, y = entrance_y },
-		target = { x = M.INTRO_STOP_FROM_LEFT, y = entrance_y },
+		pos = { x = SCREEN_W / 2, y = -M.INTRO_START_ABOVE },
+		target = { x = SCREEN_W / 2, y = entrance_y },
 		hp = 100,
 		max_hp = 100,
 		attack_cooldown = 0,
 		haste_timer = 0,
-		facing = 0, -- east, the way he is about to walk in
+		facing = 2, -- south, the way he is about to walk in
 		anim = "walk",
 		anim_time = 0,
 		anim_speed = M.INTRO_WALK_ANIM,
@@ -471,7 +475,7 @@ function M.build_wave_queue(wave)
 	return queue
 end
 
-function M.spawn_mob(mob_type, wave)
+function M.spawn_mob(mob_type, wave, side)
 	mob_id_counter = mob_id_counter + 1
 	local meta = M.mob_type_meta(mob_type)
 	local stats = M.mob_type_stats(mob_type, wave)
@@ -483,7 +487,7 @@ function M.spawn_mob(mob_type, wave)
 		type = mob_type,
 		wave = wave,
 		pos = {
-			x = SCREEN_W - margin,
+			x = side == "left" and margin or SCREEN_W - margin,
 			y = min_y + math.random() * math.max(0, max_y - min_y),
 		},
 		hp = stats.hp,
@@ -491,7 +495,7 @@ function M.spawn_mob(mob_type, wave)
 		damage = stats.damage,
 		radius = meta.radius,
 		attack_cooldown = 0,
-		facing = 4, -- west: spawned at the right edge walking left
+		facing = side == "left" and 0 or 4,
 		anim = "walk",
 		anim_time = 0,
 		flash_time = 0,
@@ -518,6 +522,7 @@ function M.make_allies_for_level(level, origin, ability1_stats)
 			hp = stats.hp,
 			max_hp = stats.hp,
 			damage = stats.damage,
+			level = level,
 			attack_cooldown = 0,
 			ranged = ranged,
 			source_skill = "summon",
@@ -539,6 +544,7 @@ function M.make_seagull(level, origin, seagull_stats)
 		hp = stats.hp,
 		max_hp = stats.hp,
 		damage = stats.damage,
+		level = level,
 		attack_cooldown = 0,
 		ranged = true,
 		flying = true,

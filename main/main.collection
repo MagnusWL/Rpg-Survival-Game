@@ -12,6 +12,10 @@ instances {
   prototype: "/main/knight.go"
 }
 instances {
+  id: "girl"
+  prototype: "/main/girl.go"
+}
+instances {
   id: "glow"
   prototype: "/main/glow.go"
 }

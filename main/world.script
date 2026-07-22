@@ -115,6 +115,7 @@ function init(self)
 	self.blood_views = {}
 	self.zone_views = {}
 	self.knight_view = { anim = nil, facing = nil, epoch = nil }
+	self.girl_shown = false
 
 	-- The ground: cover-fit the 1448x1086 art over the play area. Both arenas
 	-- are milled to that exact size, so one scale serves them all and the
@@ -131,6 +132,20 @@ function init(self)
 	-- The knight and his light are permanent; hide them until a run is up.
 	msg.post("knight", "disable")
 	msg.post("glow", "disable")
+	msg.post("girl", "disable")
+end
+
+local function sync_girl(self, s)
+	local alive = s.girl.hp > 0
+	if alive ~= self.girl_shown then
+		self.girl_shown = alive
+		msg.post("girl", alive and "enable" or "disable")
+	end
+	if alive then
+		-- Sort from her feet, exactly like the knight and mobs, so whichever
+		-- actor stands lower on the field naturally draws in front.
+		place("girl", s.girl.pos.x, s.girl.pos.y - 32, actor_z(s.girl.pos.y))
+	end
 end
 
 local function sync_knight(self, s)
@@ -149,6 +164,9 @@ local function sync_knight(self, s)
 		kv.facing = p.facing
 	end
 	set_frame(msg.url(nil, "knight", sprite_id), combat.anim_column(def, p.anim_time * p.anim_speed))
+	local berserk = p.haste_timer > 0
+	go.set(msg.url(nil, "knight", sprite_id), "tint",
+		berserk and vmath.vector4(1, 0.42, 0.36, 1) or vmath.vector4(1, 1, 1, 1))
 
 	-- His light: breathing on the wall clock, at his feet.
 	local glow = { size = 136, pulse = 0.19, period = 2.6, foot = 6, opacity = 0.47 }
@@ -156,7 +174,9 @@ local function sync_knight(self, s)
 	local size = glow.size * (1 + math.sin(t * math.pi * 2) * glow.pulse)
 	place("glow", p.pos.x, p.pos.y + glow.foot, actor_z(p.pos.y) - 0.015)
 	go.set_scale(size / 256, "glow")
-	go.set(msg.url(nil, "glow", "glow"), "tint", vmath.vector4(1, 0.824, 0.498, glow.opacity))
+	go.set(msg.url(nil, "glow", "glow"), "tint", berserk
+		and vmath.vector4(1, 0.08, 0.03, 0.68)
+		or vmath.vector4(1, 0.824, 0.498, glow.opacity))
 end
 
 local function sync_mobs(self, s)
@@ -225,9 +245,23 @@ local function sync_allies(self, s)
 			self.ally_views[a.id] = view
 			local c = a.flying and { 0.45, 0.82, 0.95 }
 				or (a.ranged and { 0.702, 0.616, 0.859 } or { 0.584, 0.459, 0.804 })
+			view.base_color = c
 			go.set(msg.url(nil, id, "circle"), "tint", vmath.vector4(c[1], c[2], c[3], 1))
+			msg.post(msg.url(nil, id, "glow"), "disable")
 		end
 		place(view.id, a.pos.x, a.pos.y, actor_z(a.pos.y))
+		local enraged = (a.enrage_timer or 0) > 0
+		if enraged ~= view.enraged then
+			view.enraged = enraged
+			msg.post(msg.url(nil, view.id, "glow"), enraged and "enable" or "disable")
+		end
+		local c = view.base_color
+		go.set(msg.url(nil, view.id, "circle"), "tint", enraged
+			and vmath.vector4(1, 0.22, 0.14, 1)
+			or vmath.vector4(c[1], c[2], c[3], 1))
+		if enraged then
+			go.set(msg.url(nil, view.id, "glow"), "tint", vmath.vector4(1, 0.05, 0.02, 0.58))
+		end
 	end
 	for id, view in pairs(self.ally_views) do
 		if not seen[id] then
@@ -363,12 +397,16 @@ function on_message(self, message_id, message)
 		wave_sync_slots(self)
 		msg.post("knight", "enable")
 		msg.post("glow", "enable")
+		self.girl_shown = true
+		msg.post("girl", "enable")
 	elseif message_id == hash("run_ended") then
 		clear_pools(self)
 		self.waves = {}
 		wave_sync_slots(self)
 		msg.post("knight", "disable")
 		msg.post("glow", "disable")
+		self.girl_shown = false
+		msg.post("girl", "disable")
 	end
 end
 
@@ -379,6 +417,7 @@ function update(self, dt)
 	local s = session.sim
 	if not s or session.screen ~= "game" then return end
 	sync_knight(self, s)
+	sync_girl(self, s)
 	sync_mobs(self, s)
 	sync_allies(self, s)
 	sync_corpses(self, s)

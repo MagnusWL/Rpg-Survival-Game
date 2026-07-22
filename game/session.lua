@@ -18,12 +18,13 @@ local M = {
 	overlay = nil, -- "settings" | "inventory" | "skills" | "mobstats" | nil
 	tooltip = nil,
 	game_over_shown = false,
+	reward_item = nil,
 	-- settings
 	sfx_off = false,
 	music_off = false,
 	all_sound_off = false,
 	weather_off = false,
-	tech_on = true,
+	tech_on = false,
 	-- Trying out new arena art side by side with the old (not saved, like
 	-- the toggles above). The puddle map still belongs to the OLD art.
 	bane1_bg = false,
@@ -38,6 +39,22 @@ end
 function M.commit_meta(next_meta)
 	M.meta = next_meta
 	meta_mod.persist_meta(next_meta)
+end
+
+function M.prepare_reward(highest_wave)
+	if M.is_test_run then M.reward_item = nil return end
+	local inventory = require("game.inventory")
+	M.reward_item = inventory.roll(inventory.item_level(highest_wave))
+end
+
+function M.equip_reward()
+	local item = M.reward_item
+	if not item or not M.meta then return false end
+	M.meta.equipment = M.meta.equipment or {}
+	M.meta.equipment[item.slot] = item
+	M.commit_meta(M.meta)
+	M.reward_item = nil
+	return true
 end
 
 function M.paused()

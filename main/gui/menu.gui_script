@@ -7,6 +7,7 @@ local skills = require("game.skills")
 local ui = require("game.ui")
 local skill_tip_ui = require("main.gui.skill_tooltip_ui")
 local skill_icon_ui = require("main.gui.skill_icon_ui")
+local inventory = require("game.inventory")
 
 local W, H = layout.SCREEN_W, layout.SCREEN_H
 
@@ -160,6 +161,34 @@ function init(self)
 		self.loadout_icons[i] = handle
 	end
 	self.skills_btn = menu_button(col_top - 48, function() session.actions.open_skilltree() end)
+	self.inventory_btn = menu_button(col_top - 96, function() session.actions.open_inventory() end)
+	gui.set_text(self.inventory_btn.label, "Inventory")
+
+	-- Read-only equipment screen. Its six slot rows stay stable; tapping a
+	-- filled row changes only the detail card beneath the list.
+	self.inventory_nodes = {}
+	self.inventory_rows = {}
+	local function inv_node(n)
+		ui.overlay(n); self.inventory_nodes[#self.inventory_nodes + 1] = n
+		gui.set_enabled(n, false); return n
+	end
+	inv_node(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.72))
+	inv_node(ui.plaque_button(W / 2, H / 2, W - 40, H - 70))
+	inv_node(ui.text(W / 2, H - 62, "Inventory", 17, { 1, 1, 1 }))
+	self.inventory_back = inv_node(ui.plaque_button(27, H - 26, 34, 34))
+	local back_icon = inv_node(ui.tex_box(27, H - 26, 17, 17, "arrow_up"))
+	gui.set_rotation(back_icon, vmath.quat_rotation_z(math.rad(90)))
+	for i, slot in ipairs(inventory.SLOTS) do
+		local col = (i - 1) % 2
+		local row_index = math.floor((i - 1) / 2)
+		local x, y = W / 2 + (col == 0 and -190 or 190), H - 112 - row_index * 55
+		local box = inv_node(ui.box(x, y, 350, 42, { 0.14, 0.105, 0.072 }, 1))
+		local text = inv_node(ui.text(x - 155, y, "", 10, { 0.88, 0.86, 0.80 }, gui.PIVOT_W))
+		self.inventory_rows[#self.inventory_rows + 1] = { slot = slot, box = box, text = text }
+	end
+	self.inventory_detail = inv_node(ui.text(W / 2, 68, "Tap an equipped item to inspect it.", 10, { 0.95, 0.84, 0.55 }))
+	gui.set_line_break(self.inventory_detail, true)
+	gui.set_size(self.inventory_detail, vmath.vector3(W - 80, 110, 0))
 
 	-- Settings gear, its own corner.
 	self.gear = ui.plaque_button(W - 29, H - 29, 36, 36)
@@ -211,6 +240,15 @@ end
 
 function update(self, dt)
 	gui.set_text(self.skills_btn.label, ("Skills (%dg)"):format(session.meta and session.meta.gold or 0))
+	local inventory_open = session.overlay == "menu_inventory"
+	for _, n in ipairs(self.inventory_nodes) do gui.set_enabled(n, inventory_open) end
+	if inventory_open and session.meta then
+		for _, row in ipairs(self.inventory_rows) do
+			local item = session.meta.equipment and session.meta.equipment[row.slot]
+			gui.set_text(row.text, ("%s     %s"):format(inventory.SLOT_LABELS[row.slot],
+				item and (("iLvl %d  %s"):format(item.level, item.name)) or "Empty"))
+		end
+	end
 
 	-- The chosen loadout, kept live so returning from the skill menu shows
 	-- the change at once.
@@ -294,6 +332,23 @@ function on_input(self, action_id, action)
 		end
 		if session.overlay == "settings" then
 			return require("main.gui.settings_overlay").input(self.settings, action)
+		end
+		if session.overlay == "menu_inventory" then
+			if gui.pick_node(self.inventory_back, action.x, action.y) then
+				session.overlay = nil
+			else
+				for _, row in ipairs(self.inventory_rows) do
+					if gui.pick_node(row.box, action.x, action.y) then
+						local item = session.meta.equipment and session.meta.equipment[row.slot]
+						if item then
+							gui.set_text(self.inventory_detail, ("%s  -  iLvl %d\n%s"):format(item.name, item.level,
+								table.concat(inventory.describe(item), "\n")))
+						end
+						break
+					end
+				end
+			end
+			return true
 		end
 		-- Tooltips are modal so controls underneath cannot receive the same tap.
 		if self.skill_tip.open then

@@ -3,6 +3,7 @@
 local skills = require("game.skills")
 local combat = require("game.combat")
 local upgrades = require("game.upgrades")
+local inventory = require("game.inventory")
 
 local M = {}
 
@@ -32,7 +33,7 @@ function M.default_meta()
 		skill_levels[s] = 0
 		skill_xp[s] = 0
 	end
-	return { gold = 5, skill_levels = skill_levels, skill_xp = skill_xp, loadout = {}, slots_unlocked = 1 }
+	return { gold = 5, skill_levels = skill_levels, skill_xp = skill_xp, loadout = {}, slots_unlocked = 1, equipment = {} }
 end
 
 local function contains(list, v)
@@ -67,7 +68,8 @@ function M.sanitize_meta(raw)
 			if skill_xp[k] ~= nil then skill_xp[k] = v end
 		end
 	end
-	return { gold = raw.gold or 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout, slots_unlocked = slots }
+	return { gold = raw.gold or 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout,
+		slots_unlocked = slots, equipment = inventory.sanitize_equipment(raw.equipment) }
 end
 
 function M.load_meta()
@@ -134,12 +136,12 @@ end
 function M.build_state_from_save(save)
 	local player = combat.make_player()
 	player.hp = save.hp
-	player.max_hp = save.max_hp
 	return {
 		player = player,
 		abilities = save.abilities,
 		upgrades = save.upgrades or {},
 		wave = save.wave,
+		restored = true,
 	}
 end
 

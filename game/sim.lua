@@ -6,6 +6,7 @@ local layout = require("game.layout")
 local combat = require("game.combat")
 local skills = require("game.skills")
 local upgrades = require("game.upgrades")
+local inventory = require("game.inventory")
 
 local M = {}
 
@@ -27,7 +28,7 @@ M.CLIP_LEAD = {
 	gore = { 0.1029, 0.1193, 0.129 },
 }
 
-local id_counters = { projectile = 0, flash = 0, mark = 0, blood = 0, corpse = 0, zone = 0 }
+local id_counters = { projectile = 0, flash = 0, mark = 0, lightning = 0, explosion = 0, blood = 0, corpse = 0, zone = 0 }
 local function next_id(kind)
 	id_counters[kind] = id_counters[kind] + 1
 	return id_counters[kind]
@@ -35,11 +36,16 @@ end
 
 function M.new(game_state, opts)
 	opts = opts or {}
+	local gear = inventory.bonuses(opts.equipment)
+	game_state.player.max_hp = game_state.player.max_hp + gear.max_health
+	game_state.player.hp = math.min(game_state.player.max_hp,
+		game_state.player.hp + (game_state.restored and 0 or gear.max_health))
 	local s = {
 		now = 0,
 		player = game_state.player,
 		abilities = game_state.abilities,
 		upgrades = game_state.upgrades or {},
+		gear_bonus = gear,
 		-- Choices owed to the player: one set of three offers per cleared
 		-- wave, answered oldest first.
 		pending_upgrade_offers = {},
@@ -52,9 +58,15 @@ function M.new(game_state, opts)
 		wave = game_state.wave,
 		mobs = {},
 		allies = {},
+		girl = {
+			pos = { x = SCREEN_W / 2, y = PLAY_H / 2 },
+			hp = 100, max_hp = 100, radius = 14,
+		},
 		projectiles = {},
 		hit_flashes = {},
 		skill_marks = {},
+		lightning_links = {},
+		explosions = {},
 		blood = {},
 		corpses = {},
 		cone_zones = {},
@@ -114,22 +126,63 @@ M.equipped_level_of = equipped_level_of
 -- Cooldowns shrink with the Spellcaster upgrade; clamped so a pile of them
 -- cannot reach a zero or negative cooldown.
 local function cd_scale(s)
-	return math.max(0.1, 1 - upgrades.bonuses(s.upgrades).cooldown)
+	return math.max(0.1, 1 - upgrades.bonuses(s.upgrades).cooldown - s.gear_bonus.cooldown)
 end
 
 local function ability_power(s)
-	return 1 + upgrades.bonuses(s.upgrades).ability_power
+	return 1 + upgrades.bonuses(s.upgrades).ability_power + s.gear_bonus.ability_power
+end
+
+local function keep_outside(pos, center, min_distance, fallback_x, fallback_y)
+	local dx, dy = pos.x - center.x, pos.y - center.y
+	local d = math.sqrt(dx * dx + dy * dy)
+	if d >= min_distance then return pos end
+	if d < 0.001 then
+		dx, dy = fallback_x or 0, fallback_y or -1
+		d = math.sqrt(dx * dx + dy * dy)
+		if d < 0.001 then dx, dy, d = 0, -1, 1 end
+	end
+	return {
+		x = center.x + dx / d * min_distance,
+		y = center.y + dy / d * min_distance,
+	}
 end
 
 -- Vampire and the active Berserker buff heal the player for a fraction of
 -- damage dealt, capped at their normal max HP.
 local function apply_lifesteal(s, dmg)
-	local ls = upgrades.bonuses(s.upgrades).lifesteal
+	local ls = upgrades.bonuses(s.upgrades).lifesteal + s.gear_bonus.lifesteal
 	if s.player.haste_timer > 0 and equipped_level_of(s, "ranged") > 0 then
 		ls = ls + skills.BERSERKER_LIFESTEAL
 	end
 	if ls <= 0 or dmg <= 0 or s.die_timer ~= nil then return end
 	s.player.hp = math.min(s.player.max_hp, s.player.hp + dmg * ls)
+end
+
+-- Every friendly impact damages the whole nearby pack. Enemy attack paths do
+-- not call this helper, so their melee strikes and projectiles remain strictly
+-- single-target.
+local function friendly_splash(s, center, damage, skill, now, hit_ids)
+	local bonus = upgrades.bonuses(s.upgrades)
+	local radius = combat.FRIENDLY_SPLASH_RADIUS * (1 + (bonus.splash or 0))
+	local killed = false
+	for _, m in ipairs(s.mobs) do
+		if m.hp > 0 and (not hit_ids or not hit_ids[m.id])
+			and combat.dist(center, m.pos) <= radius + m.radius then
+			m.hp = m.hp - damage
+			m.last_hit_skill = skill
+			combat.hurt_mob(m, center)
+			if hit_ids then hit_ids[m.id] = true end
+			killed = killed or m.hp <= 0
+			s.hit_flashes[#s.hit_flashes + 1] = {
+				id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now,
+				color = skill == "fireball" and { 1, 0.12, 0.06 } or nil,
+				size = skill == "fireball" and 28 or nil,
+			}
+			s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(damage + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
+		end
+	end
+	return killed
 end
 
 -- Queue the cone's blows onto the travelling wave (or land at once when the
@@ -184,7 +237,7 @@ function M.press_ability(s, slot)
 	if skill == "summon" then
 		s.pending_cast_anim = "ancestor"
 		-- Summoner upgrade: every summon rolls off with extra health.
-		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health
+		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health + s.gear_bonus.summon_health
 		local ap = ability_power(s)
 		local spawned = combat.make_allies_for_level(ab.level, p.pos, function(l)
 			local st = skills.ability1_stats(l)
@@ -192,15 +245,10 @@ function M.press_ability(s, slot)
 			st.damage = st.damage * ap
 			return st
 		end)
-		local kept = {}
-		for _, a in ipairs(s.allies) do
-			if (a.source_skill or "summon") ~= "summon" then kept[#kept + 1] = a end
-		end
-		for _, a in ipairs(spawned) do kept[#kept + 1] = a end
-		s.allies = kept
+		for _, a in ipairs(spawned) do s.allies[#s.allies + 1] = a end
 	elseif skill == "seagull" then
 		s.pending_cast_anim = "ancestor"
-		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health
+		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health + s.gear_bonus.summon_health
 		local ap = ability_power(s)
 		local bird = combat.make_seagull(ab.level, p.pos, function(l)
 			local st = skills.seagull_stats(l)
@@ -208,12 +256,7 @@ function M.press_ability(s, slot)
 			st.damage = st.damage * ap
 			return st
 		end)
-		local kept = {}
-		for _, a in ipairs(s.allies) do
-			if a.source_skill ~= "seagull" then kept[#kept + 1] = a end
-		end
-		kept[#kept + 1] = bird
-		s.allies = kept
+		s.allies[#s.allies + 1] = bird
 	elseif skill == "cone" then
 		s.pending_cast_anim = "rupture"
 		-- Same rule as the aimed cast: casting the shockwave stops the walk.
@@ -281,13 +324,21 @@ function M.press_ability(s, slot)
 		local hit_count = 0
 		for jump = 1, skills.chain_lightning_hits(ab.level) do
 			local target, best = nil, math.huge
+			local max_range = jump == 1 and skills.CHAIN_LIGHTNING_CAST_RANGE
+				or skills.CHAIN_LIGHTNING_JUMP_RANGE
 			for _, m in ipairs(s.mobs) do
 				if m.hp > 0 and not hit_ids[m.id] then
 					local d = combat.dist(origin, m.pos)
-					if d < best then target, best = m, d end
+					if d <= max_range + m.radius and d < best then target, best = m, d end
 				end
 			end
 			if not target then break end
+			s.lightning_links[#s.lightning_links + 1] = {
+				id = next_id("lightning"),
+				from = { x = origin.x, y = origin.y },
+				to = { x = target.pos.x, y = target.pos.y },
+				created_at = s.now,
+			}
 			hit_ids[target.id] = true
 			target.hp = target.hp - damage
 			target.last_hit_skill = "chainlightning"
@@ -311,7 +362,9 @@ function M.press_ability(s, slot)
 		for _, m in ipairs(s.mobs) do
 			if m.hp > 0 then
 				local d = combat.dist(p.pos, m.pos)
-				if d < best then target, best = m, d end
+				if d <= skills.SWORD_THROW_RANGE + m.radius and d < best then
+					target, best = m, d
+				end
 			end
 		end
 		if not target then return end
@@ -322,7 +375,7 @@ function M.press_ability(s, slot)
 			created_at = s.now,
 			duration = math.max(0.08, best / combat.PROJECTILE_SPEED),
 			color = skills.SKILL_META.swordthrow.color,
-			damage = (combat.PLAYER_BASE_DAMAGE + upgrades.bonuses(s.upgrades).attack_damage)
+			damage = (combat.PLAYER_BASE_DAMAGE + upgrades.bonuses(s.upgrades).attack_damage + s.gear_bonus.attack_damage)
 				* skills.sword_throw_percent(ab.level) * ability_power(s),
 			friendly = true,
 			target_kind = "mob",
@@ -332,22 +385,24 @@ function M.press_ability(s, slot)
 		}
 	elseif skill == "push" then
 		local dmg = skills.push_damage_percent(ab.level)
-			* (combat.PLAYER_BASE_DAMAGE + upgrades.bonuses(s.upgrades).attack_damage) * ability_power(s)
+			* (combat.PLAYER_BASE_DAMAGE + upgrades.bonuses(s.upgrades).attack_damage + s.gear_bonus.attack_damage) * ability_power(s)
 		for _, m in ipairs(s.mobs) do
 			local dx = m.pos.x - p.pos.x
 			local dy = m.pos.y - p.pos.y
 			local d = math.sqrt(dx * dx + dy * dy)
-			if d == 0 then d = 1 end
-			s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = s.now }
-			s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(dmg + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, s.now)
-			m.hp = m.hp - dmg
-			m.last_hit_skill = "push"
-			m.knock = { x = dx / d * skills.PUSH_SPEED, y = dy / d * skills.PUSH_SPEED }
-			apply_lifesteal(s, dmg)
+			if d <= skills.PUSH_RANGE + m.radius then
+				if d == 0 then d = 1 end
+				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = s.now }
+				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(dmg + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, s.now)
+				m.hp = m.hp - dmg
+				m.last_hit_skill = "push"
+				m.knock = { x = dx / d * skills.PUSH_SPEED, y = dy / d * skills.PUSH_SPEED }
+				apply_lifesteal(s, dmg)
+			end
 		end
 		s.skill_marks[#s.skill_marks + 1] = {
 			id = next_id("mark"), pos = { x = p.pos.x, y = p.pos.y },
-			radius = 46, color = skills.SKILL_META.push.color, created_at = s.now,
+			radius = skills.PUSH_RANGE, color = skills.SKILL_META.push.color, created_at = s.now,
 		}
 	end
 
@@ -369,6 +424,7 @@ function M.start_next_wave(s)
 	local types = combat.build_wave_queue(s.wave)
 	s.wave_queues[#s.wave_queues + 1] = {
 		wave = s.wave, types = types, timer = 0,
+		spawned = 0,
 		interval = combat.WAVE_SPAWN_WINDOW / math.max(1, #types),
 	}
 	s.wave_active = true
@@ -390,6 +446,9 @@ function M.tap_field(s, x, y)
 		y = math.max(combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER,
 			math.min(PLAY_H - combat.PLAYER_RADIUS, y)),
 	}
+	s.player.target = keep_outside(s.player.target, s.girl.pos,
+		combat.PLAYER_RADIUS + s.girl.radius,
+		s.player.pos.x - s.girl.pos.x, s.player.pos.y - s.girl.pos.y)
 end
 
 -- Answer the oldest pending upgrade offer, picking one of its three choices.
@@ -471,6 +530,8 @@ function M.update(s, dt)
 
 	local bonus = upgrades.bonuses(s.upgrades)
 	local damage_to_player = 0
+	local damage_to_girl = 0
+	local pending_recasts = {}
 
 	-- Resolve in-flight projectiles. Two kinds:
 	--  - the ordinary shot: a straight line from->to, damage lands the
@@ -493,12 +554,7 @@ function M.update(s, dt)
 			end
 			local spent = false
 			if hit then
-				pr.hit_ids[hit.id] = true
-				hit.hp = hit.hp - pr.damage
-				hit.last_hit_skill = pr.skill
-				combat.hurt_mob(hit, pr.from)
-				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), hit.pos, combat.DAMAGE_TEXT_COLOR, now)
-				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = hit.pos.x, y = hit.pos.y }, created_at = now }
+				friendly_splash(s, hit.pos, pr.damage, pr.skill, now, pr.hit_ids)
 				if pr.pierce_left <= 0 then
 					spent = true
 				else
@@ -517,16 +573,14 @@ function M.update(s, dt)
 				end
 				local pos = pr.to
 				if target and target.hp > 0 then
-					target.hp = target.hp - pr.damage
-					target.last_hit_skill = pr.skill
-					combat.hurt_mob(target, pr.from)
 					pos = { x = target.pos.x, y = target.pos.y }
-					if pr.refresh_slot and target.hp <= 0 and s.abilities[pr.refresh_slot] then
+					local target_was_killed = target.hp <= pr.damage
+					friendly_splash(s, pos, pr.damage, pr.skill, now)
+					if pr.refresh_slot and target_was_killed and s.abilities[pr.refresh_slot] then
 						s.abilities[pr.refresh_slot].cooldown = 0
+						pending_recasts[#pending_recasts + 1] = pr.refresh_slot
 					end
 				end
-				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pos, combat.DAMAGE_TEXT_COLOR, now)
-				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = pos, created_at = now }
 			elseif not pr.friendly and pr.target_kind == "player" then
 				damage_to_player = damage_to_player + pr.damage
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pr.to, combat.TAKEN_TEXT_COLOR, now)
@@ -535,6 +589,10 @@ function M.update(s, dt)
 				for _, a in ipairs(s.allies) do
 					if a.id == pr.target_id then a.hp = a.hp - pr.damage break end
 				end
+				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pr.to, combat.TAKEN_TEXT_COLOR, now)
+				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = pr.to.x, y = pr.to.y }, created_at = now }
+			elseif not pr.friendly and pr.target_kind == "girl" then
+				damage_to_girl = damage_to_girl + pr.damage
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pr.to, combat.TAKEN_TEXT_COLOR, now)
 				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = pr.to.x, y = pr.to.y }, created_at = now }
 			end
@@ -552,7 +610,8 @@ function M.update(s, dt)
 		else
 			local dx = p.target.x - p.pos.x
 			local dy = p.target.y - p.pos.y
-			local speed = p.intro_phase == "enter" and combat.INTRO_WALK_SPEED or combat.PLAYER_SPEED
+			local speed = p.intro_phase == "enter" and combat.INTRO_WALK_SPEED
+				or (combat.PLAYER_SPEED + s.gear_bonus.move_speed)
 			local ratio = math.min(1, speed * dt / d)
 			p.pos = { x = p.pos.x + dx * ratio, y = p.pos.y + dy * ratio }
 			p.facing = combat.facing_from_delta(dx, dy)
@@ -562,17 +621,19 @@ function M.update(s, dt)
 
 	p.anim_time = p.anim_time + dt
 
-	-- Not while running in: he starts beyond the left edge on purpose.
+	-- Not while running in: he starts beyond the top edge on purpose.
 	if p.intro_phase ~= "enter" then
 		p.pos.x = math.max(combat.PLAYER_RADIUS, math.min(SCREEN_W - combat.PLAYER_RIGHT_BUFFER - combat.PLAYER_RADIUS, p.pos.x))
 		p.pos.y = math.max(combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER,
 			math.min(PLAY_H - combat.PLAYER_RADIUS, p.pos.y))
+		p.pos = keep_outside(p.pos, s.girl.pos,
+			combat.PLAYER_RADIUS + s.girl.radius, 0, -1)
 	end
 
 	if s.die_timer == nil and p.hp > 0 then
 		-- Clamp legacy saves that may still contain health from Berserker's
 		-- removed passive bonus; equipping it no longer heals or raises the cap.
-		p.hp = math.min(p.max_hp, p.hp + combat.PLAYER_HEALTH_REGEN * dt)
+		p.hp = math.min(p.max_hp, p.hp + (combat.PLAYER_HEALTH_REGEN + s.gear_bonus.health_regen) * dt)
 	end
 	p.attack_cooldown = math.max(0, p.attack_cooldown - dt)
 	p.haste_timer = math.max(0, p.haste_timer - dt)
@@ -584,10 +645,10 @@ function M.update(s, dt)
 	local ally_regen = 0
 	local player_attack_range = combat.PLAYER_ATTACK_RANGE
 	local run_bonus = upgrades.bonuses(s.upgrades)
-	local player_damage = combat.PLAYER_BASE_DAMAGE + run_bonus.attack_damage
+	local player_damage = combat.PLAYER_BASE_DAMAGE + run_bonus.attack_damage + s.gear_bonus.attack_damage
 	-- +50% attack speed is 1.5x attacks per second, or two-thirds cooldown.
 	local attack_cooldown_duration = combat.PLAYER_ATTACK_COOLDOWN
-		/ (1 + run_bonus.attack_speed) * (p.haste_timer > 0 and (1 / 1.5) or 1)
+		/ (1 + run_bonus.attack_speed + s.gear_bonus.attack_speed) * (p.haste_timer > 0 and (1 / 1.5) or 1)
 	local attack_anim_speed = math.max(1, combat.anim_duration(combat.ANIMS.attack) / attack_cooldown_duration)
 	-- A plain auto-attack answers to no skill for kill xp now.
 	local player_atk_skill = nil
@@ -640,7 +701,7 @@ function M.update(s, dt)
 
 		local nearest, nearest_dist = nil, math.huge
 		local d_to_player = combat.dist(m.pos, p.pos)
-		if d_to_player <= detect then
+		if p.hp > 0 and d_to_player <= detect then
 			nearest = { kind = "player", pos = p.pos }
 			nearest_dist = d_to_player
 		end
@@ -655,12 +716,15 @@ function M.update(s, dt)
 				end
 			end
 		end
+		-- The girl is the fallback objective. Nearby living defenders always
+		-- take priority; with none detected, enemies cross the arena for her.
+		if not nearest and s.girl.hp > 0 then
+			nearest = { kind = "girl", pos = s.girl.pos }
+			nearest_dist = combat.dist(m.pos, s.girl.pos)
+		end
 
 		if not nearest then
-			-- March west from the right-hand entrance until a target is in range.
-			m.pos = { x = m.pos.x - combat.MOB_SPEED * 0.5 * dt, y = m.pos.y }
-			m.facing = combat.facing_from_delta(-1, 0)
-			set_mob_anim("walk")
+			set_mob_anim("idle")
 		else
 			m.facing = combat.facing_from_delta(nearest.pos.x - m.pos.x, nearest.pos.y - m.pos.y)
 
@@ -677,7 +741,7 @@ function M.update(s, dt)
 							color = { 1, 0.541, 0.502 },
 							damage = m.damage,
 							friendly = false,
-							target_kind = nearest.kind == "player" and "player" or "ally",
+							target_kind = nearest.kind,
 							target_id = nearest.id or -1,
 						}
 						m.attack_cooldown = combat.MOB_ATTACK_COOLDOWN
@@ -696,7 +760,7 @@ function M.update(s, dt)
 							damage_to_player = damage_to_player + m.damage
 							s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = p.pos.x, y = p.pos.y }, created_at = now }
 							s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(m.damage), p.pos, combat.TAKEN_TEXT_COLOR, now)
-						else
+						elseif nearest.kind == "ally" then
 							for _, a in ipairs(s.allies) do
 								if a.id == nearest.id then
 									a.hp = a.hp - m.damage
@@ -705,6 +769,10 @@ function M.update(s, dt)
 									break
 								end
 							end
+						else
+							damage_to_girl = damage_to_girl + m.damage
+							s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = s.girl.pos.x, y = s.girl.pos.y }, created_at = now }
+							s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(m.damage), s.girl.pos, combat.TAKEN_TEXT_COLOR, now)
 						end
 						m.attack_cooldown = combat.MOB_ATTACK_COOLDOWN
 						set_mob_anim(combat.MOB_ATTACK_ANIMS[math.random(#combat.MOB_ATTACK_ANIMS)])
@@ -718,6 +786,10 @@ function M.update(s, dt)
 				end
 			end
 		end
+	end
+	for _, m in ipairs(s.mobs) do
+		m.pos = keep_outside(m.pos, s.girl.pos, m.radius + s.girl.radius,
+			m.pos.x < s.girl.pos.x and -1 or 1, 0)
 	end
 
 	-- Whether a swing fired this frame will actually be seen (the flinch has
@@ -856,14 +928,11 @@ function M.update(s, dt)
 									skill = attack_skill,
 								}
 							else
-								mob.hp = mob.hp - attack_damage
-								mob.last_hit_skill = attack_skill
-								combat.hurt_mob(mob, a.pos)
-								s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = mob.pos.x, y = mob.pos.y }, created_at = now }
-								s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(attack_damage), mob.pos, combat.DAMAGE_TEXT_COLOR, now)
+								friendly_splash(s, mob.pos, attack_damage, attack_skill, now)
 							end
 						end
-						a.attack_cooldown = combat.ALLY_ATTACK_COOLDOWN / (enraged and (1 + skills.FIREBALL_ENRAGE_ATKSPD) or 1)
+						a.attack_cooldown = combat.ally_attack_cooldown(a.level)
+							/ (enraged and (1 + skills.FIREBALL_ENRAGE_ATKSPD) or 1)
 					end
 				else
 					local dx = nearest.pos.x - a.pos.x
@@ -917,6 +986,10 @@ function M.update(s, dt)
 				exploded[src.id] = true
 				local blast = src.burn_blast or 0
 				local burn_radius = skills.BURN_EXPLODE_RADIUS * (1 + bonus.splash)
+				s.explosions[#s.explosions + 1] = {
+					id = next_id("explosion"), pos = { x = src.pos.x, y = src.pos.y },
+					radius = burn_radius, created_at = now,
+				}
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text("boom!", src.pos, { 1, 0.439, 0.263 }, now)
 				for _, m in ipairs(s.mobs) do
 					if m.id ~= src.id and m.hp > 0 and combat.dist(m.pos, src.pos) <= burn_radius then
@@ -974,6 +1047,7 @@ function M.update(s, dt)
 	s.allies = survivor_allies
 
 	if damage_to_player > 0 then p.hp = math.max(0, p.hp - damage_to_player) end
+	if damage_to_girl > 0 then s.girl.hp = math.max(0, s.girl.hp - damage_to_girl) end
 
 	-- The fall: hp reaching zero starts the die timer; the field keeps
 	-- simulating while he goes down. Revived mid-fall stands back up.
@@ -1195,7 +1269,11 @@ function M.update(s, dt)
 			while #entry.types > 0 and entry.timer >= entry.interval do
 				entry.timer = entry.timer - entry.interval
 				local mob_type = table.remove(entry.types, 1)
-				if mob_type then s.mobs[#s.mobs + 1] = combat.spawn_mob(mob_type, entry.wave) end
+				if mob_type then
+					local side = entry.spawned % 2 == 0 and "left" or "right"
+					s.mobs[#s.mobs + 1] = combat.spawn_mob(mob_type, entry.wave, side)
+					entry.spawned = entry.spawned + 1
+				end
 			end
 			if #entry.types > 0 then still_spawning[#still_spawning + 1] = entry end
 		end
@@ -1255,7 +1333,7 @@ function M.update(s, dt)
 	-- run) counts down and then launches the next wave on its own. It holds
 	-- while a wave is live, the player is dying, or an upgrade offer is still
 	-- unanswered; the player can always tap Next Wave to go early.
-	if s.wave_countdown ~= nil and not s.game_over and not s.wave_active
+	if s.wave_countdown ~= nil and not s.game_over and not s.wave_active and #s.mobs == 0
 		and s.die_timer == nil and s.player.intro_phase == "done"
 		and #s.pending_upgrade_offers == 0 and s.upgrade_offer_timer == nil then
 		s.wave_countdown = s.wave_countdown - dt
@@ -1269,6 +1347,9 @@ function M.update(s, dt)
 	end
 
 	s.projectiles = still_flying
+	-- Sword Throw's lethal effect is a true recast: it immediately seeks the
+	-- next nearest opponent and throws again, rather than merely refreshing.
+	for _, slot in ipairs(pending_recasts) do M.press_ability(s, slot) end
 
 	-- Sweep up spent transients.
 	local function sweep(list, keep)
@@ -1287,13 +1368,21 @@ function M.update(s, dt)
 	local cone_zone_life = skills.CONE_RANGE / skills.CONE_ZONE.sweep_speed + skills.CONE_ZONE.cell_life + 0.08
 	s.cone_zones = sweep(s.cone_zones, function(z) return now < z.start_at + cone_zone_life end)
 	s.skill_marks = sweep(s.skill_marks, function(m) return now - m.created_at < combat.SKILL_MARK_DURATION end)
+	s.lightning_links = sweep(s.lightning_links, function(l)
+		return now - l.created_at < skills.CHAIN_LIGHTNING_VISUAL_DURATION
+	end)
+	s.explosions = sweep(s.explosions, function(e)
+		return now - e.created_at < skills.BURN_EXPLOSION_VISUAL_DURATION
+	end)
 	s.floating_texts = sweep(s.floating_texts, function(f) return now - f.created_at < combat.FLOATING_TEXT_DURATION end)
 
 	-- The game over waits for the fall.
-	local is_game_over = p.hp <= 0 and s.die_timer ~= nil and s.die_timer <= 0
+	local is_game_over = s.girl.hp <= 0
+		or (p.hp <= 0 and s.die_timer ~= nil and s.die_timer <= 0)
 	if is_game_over then
+		s.game_over_cause = s.girl.hp <= 0 and "girl" or "player"
 		s.game_over = true
-		emit(s, { type = "game_over" })
+		emit(s, { type = "game_over", cause = s.game_over_cause })
 	elseif wave_just_cleared and not s.is_test_run and s.run_id then
 		emit(s, {
 			type = "autosave",

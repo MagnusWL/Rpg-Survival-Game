@@ -47,7 +47,7 @@ M.SKILL_PARENT = {
 M.SKILL_META = {
 	summon = { label = "Wild Boar", icon = "Z", color = { 0.494, 0.341, 0.761 }, cast = "instant", cooldown = 12 },
 	cone = { label = "Shockwave", icon = "V", color = { 1.0, 0.541, 0.314 }, cast = "instant", cooldown = 5 },
-	ranged = { label = "Berserker", icon = "R", color = { 0.4, 0.733, 0.416 }, cast = "instant", cooldown = 15 },
+	ranged = { label = "Berserker", icon = "R", color = { 0.4, 0.733, 0.416 }, cast = "instant", cooldown = 10 },
 	fireball = { label = "Fire Enrage", icon = "F", color = { 0.361, 0.42, 0.753 }, cast = "instant", cooldown = 8 },
 	seagull = { label = "Seagull", icon = "G", color = { 0.45, 0.75, 0.9 }, cast = "instant", cooldown = 12 },
 	burn = { label = "Burn", icon = "B", color = { 0.937, 0.325, 0.314 }, cast = "instant", cooldown = 6 },
@@ -79,21 +79,27 @@ M.FIREBALL_ENRAGE_ATKSPD = 0.5
 function M.fireball_attack_damage(level) return pick({ 20, 30, 40, 50 }, level) end
 function M.burn_explode_damage(level) return pick({ 25, 50, 75, 100 }, level) end
 M.BURN_EXPLODE_RADIUS = 140 -- widened from 90
+M.BURN_EXPLOSION_VISUAL_DURATION = 0.4
 function M.burn_damage_per_sec(level) return pick({ 2.5, 5, 7.5, 10 }, level) end
 function M.push_damage_percent(level) return pick({ 0.5, 1.0, 1.5, 2.0 }, level) end
 function M.chain_lightning_hits(level) return pick({ 3, 4, 5, 6 }, level) end
 function M.chain_lightning_damage(level) return pick({ 25, 50, 75, 100 }, level) end
+M.CHAIN_LIGHTNING_CAST_RANGE = layout.SCREEN_W / 3
+M.CHAIN_LIGHTNING_JUMP_RANGE = layout.SCREEN_W / 5
+M.CHAIN_LIGHTNING_VISUAL_DURATION = 0.28
 M.CHAIN_LIGHTNING_FALLOFF = 0.8
 function M.sword_throw_percent(level) return pick({ 2.0, 2.5, 3.0, 3.5 }, level) end
+M.SWORD_THROW_RANGE = layout.SCREEN_W / 3
 M.PUSH_SPEED = 360 -- gentler shove, so ranged enemies aren't knocked out of reach
+M.PUSH_RANGE = layout.SCREEN_W / 5
 -- How close to a pierced shot's line an enemy must be to be swept up in it.
 M.PIERCE_WIDTH = 26
 
 function M.ability1_stats(level)
-	return { hp = pick({ 80, 200, 400, 800 }, level), damage = 10 * level }
+	return { hp = pick({ 50, 100, 150, 200 }, level), damage = 10 * level }
 end
 function M.seagull_stats(level)
-	return { hp = pick({ 80, 160, 240, 320 }, level), damage = pick({ 20, 40, 60, 80 }, level) }
+	return { hp = pick({ 30, 60, 90, 120 }, level), damage = pick({ 20, 40, 60, 80 }, level) }
 end
 function M.ability2_base_damage(level) return 10 * level end
 function M.ability3_damage_bonus(level) return level * 4 end
@@ -158,7 +164,8 @@ function M.skill_description(skill)
 	elseif skill == "chainlightning" then
 		local hits = bracket(M.chain_lightning_hits)
 		local damage = bracket(M.chain_lightning_damage)
-		return ("Chains through %s enemies for %s initial damage, reduced by 20%% after each jump."):format(hits, damage)
+		return ("Chains through %s enemies for %s initial damage, reduced by 20%% after each jump. Cast range %d; jump range %d.")
+			:format(hits, damage, math.floor(M.CHAIN_LIGHTNING_CAST_RANGE + 0.5), math.floor(M.CHAIN_LIGHTNING_JUMP_RANGE + 0.5))
 	elseif skill == "swordthrow" then
 		local pcts = bracket(function(l) return math.floor(M.sword_throw_percent(l) * 100 + 0.5) .. "%" end)
 		return ("Throws your sword at the nearest enemy for %s attack damage. A kill immediately refreshes the cooldown."):format(pcts)

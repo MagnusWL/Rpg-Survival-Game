@@ -10,3 +10,6 @@ images {
 images {
   image: "/assets/sprites/prim/ring.png"
 }
+images {
+  image: "/assets/sprites/girl.png"
+}
