@@ -168,7 +168,8 @@ local function sync_mobs(self, s)
 			-- A failed spawn (buffer full) skips this mob and retries next frame.
 			local id = factory.create("#mob_factory", vmath.vector3(0, 0, 0))
 			if not id then return end
-			view = { id = id, anim = nil, facing = nil, is_sprite = m.type == "melee" }
+			local mob_base = combat.base_mob_type(m.type)
+			view = { id = id, anim = nil, facing = nil, is_sprite = mob_base == "melee" }
 			self.mob_views[m.id] = view
 			if view.is_sprite then
 				msg.post(msg.url(nil, id, "circle"), "disable")
@@ -176,7 +177,7 @@ local function sync_mobs(self, s)
 				for _, name in ipairs(MOB_ANIM_NAMES) do
 					msg.post(msg.url(nil, id, name), "disable")
 				end
-				local meta = combat.MOB_TYPE_META[m.type]
+				local meta = combat.mob_type_meta(m.type)
 				local c = meta.color
 				go.set(msg.url(nil, id, "circle"), "tint", vmath.vector4(c[1], c[2], c[3], 1))
 				go.set_scale(m.radius * 2 / 64, id)
@@ -196,8 +197,10 @@ local function sync_mobs(self, s)
 			set_frame(msg.url(nil, view.id, sprite_id), combat.anim_column(combat.MOB_ANIMS[m.anim], m.anim_time))
 			-- The red instant when struck: tint toward red, fading over the flash.
 			local k = (m.flash_time / combat.MOB_FLASH_TIME) * combat.MOB_FLASH_STRENGTH
+			local _, mob_level = combat.base_mob_type(m.type)
+			local tint = combat.mob_level_tint(mob_level)
 			go.set(msg.url(nil, view.id, sprite_id), "tint",
-				vmath.vector4(1, 1 - k * 0.71, 1 - k * 0.76, 1))
+				vmath.vector4(tint[1], math.max(0, tint[2] - k * 0.55), math.max(0, tint[3] - k * 0.60), 1))
 		else
 			place(view.id, m.pos.x, m.pos.y, actor_z(m.pos.y))
 		end

@@ -4,7 +4,8 @@
 -- amplifies the effect of every OTHER upgrade by 10% per Comboer picked.
 local M = {}
 
-M.KINDS = { "summoner", "vampire", "spellcaster", "speedrunner", "grinder", "greeder", "comboer" }
+M.KINDS = { "summoner", "vampire", "spellcaster", "speedrunner", "grinder", "greeder", "comboer",
+	"abilitypower", "attackdamage", "attackspeed" }
 
 -- per: the effect of one pick (a fraction). desc: the tooltip/card line.
 M.DEFS = {
@@ -15,6 +16,9 @@ M.DEFS = {
 	grinder     = { name = "Grinder",     color = { 0.612, 0.8, 0.396 },   per = 0.5, desc = "Gain 50% more experience on all skills" },
 	greeder     = { name = "Greeder",     color = { 0.992, 0.847, 0.208 }, per = 0.5, desc = "Gain 50% more gold this whole run" },
 	comboer     = { name = "Comboer",     color = { 1.0, 0.439, 0.263 },   per = 0.1, desc = "Increase the effect of all other upgrades by 10%" },
+	abilitypower= { name = "Ability Power",color = { 0.55, 0.45, 1.0 },     per = 0.25, desc = "Increase all ability damage by 25%" },
+	attackdamage= { name = "Might",        color = { 0.9, 0.35, 0.25 },     per = 5, desc = "Increase attack damage by 5" },
+	attackspeed = { name = "Frenzy",       color = { 1.0, 0.75, 0.2 },      per = 0.2, desc = "Increase attack speed by 20%" },
 }
 
 -- Three distinct kinds drawn for one cleared boss wave.
@@ -51,6 +55,9 @@ function M.bonuses(upgrades)
 		xp            = amt("grinder"),
 		gold          = amt("greeder"),
 		combo         = combo,
+		ability_power = amt("abilitypower"),
+		attack_damage = amt("attackdamage"),
+		attack_speed  = amt("attackspeed"),
 	}
 end
 

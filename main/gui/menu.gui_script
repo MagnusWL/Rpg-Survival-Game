@@ -229,10 +229,13 @@ function update(self, dt)
 			if sid then
 				gui.set_enabled(handle.icon, true)
 				gui.play_flipbook(handle.icon, icon_map[sid])
+				skill_icon_ui.set_rank(handle, m.skill_levels[sid] or 1)
 			elseif locked then
+				skill_icon_ui.set_rank(handle, nil)
 				gui.set_enabled(handle.icon, true)
 				gui.play_flipbook(handle.icon, "lock")
 			else
+				skill_icon_ui.set_rank(handle, nil)
 				gui.set_enabled(handle.icon, false)
 			end
 		end

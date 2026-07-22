@@ -297,7 +297,10 @@ local function build_desired(self)
 		if skill_shown(self, sid) then
 			local di = i - 1 -- the design's 0-based index drives seeds and delays
 			local p = skill_pos(sid)
-			local lit = is_equipped(m, sid)
+			-- Vine activation represents progression through the tree. Equipping
+			-- only controls the loadout/pod pulse and must not turn branches on or
+			-- off after they have been unlocked.
+			local lit = (m.skill_levels[sid] or 0) >= 1
 			-- Children branch off their parent's pod; roots off the core.
 			local parent = skills.SKILL_PARENT[sid]
 			local a = parent and skill_pos(parent) or { x = DCX, y = DCY }
@@ -527,8 +530,8 @@ function update(self, dt)
 			else
 				local needed = skills.skill_xp_to_next(level)
 				sub = needed
-					and ("Lv %d  %d/%d"):format(level, m.skill_xp[sid] or 0, needed)
-					or ("Lv %d  MAX"):format(level)
+					and ("Rank %s  %d/%d"):format(skills.rank_roman(level), m.skill_xp[sid] or 0, needed)
+					or ("Rank %s  MAX"):format(skills.rank_roman(level))
 			end
 			sync_pod(pod, {
 				unlocked = unlocked, equipped = is_equipped(m, sid),
@@ -549,6 +552,7 @@ function update(self, dt)
 	for i = 1, 3 do
 		local slot = self.slots[i]
 		if i > slots_unlocked then
+			skill_icon_ui.set_rank(slot.icon_ui, nil)
 			if slot.cur ~= "__locked" then
 				slot.cur = "__locked"
 				gui.play_flipbook(slot.icon_ui.icon, "lock")
@@ -559,6 +563,7 @@ function update(self, dt)
 			skill_icon_ui.set_lit(slot.icon_ui, false)
 		else
 			local sid = m.loadout[i]
+			skill_icon_ui.set_rank(slot.icon_ui, sid and (m.skill_levels[sid] or 1) or nil)
 			if sid ~= slot.cur then
 				slot.cur = sid
 				if sid then gui.play_flipbook(slot.icon_ui.icon, FLOWER[sid].icon) end

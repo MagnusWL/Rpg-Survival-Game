@@ -66,7 +66,9 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 	if opts.locked then
 		gui.set_text(o.level_line, "Locked")
 	else
-		gui.set_text(o.level_line, needed and ("Level %d (%d/%d)"):format(level, xp, needed) or ("Level %d (MAX)"):format(level))
+		gui.set_text(o.level_line, needed
+			and ("Rank %s (%d/%d)"):format(skills.rank_roman(level), xp, needed)
+			or ("Rank %s (MAX)"):format(skills.rank_roman(level)))
 	end
 	gui.set_text(o.desc, desc_text)
 

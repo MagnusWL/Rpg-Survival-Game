@@ -6,6 +6,7 @@
 -- reads as its own kind of thing at a glance) -- one look, one place it is
 -- defined.
 local ui = require("game.ui")
+local skills = require("game.skills")
 
 local M = {}
 
@@ -28,7 +29,20 @@ function M.build(x, y, size, icon_px, anim, rim_color)
 	local icon = gui.new_box_node(vmath.vector3(x, y, 0), vmath.vector3(icon_px, icon_px, 0))
 	gui.set_texture(icon, "skilltree")
 	if anim then gui.play_flipbook(icon, anim) end
-	return { rim = rim, disc = disc, icon = icon }
+	local badge_x, badge_y = x + size * 0.36, y - size * 0.36
+	local rank_bg = ui.tex_box(badge_x, badge_y, 18, 18, "circle")
+	gui.set_color(rank_bg, vmath.vector4(0.12, 0.10, 0.07, 1))
+	local rank_text = ui.text(badge_x, badge_y, "", 8, { 1, 0.835, 0.31 })
+	gui.set_enabled(rank_bg, false)
+	gui.set_enabled(rank_text, false)
+	return { rim = rim, disc = disc, icon = icon, rank_bg = rank_bg, rank_text = rank_text }
+end
+
+function M.set_rank(handle, level)
+	local on = level ~= nil and level > 0
+	gui.set_enabled(handle.rank_bg, on)
+	gui.set_enabled(handle.rank_text, on)
+	if on then gui.set_text(handle.rank_text, skills.rank_roman(level)) end
 end
 
 -- Colours the rim orange (equipped/filled) or the dim resting tone (empty).
@@ -38,11 +52,11 @@ function M.set_lit(handle, lit)
 end
 
 function M.set_enabled(handle, on)
-	for _, n in ipairs({ handle.rim, handle.disc, handle.icon }) do gui.set_enabled(n, on) end
+	for _, n in ipairs({ handle.rim, handle.disc, handle.icon, handle.rank_bg, handle.rank_text }) do gui.set_enabled(n, on) end
 end
 
 function M.set_alpha(handle, a)
-	for _, n in ipairs({ handle.rim, handle.disc, handle.icon }) do ui.set_alpha(n, a) end
+	for _, n in ipairs({ handle.rim, handle.disc, handle.icon, handle.rank_bg, handle.rank_text }) do ui.set_alpha(n, a) end
 end
 
 return M

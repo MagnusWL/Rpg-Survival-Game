@@ -9,4 +9,7 @@ return {
 	grinder     = "soulharvest",
 	greeder     = "coin",
 	comboer     = "chain",
+	abilitypower = "doom",
+	attackdamage = "cleave",
+	attackspeed = "airblade",
 }

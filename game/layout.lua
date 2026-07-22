@@ -4,9 +4,9 @@ local M = {}
 
 M.SCREEN_W = 844
 M.SCREEN_H = 390
-M.TOP_BAR_HEIGHT = 50
-M.QUICK_CAST_BAR_HEIGHT = 48
-M.HUD_HEIGHT = 60
+M.TOP_BAR_HEIGHT = 0
+M.QUICK_CAST_BAR_HEIGHT = 0
+M.HUD_HEIGHT = 0
 M.PLAY_H = M.SCREEN_H - M.TOP_BAR_HEIGHT - M.QUICK_CAST_BAR_HEIGHT - M.HUD_HEIGHT
 
 -- The play field's placement in Defold screen space (origin bottom-left).

@@ -8,7 +8,8 @@ local PLAY_H = layout.PLAY_H
 
 M.PLAYER_RADIUS = 18
 M.PLAYER_SPEED = 170
-M.PLAYER_TOP_BUFFER = 72
+M.PLAYER_TOP_BUFFER = 0
+M.PLAYER_RIGHT_BUFFER = 14
 M.PLAYER_HEALTH_REGEN = 2
 
 M.SPRITE_CELL = 128
@@ -264,7 +265,7 @@ M.KNOCKBACK_VARIATION = 0.45
 M.KNOCKBACK_TAU = 0.085
 M.KNOCKBACK_STOP = 8
 
-M.WAVE_SPAWN_INTERVAL = 2.0 -- twice the previous gap between each mob spawn
+M.WAVE_SPAWN_WINDOW = 5.0
 
 M.ALLY_RADIUS = 12
 M.ALLY_SPEED = 90
@@ -283,10 +284,42 @@ M.FLOATING_TEXT_RISE = 32
 M.SWING_STRIKE_AT = (M.ATTACK_STRIKE_FRAME - M.ATTACK_FROM) / M.ANIMS.attack.fps
 
 M.MOB_TYPE_META = {
-	melee = { name = "Melee", color = { 0.878, 0.333, 0.333 }, radius = M.MOB_RADIUS },
-	ranged = { name = "Ranged", color = { 1.0, 0.596, 0.0 }, radius = M.MOB_RADIUS },
-	boss = { name = "Boss", color = { 0.671, 0.278, 0.737 }, radius = M.BOSS_RADIUS },
+	melee = { name = "Zombie", color = { 0.878, 0.333, 0.333 }, radius = M.MOB_RADIUS },
+	ranged = { name = "Ranged", color = { 1, 1, 1 }, radius = M.MOB_RADIUS },
+	boss = { name = "Boss", color = { 1, 1, 1 }, radius = M.BOSS_RADIUS },
 }
+
+function M.base_mob_type(mob_type)
+	local base, suffix = mob_type:match("^(%a+)(%d*)$")
+	return base or mob_type, tonumber(suffix) or 1
+end
+
+function M.mob_type_id(base, level)
+	return level > 1 and (base .. level) or base
+end
+
+function M.mob_type_meta(mob_type)
+	local base, level = M.base_mob_type(mob_type)
+	local src = M.MOB_TYPE_META[base]
+	local tint = M.mob_level_tint and M.mob_level_tint(level) or { 1, 1, 1 }
+	return {
+		name = level > 1 and ("Level %d %s"):format(level, src.name) or src.name,
+		color = { src.color[1] * tint[1], src.color[2] * tint[2], src.color[3] * tint[3] },
+		radius = src.radius,
+	}
+end
+
+-- Golden-angle hues give every higher tier a stable new tint without a
+-- finite palette eventually running out. Level 2 deliberately starts red.
+function M.mob_level_tint(level)
+	if level <= 1 then return { 1, 1, 1 } end
+	if level == 2 then return { 1, 0.70, 0.70 } end
+	local h = ((level - 3) * 0.61803398875 + 0.58) % 1
+	local i, f = math.floor(h * 6), h * 6 - math.floor(h * 6)
+	local p, q, t = 0.58, 1 - 0.42 * f, 0.58 + 0.42 * f
+	local rgb = ({ { 1, t, p }, { q, 1, p }, { p, 1, t }, { p, q, 1 }, { t, p, 1 }, { 1, p, q } })[i + 1]
+	return rgb
+end
 
 M.DAMAGE_TEXT_COLOR = { 1, 1, 1 }
 M.TAKEN_TEXT_COLOR = { 1, 0.322, 0.322 }
@@ -355,7 +388,7 @@ local floating_text_id_counter = 0
 function M.mob_hp_for_wave(_wave) return M.MOB_MAX_HP end
 function M.mob_damage_for_wave(_wave) return M.MOB_DAMAGE end
 function M.ranged_damage_for_wave(_wave) return 3 end
-function M.mob_count_for_wave(wave) return 4 + wave end
+function M.mob_count_for_wave(wave) return 4 + math.ceil(wave / 2) end
 
 -- Bosses arrive on wave 3 and every third wave after (3, 6, 9, ...), each a
 -- tier stronger than the last.
@@ -372,14 +405,34 @@ function M.ranged_count_for_wave(wave)
 end
 
 function M.mob_type_stats(mob_type, wave)
+	local base, level = M.base_mob_type(mob_type)
+	local scale = 1.5 ^ (level - 1)
+	local function scaled(n) return math.floor(n * scale + 0.5) end
 	local melee_hp = M.mob_hp_for_wave(wave)
 	local melee_dmg = M.mob_damage_for_wave(wave)
-	if mob_type == "melee" then return { hp = melee_hp, damage = melee_dmg } end
-	if mob_type == "ranged" then
-		return { hp = math.floor(melee_hp * 0.7 + 0.5), damage = M.ranged_damage_for_wave(wave) }
+	if base == "melee" then return { hp = scaled(melee_hp), damage = scaled(melee_dmg) } end
+	if base == "ranged" then
+		return { hp = scaled(math.floor(melee_hp * 0.7 + 0.5)), damage = scaled(M.ranged_damage_for_wave(wave)) }
 	end
-	-- Bosses keep their first-encounter stats at every tier.
-	return { hp = 530, damage = 12 }
+	return { hp = scaled(150), damage = scaled(12) }
+end
+
+-- Starting at wave 4, one additional level-2 zombie replaces a normal melee
+-- zombie each wave. The count is capped by that wave's melee population.
+function M.level2_melee_count_for_wave(wave)
+	local melee = M.mob_count_for_wave(wave) - M.ranged_count_for_wave(wave)
+	return math.min(melee, math.max(0, math.min(6, wave - 3)))
+end
+
+local function progressive_types(base, count, wave)
+	local out = {}
+	if count <= 0 then return out end
+	local progress = math.max(0, wave - 3)
+	local low = progress == 0 and 1 or (1 + math.floor((progress - 1) / 6))
+	local high_count = progress == 0 and 0 or math.min(count, ((progress - 1) % 6) + 1)
+	for _ = 1, count - high_count do out[#out + 1] = M.mob_type_id(base, low) end
+	for _ = 1, high_count do out[#out + 1] = M.mob_type_id(base, low + 1) end
+	return out
 end
 
 function M.wave_composition(wave)
@@ -387,9 +440,19 @@ function M.wave_composition(wave)
 	local ranged = M.ranged_count_for_wave(wave)
 	local melee = total - ranged
 	local rows = {}
-	if melee > 0 then rows[#rows + 1] = { type = "melee", count = melee } end
-	if ranged > 0 then rows[#rows + 1] = { type = "ranged", count = ranged } end
-	if M.boss_tier_for_wave(wave) > 0 then rows[#rows + 1] = { type = "boss", count = 1 } end
+	local counts = {}
+	for _, type_id in ipairs(progressive_types("melee", melee, wave)) do counts[type_id] = (counts[type_id] or 0) + 1 end
+	for _, type_id in ipairs(progressive_types("ranged", ranged, wave)) do counts[type_id] = (counts[type_id] or 0) + 1 end
+	if M.boss_tier_for_wave(wave) > 0 then
+		local boss_id = progressive_types("boss", 1, wave)[1]
+		counts[boss_id] = 1
+	end
+	for _, base in ipairs({ "melee", "ranged", "boss" }) do
+		for level = 1, 2 + math.floor(math.max(0, wave - 3) / 6) do
+			local id = M.mob_type_id(base, level)
+			if counts[id] then rows[#rows + 1] = { type = id, count = counts[id] } end
+		end
+	end
 	return rows
 end
 
@@ -398,19 +461,19 @@ function M.build_wave_queue(wave)
 	local ranged = M.ranged_count_for_wave(wave)
 	local melee = total - ranged
 	local queue = {}
-	for _ = 1, melee do queue[#queue + 1] = "melee" end
-	for _ = 1, ranged do queue[#queue + 1] = "ranged" end
+	for _, id in ipairs(progressive_types("melee", melee, wave)) do queue[#queue + 1] = id end
+	for _, id in ipairs(progressive_types("ranged", ranged, wave)) do queue[#queue + 1] = id end
 	for i = #queue, 2, -1 do
 		local j = math.random(i)
 		queue[i], queue[j] = queue[j], queue[i]
 	end
-	if M.boss_tier_for_wave(wave) > 0 then queue[#queue + 1] = "boss" end
+	if M.boss_tier_for_wave(wave) > 0 then queue[#queue + 1] = progressive_types("boss", 1, wave)[1] end
 	return queue
 end
 
 function M.spawn_mob(mob_type, wave)
 	mob_id_counter = mob_id_counter + 1
-	local meta = M.MOB_TYPE_META[mob_type]
+	local meta = M.mob_type_meta(mob_type)
 	local stats = M.mob_type_stats(mob_type, wave)
 	local margin = meta.radius + 4
 	local min_y = meta.radius + M.PLAYER_TOP_BUFFER
@@ -448,7 +511,7 @@ function M.make_allies_for_level(level, origin, ability1_stats)
 		result[#result + 1] = {
 			id = ally_id_counter,
 			pos = {
-				x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.ALLY_RADIUS, origin.x + offset_x)),
+				x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x + offset_x)),
 				y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
 					math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
 			},
@@ -469,7 +532,7 @@ function M.make_seagull(level, origin, seagull_stats)
 	return {
 		id = ally_id_counter,
 		pos = {
-			x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.ALLY_RADIUS, origin.x)),
+			x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x)),
 			y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
 				math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
 		},

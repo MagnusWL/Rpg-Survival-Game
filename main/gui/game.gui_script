@@ -103,7 +103,7 @@ function init(self)
 	-- and the two strips sit close enough that the old order clipped the
 	-- bottom of the quick-cast labels under the HUD's opaque panel).
 	local hp_w = W * 0.20
-	local hp_x = 10
+	local hp_x = 51
 	local hp_h = 14
 	self.hp_w = hp_w
 	self.hp_bg = ui.box(hp_x + hp_w / 2, top_y, hp_w, hp_h, { 0, 0, 0 }, 1)
@@ -112,6 +112,11 @@ function init(self)
 	-- "HP 82/100", centred inside the bar itself rather than as separate
 	-- labels above it.
 	self.hp_text = ui.text(hp_x + hp_w / 2, top_y, "", 8, { 1, 1, 1 })
+	self.portrait_rim = ui.tex_box(27, top_y, 38, 38, "ring")
+	self.portrait_disc = ui.tex_box(27, top_y, 34, 34, "circle")
+	self.portrait = gui.new_box_node(vmath.vector3(27, top_y, 0), vmath.vector3(34, 34, 0))
+	gui.set_texture(self.portrait, "knight_idle")
+	gui.play_flipbook(self.portrait, "f0")
 	self.tech_text = ui.text(W - 10, layout.PLAY_TOP - 12, "", 9, { 0.6, 1, 0.6 }, gui.PIVOT_E)
 
 	-- Upgrades sits in the top row immediately after health, with the same
@@ -132,7 +137,7 @@ function init(self)
 	local quick_radius = 128
 	for i = 1, 3 do
 		local angle = math.rad(18 + (i - 1) * 27)
-		local x = W - quick_radius * math.cos(angle)
+		local x = quick_radius * math.cos(angle)
 		local y = quick_radius * math.sin(angle)
 		-- Same circular design as the skill tree and the menu's loadout
 		-- preview: dark disc, orange ring, icon on top -- no more per-skill
@@ -200,7 +205,7 @@ function init(self)
 
 	-- Game over.
 	self.go_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75))
-	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's is still lost in the dark", 15, { 1, 1, 1 }))
+	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's still lost in the dark", 15, { 1, 1, 1 }))
 	self.go_gold = ui.overlay(ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 }))
 	self.go_btn = ui.overlay(ui.plaque_button(W / 2, H / 2 - 60, 140, 44))
 	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Try Again", 13, { 1, 1, 1 }))
@@ -212,6 +217,7 @@ local function clear_overlay(self)
 	for _, n in ipairs(self.overlay_nodes) do gui.delete_node(n) end
 	self.overlay_nodes = {}
 	self.mobstats_built = nil
+	self.playerstats_built = nil
 	self.upgrades_built = nil
 	self.upgrades_clip = nil
 	self.upgrades_content = nil
@@ -300,26 +306,59 @@ local function build_mobstats(self)
 	local s = session.sim
 	local shown_wave = s.wave_active and s.wave or s.wave + 1
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.box(W / 2, H / 2, W - 40, 260, { 0.14, 0.105, 0.072 }, 1))
-	add(self, ui.grain(W / 2, H / 2, W - 40, 260, 0.16, "overlay"))
-	add(self, ui.text(W / 2, H / 2 + 105, ("Mobs · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
-	local y = H / 2 + 55
+	add(self, ui.box(W / 2, H / 2, W - 40, 350, { 0.14, 0.105, 0.072 }, 1))
+	add(self, ui.grain(W / 2, H / 2, W - 40, 350, 0.16, "overlay"))
+	add(self, ui.text(W / 2, H / 2 + 150, ("Mobs · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
+	local y = H / 2 + 108
 	for _, row in ipairs(combat.wave_composition(shown_wave)) do
-		local meta = combat.MOB_TYPE_META[row.type]
+		local meta = combat.mob_type_meta(row.type)
 		local stats = combat.mob_type_stats(row.type, shown_wave)
-		if row.type == "melee" then
-			local zombie = gui.new_box_node(vmath.vector3(W / 2 - 140, y, 0), vmath.vector3(60, 60, 0))
+		local base, level = combat.base_mob_type(row.type)
+		if base == "melee" then
+			local zombie = gui.new_box_node(vmath.vector3(W / 2 - 140, y, 0), vmath.vector3(42, 42, 0))
 			gui.set_texture(zombie, "zombie_walk")
 			gui.play_flipbook(zombie, "f0")
+			local tint = combat.mob_level_tint(level)
+			gui.set_color(zombie, vmath.vector4(tint[1], tint[2], tint[3], 1))
 			add(self, zombie)
 		else
 			add(self, ui.box(W / 2 - 130, y, 26, 26, meta.color, 1))
 		end
-		add(self, ui.text(W / 2 - 105, y + 7, ("%s · x%d"):format(meta.name, row.count), 12, { 1, 1, 1 }, gui.PIVOT_W))
-		add(self, ui.text(W / 2 - 105, y - 10, ("HP %d · DMG %d"):format(stats.hp, stats.damage), 10, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
-		y = y - 60
+		add(self, ui.text(W / 2 - 105, y + 6, ("%s · x%d"):format(meta.name, row.count), 10, { 1, 1, 1 }, gui.PIVOT_W))
+		add(self, ui.text(W / 2 - 105, y - 8, ("HP %d · DMG %d"):format(stats.hp, stats.damage), 9, { 0.75, 0.75, 0.8 }, gui.PIVOT_W))
+		y = y - 43
 	end
 	self.mobstats_built = true
+end
+
+local function build_playerstats(self)
+	clear_overlay(self)
+	local s, p = session.sim, session.sim.player
+	local bonus = upgrades.bonuses(s.upgrades)
+	local attack_cd = combat.PLAYER_ATTACK_COOLDOWN / (1 + bonus.attack_speed)
+		* (p.haste_timer > 0 and (1 / 1.5) or 1)
+	local lifesteal = bonus.lifesteal or 0
+	if p.haste_timer > 0 then lifesteal = lifesteal + skills.BERSERKER_LIFESTEAL end
+	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
+	add(self, ui.box(W / 2, H / 2, 360, 310, { 0.14, 0.105, 0.072 }, 1))
+	add(self, ui.grain(W / 2, H / 2, 360, 310, 0.16, "overlay"))
+	add(self, ui.text(W / 2, H / 2 + 112, "Knight Stats", 16, { 1, 1, 1 }))
+	local rows = {
+		("Health                 %d / %d"):format(math.floor(p.hp + 0.5), p.max_hp),
+		("Health regeneration    %.1f / sec"):format(combat.PLAYER_HEALTH_REGEN),
+		("Attack damage          %d"):format(combat.PLAYER_BASE_DAMAGE + bonus.attack_damage),
+		("Attack speed           %.2f / sec"):format(1 / attack_cd),
+		("Ability power          %d%%"):format(math.floor((1 + bonus.ability_power) * 100 + 0.5)),
+		("Lifesteal              %d%%"):format(math.floor(lifesteal * 100 + 0.5)),
+		("Movement speed         %d"):format(combat.PLAYER_SPEED),
+		("Upgrades               %d"):format(#s.upgrades),
+		("Wave                   %d"):format(s.wave),
+	}
+	for i, row in ipairs(rows) do
+		add(self, ui.text(W / 2 - 145, H / 2 + 72 - (i - 1) * 25, row, 10,
+			{ 0.88, 0.86, 0.80 }, gui.PIVOT_W))
+	end
+	self.playerstats_built = true
 end
 
 -- The wave-clear choice: three cards, pick one, it follows you for the rest
@@ -356,10 +395,12 @@ local function build_choice(self, offers)
 		return n
 	end
 	add_c(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.6), 0.6)
-	add_c(ui.text(W / 2, H / 2 + 190, "Choose an upgrade", 16, { 1, 1, 1 }))
+	add_c(ui.text(W / 2, H / 2 + 178, "Choose an upgrade", 16, { 1, 1, 1 }))
 	local card_h = 100
 	for i, offer in ipairs(offers) do
-		local y = H / 2 + 80 - (i - 1) * (card_h + 14)
+		-- Three 100px cards plus two 14px gaps form a 328px group. These
+		-- centres place that whole group exactly around the screen midpoint.
+		local y = H / 2 + 114 - (i - 1) * (card_h + 14)
 		local def = upgrades.DEFS[offer.kind]
 		local box = add_c(ui.box(W / 2, y, W - 60, card_h, { 0.14, 0.105, 0.072 }, 1))
 		-- Every upgrade wears the same face a skill would: dark disc, ring
@@ -405,16 +446,21 @@ local function sync_hud(self, s)
 	local p = s.player
 	local shown_wave = s.wave_active and s.wave or s.wave + 1
 	gui.set_text(self.wave_text, "Wave " .. shown_wave)
-	-- Next Wave: always tappable (even mid-spawn, to rush the next wave) and
-	-- always reads "Next Wave", with the auto-launch countdown appended while
-	-- one is running.
-	if s.wave_countdown ~= nil then
+	-- Milestone waves lock this control through their clear delay and choice.
+	if s.upgrade_offer_timer ~= nil then
+		gui.set_text(self.wave_btn_text, "Upgrade...")
+	elseif #s.pending_upgrade_offers > 0 then
+		gui.set_text(self.wave_btn_text, "Choose Upgrade")
+	elseif s.wave_countdown ~= nil then
 		gui.set_text(self.wave_btn_text, ("Next Wave  %d"):format(math.max(0, math.ceil(s.wave_countdown))))
 	else
 		gui.set_text(self.wave_btn_text, "Next Wave")
 	end
+	local wave_enabled = require("game.sim").can_start_next_wave(s)
 	gui.set_enabled(self.wave_btn, not s.game_over)
 	gui.set_enabled(self.wave_btn_text, not s.game_over)
+	gui.set_color(self.wave_btn, wave_enabled and vmath.vector4(1, 1, 1, 1) or vmath.vector4(0.42, 0.42, 0.42, 1))
+	gui.set_color(self.wave_btn_text, wave_enabled and vmath.vector4(0.965, 0.86, 0.6, 1) or vmath.vector4(0.55, 0.55, 0.55, 1))
 
 	local max_hp = p.max_hp
 
@@ -448,6 +494,7 @@ local function sync_hud(self, s)
 			skill_icon_ui.set_alpha(slot.icon_ui, can_cast and 1 or 0.55)
 			gui.set_enabled(slot.icon_ui.icon, true)
 			gui.play_flipbook(slot.icon_ui.icon, SKILL_ICON[ab.skill])
+			skill_icon_ui.set_rank(slot.icon_ui, ab.level)
 			gui.set_text(slot.cd, ab.cooldown > 0 and tostring(math.ceil(ab.cooldown)) or "")
 			gui.set_text(slot.label, meta.label)
 			local needed = skills.skill_xp_to_next(ab.level)
@@ -457,10 +504,12 @@ local function sync_hud(self, s)
 				gui.set_text(slot.progress, ("Lv%d  MAX"):format(ab.level))
 			end
 		elseif locked then
+			skill_icon_ui.set_rank(slot.icon_ui, nil)
 			skill_icon_ui.set_alpha(slot.icon_ui, 0.6)
 			gui.set_enabled(slot.icon_ui.icon, true)
 			gui.play_flipbook(slot.icon_ui.icon, "lock")
 		else
+			skill_icon_ui.set_rank(slot.icon_ui, nil)
 			-- Unlocked but empty: just the dim ring, no icon.
 			skill_icon_ui.set_alpha(slot.icon_ui, 0.6)
 			gui.set_enabled(slot.icon_ui.icon, false)
@@ -602,6 +651,8 @@ function update(self, dt)
 
 	if session.overlay == "upgrades" then
 		if not self.upgrades_built then build_upgrades_list(self) end
+	elseif session.overlay == "playerstats" then
+		if not self.playerstats_built then build_playerstats(self) end
 	elseif session.overlay == "mobstats" then
 		if not self.mobstats_built then build_mobstats(self) end
 	elseif #self.overlay_nodes > 0 then
@@ -719,6 +770,10 @@ function on_input(self, action_id, action)
 		-- Top bar.
 		if gui.pick_node(self.gear_btn, action.x, action.y) then
 			session.overlay = "settings"
+			return true
+		end
+		if gui.pick_node(self.portrait_disc, action.x, action.y) then
+			session.overlay = "playerstats"
 			return true
 		end
 		if gui.pick_node(self.mobstats_btn, action.x, action.y) then

@@ -62,10 +62,13 @@ M.BERSERKER_LIFESTEAL = 0.5
 -- Per-skill progression: every skill starts owned at rank 1 and ranks up on
 -- this curve from two income streams (see game.sim) -- half from clearing
 -- waves regardless of what you did, half from kills the skill itself lands.
-M.SKILL_XP_PER_LEVEL = { 150, 400, 900 } -- rank 1->2, 2->3, 3->4
+M.SKILL_XP_PER_LEVEL = { 100, 200, 300 } -- rank 1->2, 2->3, 3->4
 function M.skill_xp_to_next(level)
 	return M.SKILL_XP_PER_LEVEL[level]
 end
+
+local ROMAN = { "I", "II", "III", "IV" }
+function M.rank_roman(level) return ROMAN[level] or tostring(level or 0) end
 
 local function pick(t, level) return t[level] or 0 end
 
@@ -74,12 +77,12 @@ local function pick(t, level) return t[level] or 0 end
 M.FIREBALL_ENRAGE_DURATION = 5
 M.FIREBALL_ENRAGE_ATKSPD = 0.5
 function M.fireball_attack_damage(level) return pick({ 20, 30, 40, 50 }, level) end
-function M.burn_explode_percent(level) return pick({ 0.5, 0.6, 0.7, 1.0 }, level) end
+function M.burn_explode_damage(level) return pick({ 25, 50, 75, 100 }, level) end
 M.BURN_EXPLODE_RADIUS = 140 -- widened from 90
-function M.burn_damage_per_sec(level) return pick({ 5, 10, 15, 20 }, level) end
+function M.burn_damage_per_sec(level) return pick({ 2.5, 5, 7.5, 10 }, level) end
 function M.push_damage_percent(level) return pick({ 0.5, 1.0, 1.5, 2.0 }, level) end
 function M.chain_lightning_hits(level) return pick({ 3, 4, 5, 6 }, level) end
-function M.chain_lightning_damage(level) return pick({ 50, 100, 150, 200 }, level) end
+function M.chain_lightning_damage(level) return pick({ 25, 50, 75, 100 }, level) end
 M.CHAIN_LIGHTNING_FALLOFF = 0.8
 function M.sword_throw_percent(level) return pick({ 2.0, 2.5, 3.0, 3.5 }, level) end
 M.PUSH_SPEED = 360 -- gentler shove, so ranged enemies aren't knocked out of reach
@@ -87,13 +90,12 @@ M.PUSH_SPEED = 360 -- gentler shove, so ranged enemies aren't knocked out of rea
 M.PIERCE_WIDTH = 26
 
 function M.ability1_stats(level)
-	return { hp = pick({ 40, 100, 200, 400 }, level), damage = 5 * level }
+	return { hp = pick({ 80, 200, 400, 800 }, level), damage = 10 * level }
 end
 function M.seagull_stats(level)
-	return { hp = pick({ 40, 80, 120, 160 }, level), damage = pick({ 10, 20, 30, 40 }, level) }
+	return { hp = pick({ 80, 160, 240, 320 }, level), damage = pick({ 20, 40, 60, 80 }, level) }
 end
 function M.ability2_base_damage(level) return 10 * level end
-function M.ability2_damage_percent(level) return 0.1 + (level - 1) * 0.05 end
 function M.ability3_damage_bonus(level) return level * 4 end
 
 function M.nearest_target(from, targets, max_range)
@@ -110,7 +112,7 @@ end
 
 -- The cone's aim and arithmetic. Damage is not applied here; the caller
 -- delivers the returned hits (immediately, or riding the wave).
-function M.fire_cone(origin, aim_point, mobs, base_damage, damage_percent, range, half_angle_deg)
+function M.fire_cone(origin, aim_point, mobs, base_damage, _damage_percent, range, half_angle_deg)
 	local dir_angle = math.atan2(aim_point.y - origin.y, aim_point.x - origin.x) * 180 / math.pi
 	local hits = {}
 	for _, m in ipairs(mobs) do
@@ -118,7 +120,7 @@ function M.fire_cone(origin, aim_point, mobs, base_damage, damage_percent, range
 		if d <= range then
 			local mob_angle = math.atan2(m.pos.y - origin.y, m.pos.x - origin.x) * 180 / math.pi
 			if math.abs(combat.normalize_angle(mob_angle - dir_angle)) <= half_angle_deg then
-				local amount = base_damage + m.max_hp * damage_percent
+				local amount = base_damage
 				hits[#hits + 1] = { id = m.id, pos = { x = m.pos.x, y = m.pos.y }, amount = amount }
 			end
 		end
@@ -143,8 +145,7 @@ function M.skill_description(skill)
 		return ("Summons one Wild Boar at every level. HP %s, DMG %s."):format(hps, dmgs)
 	elseif skill == "cone" then
 		local bases = bracket(M.ability2_base_damage)
-		local pcts = bracket(function(l) return math.floor(M.ability2_damage_percent(l) * 100 + 0.5) .. "%" end)
-		return ("Deals %s damage plus %s of each enemy's max HP in a widening cone. Auto-aims at the nearest enemy, turning you to face it."):format(bases, pcts)
+		return ("Deals %s flat damage in a widening cone. Auto-aims at the nearest enemy, turning you to face it."):format(bases)
 	elseif skill == "ranged" then
 		return "Tap to gain +50% attack speed and 50% lifesteal for 5s"
 	elseif skill == "fireball" then
@@ -162,8 +163,8 @@ function M.skill_description(skill)
 		local pcts = bracket(function(l) return math.floor(M.sword_throw_percent(l) * 100 + 0.5) .. "%" end)
 		return ("Throws your sword at the nearest enemy for %s attack damage. A kill immediately refreshes the cooldown."):format(pcts)
 	elseif skill == "burn" then
-		local pcts = bracket(function(l) return math.floor(M.burn_explode_percent(l) * 100 + 0.5) .. "%" end)
-		return ("Sets the closest enemy afire. When it dies it explodes, dealing %s of its max health to nearby enemies."):format(pcts)
+		local damage = bracket(M.burn_explode_damage)
+		return ("Sets the closest enemy afire. When it dies it explodes, dealing %s flat damage to nearby enemies."):format(damage)
 	end
 	local pcts = bracket(function(l) return math.floor(M.push_damage_percent(l) * 100 + 0.5) .. "%" end)
 	return ("Shoves all enemies away from you, dealing %s of your attack damage."):format(pcts)

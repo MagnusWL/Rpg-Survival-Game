@@ -30,24 +30,31 @@ function M.run()
 	math.randomseed(42)
 
 	-- wave math
-	check("mob_count wave 3", combat.mob_count_for_wave(3) == 7)
+	check("mob_count wave 3", combat.mob_count_for_wave(3) == 6)
 	check("ranged wave 2", combat.ranged_count_for_wave(2) == 0)
 	check("ranged wave 3", combat.ranged_count_for_wave(3) == 1)
-	check("ranged wave 8", combat.ranged_count_for_wave(8) == 6)
+	check("ranged wave 8", combat.ranged_count_for_wave(8) == 4)
 	check("boss tier wave 2", combat.boss_tier_for_wave(2) == 0)
 	check("boss tier wave 3", combat.boss_tier_for_wave(3) == 1)
 	check("boss tier wave 6", combat.boss_tier_for_wave(6) == 2)
 	check("boss tier wave 7", combat.boss_tier_for_wave(7) == 0)
 	local q = combat.build_wave_queue(6)
-	check("wave 6 queue ends with boss", q[#q] == "boss")
+	check("wave 6 queue ends with boss", combat.base_mob_type(q[#q]) == "boss")
 	check("wave 6 queue size", #q == combat.mob_count_for_wave(6) + 1)
-	check("mob spawn interval doubled", near(combat.WAVE_SPAWN_INTERVAL, 2.0))
+	check("wave queue spawns within five seconds", near(combat.WAVE_SPAWN_WINDOW / #q, 5 / #q))
 	local st = combat.mob_type_stats("ranged", 5)
 	check("ranged hp is flat", st.hp == 14 and combat.mob_type_stats("ranged", 20).hp == 14)
 	check("melee hp is flat", combat.mob_type_stats("melee", 1).hp == 20
 		and combat.mob_type_stats("melee", 20).hp == 20)
-	check("boss stats are flat", combat.mob_type_stats("boss", 3).hp == 530
-		and combat.mob_type_stats("boss", 30).hp == 530)
+	check("boss stats are flat", combat.mob_type_stats("boss", 3).hp == 150
+		and combat.mob_type_stats("boss", 30).hp == 150)
+	check("level 2 zombie starts gentle", combat.mob_type_stats("melee2", 4).hp == 30
+		and combat.mob_type_stats("melee2", 4).damage == 3)
+	check("level 2 zombies begin after wave 3", combat.level2_melee_count_for_wave(3) == 0
+		and combat.level2_melee_count_for_wave(4) == 1
+		and combat.level2_melee_count_for_wave(5) == 2)
+	check("higher mob levels scale exponentially", combat.mob_type_stats("ranged3", 12).hp == 32
+		and combat.mob_type_stats("boss4", 24).hp == 506)
 	check("melee damage is flat swapped value", combat.mob_type_stats("melee", 1).damage == 2
 		and combat.mob_type_stats("melee", 20).damage == 2)
 	check("ranged damage is flat swapped value", combat.mob_type_stats("ranged", 1).damage == 3
@@ -109,6 +116,9 @@ function M.run()
 	local b_combo = upgrades.bonuses({ { kind = "summoner" }, { kind = "comboer" } })
 	check("comboer amplifies other upgrades", near(b_combo.summon_health, 0.5 * 1.1))
 	check("comboer does not amplify itself (combo field)", near(b_combo.combo, 0.1))
+	local b_power = upgrades.bonuses({ { kind = "abilitypower" }, { kind = "attackdamage" }, { kind = "attackspeed" } })
+	check("new combat upgrades", near(b_power.ability_power, 0.25)
+		and near(b_power.attack_damage, 5) and near(b_power.attack_speed, 0.2))
 	local offers = upgrades.roll_offers(5)
 	check("three offers", #offers == 3)
 	local kinds = {}
@@ -120,18 +130,19 @@ function M.run()
 	-- skills: catalog and per-skill xp curve. No passives here any more --
 	-- Haste/Summon Regen/Pierce moved to game.upgrades.
 	check("cone range", near(skills.CONE_RANGE, math.sqrt(layout.SCREEN_W ^ 2 + layout.PLAY_H ^ 2)))
-	check("wild boar lvl3", skills.ability1_stats(3).hp == 200 and skills.ability1_stats(3).damage == 15)
-	check("wild boar health curve", skills.ability1_stats(1).hp == 40 and skills.ability1_stats(4).hp == 400)
-	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 160 and skills.seagull_stats(4).damage == 40)
+	check("wild boar lvl3", skills.ability1_stats(3).hp == 400 and skills.ability1_stats(3).damage == 30)
+	check("wild boar health curve", skills.ability1_stats(1).hp == 80 and skills.ability1_stats(4).hp == 800)
+	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 320 and skills.seagull_stats(4).damage == 80)
 	check("seagull requires wild boar", skills.SKILL_PARENT.seagull == "summon")
 	check("fire enrage damage curve", skills.fireball_attack_damage(1) == 20 and skills.fireball_attack_damage(4) == 50)
 	check("chain lightning curve", skills.chain_lightning_hits(1) == 3 and skills.chain_lightning_hits(4) == 6
-		and skills.chain_lightning_damage(1) == 50 and skills.chain_lightning_damage(4) == 200)
+		and skills.chain_lightning_damage(1) == 25 and skills.chain_lightning_damage(4) == 100)
 	check("chain lightning requires shockwave", skills.SKILL_PARENT.chainlightning == "cone")
 	check("sword throw curve", near(skills.sword_throw_percent(1), 2.0) and near(skills.sword_throw_percent(4), 3.5))
 	check("sword throw requires berserker", skills.SKILL_PARENT.swordthrow == "ranged")
-	check("burn pct lvl4", skills.burn_explode_percent(4) == 1.0)
-	check("xp to next lvl1", skills.skill_xp_to_next(1) == 150)
+	check("burn flat damage lvl4", skills.burn_explode_damage(4) == 100)
+	check("xp to next lvl1", skills.skill_xp_to_next(1) == 100)
+	check("xp curve", skills.skill_xp_to_next(2) == 200 and skills.skill_xp_to_next(3) == 300)
 	check("xp to next lvl4 (maxed)", skills.skill_xp_to_next(4) == nil)
 	check("berserker active lifesteal", near(skills.BERSERKER_LIFESTEAL, 0.5))
 	check("berserker has no health passive", skills.BERSERKER_BONUS_HP == nil and skills.BERSERKER_REGEN == nil)
@@ -150,7 +161,7 @@ function M.run()
 	}
 	local hits = skills.fire_cone({ x = 0, y = 0 }, { x = 200, y = 0 }, mobs, 10, 0.1, skills.CONE_RANGE, 21)
 	check("cone hits ahead only", #hits == 1 and hits[1].id == 1)
-	check("cone damage math", near(hits[1].amount, 10 + 100 * 0.1))
+	check("cone damage is flat", near(hits[1].amount, 10))
 
 	-- meta defaults: every skill starts locked (level 0), 5 starting gold
 	local dm = meta_mod.default_meta()
@@ -226,6 +237,22 @@ function M.run()
 	check("wave 1 cleared", s.highest_wave_cleared == 1)
 	check("player survived wave 1", s.player.hp > 0)
 	check("no upgrade offer on a non-boss wave", #s.pending_upgrade_offers == 0)
+
+	-- Every ninth wave is a hard gate and reveals its upgrade one second after
+	-- the last enemy is gone.
+	local milestone = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	milestone.player.intro_phase = "done"
+	milestone.wave = 9
+	milestone.loot_owed = { 9 }
+	check("wave 9 blocks wave 10", not sim.start_next_wave(milestone) and milestone.wave == 9)
+	sim.update(milestone, 0.5)
+	check("milestone clear starts delayed upgrade", milestone.upgrade_offer_timer ~= nil
+		and #milestone.pending_upgrade_offers == 0)
+	sim.update(milestone, 0.49)
+	check("upgrade remains hidden for one second", #milestone.pending_upgrade_offers == 0)
+	sim.update(milestone, 0.52)
+	check("upgrade appears after one second", #milestone.pending_upgrade_offers == 1)
+	check("pending milestone choice still blocks next wave", not sim.can_start_next_wave(milestone))
 
 	-- sim: movement is withheld until an offer is answered, then resumes.
 	-- Boss waves are what queue offers; inject one here to drive the flow.
@@ -395,14 +422,14 @@ function M.run()
 	local b = combat.spawn_mob("melee", 1)
 	a.pos = { x = 50, y = 50 }
 	b.pos = { x = 90, y = 50 } -- inside BURN_EXPLODE_RADIUS of a
-	a.burn_pct = 1.0
+	a.burn_blast = 50
 	a.hp = 0
 	b.hp = 200
 	b.max_hp = 200
 	s3.mobs = { a, b }
 	s3.player.pos = { x = 350, y = 600 } -- far away, no melee interference
 	sim.update(s3, 1 / 60)
-	check("burn blast damaged neighbour", s3.mobs[1] ~= nil and s3.mobs[1].hp <= 200 - a.max_hp)
+	check("burn blast damaged neighbour by flat amount", s3.mobs[1] ~= nil and s3.mobs[1].hp <= 150)
 
 	-- sim: push shoves and damages everyone, using upgrades instead of items
 	local s4 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })

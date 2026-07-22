@@ -15,6 +15,10 @@ textures {
   name: "zombie_walk"
   texture: "/main/tiles/zombie_walk.tilesource"
 }
+textures {
+  name: "knight_idle"
+  texture: "/main/tiles/knight_idle.tilesource"
+}
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 4096
 layers {

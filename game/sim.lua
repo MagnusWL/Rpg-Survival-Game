@@ -15,6 +15,8 @@ local PLAY_H = layout.PLAY_H
 -- Seconds a cleared wave (or the start of the run) counts down before the next
 -- wave launches on its own. The player can still start early with Next Wave.
 M.WAVE_COUNTDOWN = 5
+M.UPGRADE_EVERY_WAVES = 9
+M.UPGRADE_REVEAL_DELAY = 1
 
 -- Measured clip lead times (assets/sounds/leads.json): how early each clip
 -- must start so its loudest moment lands on the frame it belongs to.
@@ -41,6 +43,8 @@ function M.new(game_state, opts)
 		-- Choices owed to the player: one set of three offers per cleared
 		-- wave, answered oldest first.
 		pending_upgrade_offers = {},
+		upgrade_offer_timer = nil,
+		upgrade_offer_wave = nil,
 		-- Per-skill progression, mirrored from the account meta at run start;
 		-- every change is also emitted as an event for the meta to persist.
 		skill_levels = opts.skill_levels or {},
@@ -113,6 +117,10 @@ local function cd_scale(s)
 	return math.max(0.1, 1 - upgrades.bonuses(s.upgrades).cooldown)
 end
 
+local function ability_power(s)
+	return 1 + upgrades.bonuses(s.upgrades).ability_power
+end
+
 -- Vampire and the active Berserker buff heal the player for a fraction of
 -- damage dealt, capped at their normal max HP.
 local function apply_lifesteal(s, dmg)
@@ -160,7 +168,7 @@ function M.cast_cone_aimed(s, slot, point)
 	p.target = nil
 	add_cone_zone(s, p.pos, math.atan2(point.y - p.pos.y, point.x - p.pos.x) * 180 / math.pi)
 	local hits = skills.fire_cone(p.pos, point, s.mobs,
-		skills.ability2_base_damage(ab.level), skills.ability2_damage_percent(ab.level),
+		skills.ability2_base_damage(ab.level) * ability_power(s), 0,
 		skills.CONE_RANGE, skills.ABILITY2_HALF_ANGLE_DEG)
 	queue_cone_hits(s, hits, p.pos)
 	ab.cooldown = skills.SKILL_META.cone.cooldown * cd_scale(s)
@@ -177,9 +185,11 @@ function M.press_ability(s, slot)
 		s.pending_cast_anim = "ancestor"
 		-- Summoner upgrade: every summon rolls off with extra health.
 		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health
+		local ap = ability_power(s)
 		local spawned = combat.make_allies_for_level(ab.level, p.pos, function(l)
 			local st = skills.ability1_stats(l)
 			st.hp = math.floor(st.hp * sh)
+			st.damage = st.damage * ap
 			return st
 		end)
 		local kept = {}
@@ -191,9 +201,11 @@ function M.press_ability(s, slot)
 	elseif skill == "seagull" then
 		s.pending_cast_anim = "ancestor"
 		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health
+		local ap = ability_power(s)
 		local bird = combat.make_seagull(ab.level, p.pos, function(l)
 			local st = skills.seagull_stats(l)
 			st.hp = math.floor(st.hp * sh)
+			st.damage = st.damage * ap
 			return st
 		end)
 		local kept = {}
@@ -226,7 +238,7 @@ function M.press_ability(s, slot)
 		local splash = 1 + upgrades.bonuses(s.upgrades).splash
 		add_cone_zone(s, p.pos, math.atan2(aim.y - p.pos.y, aim.x - p.pos.x) * 180 / math.pi)
 		local hits = skills.fire_cone(p.pos, aim, s.mobs,
-			skills.ability2_base_damage(ab.level), skills.ability2_damage_percent(ab.level),
+			skills.ability2_base_damage(ab.level) * ability_power(s), 0,
 			skills.CONE_RANGE * splash, skills.ABILITY2_HALF_ANGLE_DEG)
 		queue_cone_hits(s, hits, p.pos)
 	elseif skill == "ranged" then
@@ -239,7 +251,7 @@ function M.press_ability(s, slot)
 		for _, a in ipairs(s.allies) do
 			if a.hp > 0 then
 				a.enrage_timer = skills.FIREBALL_ENRAGE_DURATION
-				a.enrage_damage = skills.fireball_attack_damage(ab.level)
+				a.enrage_damage = skills.fireball_attack_damage(ab.level) * ability_power(s)
 				any = true
 			end
 		end
@@ -253,8 +265,8 @@ function M.press_ability(s, slot)
 		if not target then return end
 		for _, m in ipairs(s.mobs) do
 			if m.id == target.id then
-				m.burn_pct = skills.burn_explode_percent(ab.level)
-				m.burn_dps = skills.burn_damage_per_sec(ab.level)
+				m.burn_blast = skills.burn_explode_damage(ab.level) * ability_power(s)
+				m.burn_dps = skills.burn_damage_per_sec(ab.level) * ability_power(s)
 			end
 		end
 		s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text("afire", target.pos, { 1, 0.439, 0.263 }, s.now)
@@ -265,7 +277,7 @@ function M.press_ability(s, slot)
 	elseif skill == "chainlightning" then
 		local origin = { x = p.pos.x, y = p.pos.y }
 		local hit_ids = {}
-		local damage = skills.chain_lightning_damage(ab.level)
+		local damage = skills.chain_lightning_damage(ab.level) * ability_power(s)
 		local hit_count = 0
 		for jump = 1, skills.chain_lightning_hits(ab.level) do
 			local target, best = nil, math.huge
@@ -310,7 +322,8 @@ function M.press_ability(s, slot)
 			created_at = s.now,
 			duration = math.max(0.08, best / combat.PROJECTILE_SPEED),
 			color = skills.SKILL_META.swordthrow.color,
-			damage = combat.PLAYER_BASE_DAMAGE * skills.sword_throw_percent(ab.level),
+			damage = (combat.PLAYER_BASE_DAMAGE + upgrades.bonuses(s.upgrades).attack_damage)
+				* skills.sword_throw_percent(ab.level) * ability_power(s),
 			friendly = true,
 			target_kind = "mob",
 			target_id = target.id,
@@ -318,7 +331,8 @@ function M.press_ability(s, slot)
 			refresh_slot = slot,
 		}
 	elseif skill == "push" then
-		local dmg = skills.push_damage_percent(ab.level) * combat.PLAYER_BASE_DAMAGE
+		local dmg = skills.push_damage_percent(ab.level)
+			* (combat.PLAYER_BASE_DAMAGE + upgrades.bonuses(s.upgrades).attack_damage) * ability_power(s)
 		for _, m in ipairs(s.mobs) do
 			local dx = m.pos.x - p.pos.x
 			local dy = m.pos.y - p.pos.y
@@ -340,13 +354,26 @@ function M.press_ability(s, slot)
 	ab.cooldown = skills.SKILL_META[skill].cooldown * cd_scale(s)
 end
 
+function M.can_start_next_wave(s)
+	if s.game_over or s.upgrade_offer_timer ~= nil or #s.pending_upgrade_offers > 0 then return false end
+	for _, wave in ipairs(s.loot_owed) do
+		if wave % M.UPGRADE_EVERY_WAVES == 0 then return false end
+	end
+	return true
+end
+
 function M.start_next_wave(s)
-	if s.game_over then return end
+	if not M.can_start_next_wave(s) then return false end
 	s.wave_countdown = nil -- launching now cancels any pending auto-launch
 	s.wave = s.wave + 1
-	s.wave_queues[#s.wave_queues + 1] = { wave = s.wave, types = combat.build_wave_queue(s.wave), timer = 0 }
+	local types = combat.build_wave_queue(s.wave)
+	s.wave_queues[#s.wave_queues + 1] = {
+		wave = s.wave, types = types, timer = 0,
+		interval = combat.WAVE_SPAWN_WINDOW / math.max(1, #types),
+	}
 	s.wave_active = true
 	s.loot_owed[#s.loot_owed + 1] = s.wave
+	return true
 end
 
 -- Tap on the play field: order a move (or aim the cone).
@@ -359,7 +386,7 @@ function M.tap_field(s, x, y)
 	if s.player.intro_phase ~= "done" then return end
 	if #s.pending_upgrade_offers > 0 then return end -- must answer the offer first
 	s.player.target = {
-		x = math.max(combat.PLAYER_RADIUS, math.min(SCREEN_W - combat.PLAYER_RADIUS, x)),
+		x = math.max(combat.PLAYER_RADIUS, math.min(SCREEN_W - combat.PLAYER_RIGHT_BUFFER - combat.PLAYER_RADIUS, x)),
 		y = math.max(combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER,
 			math.min(PLAY_H - combat.PLAYER_RADIUS, y)),
 	}
@@ -537,7 +564,7 @@ function M.update(s, dt)
 
 	-- Not while running in: he starts beyond the left edge on purpose.
 	if p.intro_phase ~= "enter" then
-		p.pos.x = math.max(combat.PLAYER_RADIUS, math.min(SCREEN_W - combat.PLAYER_RADIUS, p.pos.x))
+		p.pos.x = math.max(combat.PLAYER_RADIUS, math.min(SCREEN_W - combat.PLAYER_RIGHT_BUFFER - combat.PLAYER_RADIUS, p.pos.x))
 		p.pos.y = math.max(combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER,
 			math.min(PLAY_H - combat.PLAYER_RADIUS, p.pos.y))
 	end
@@ -556,9 +583,11 @@ function M.update(s, dt)
 	local is_ranged_attack = false
 	local ally_regen = 0
 	local player_attack_range = combat.PLAYER_ATTACK_RANGE
-	local player_damage = combat.PLAYER_BASE_DAMAGE
+	local run_bonus = upgrades.bonuses(s.upgrades)
+	local player_damage = combat.PLAYER_BASE_DAMAGE + run_bonus.attack_damage
 	-- +50% attack speed is 1.5x attacks per second, or two-thirds cooldown.
-	local attack_cooldown_duration = combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and (1 / 1.5) or 1)
+	local attack_cooldown_duration = combat.PLAYER_ATTACK_COOLDOWN
+		/ (1 + run_bonus.attack_speed) * (p.haste_timer > 0 and (1 / 1.5) or 1)
 	local attack_anim_speed = math.max(1, combat.anim_duration(combat.ANIMS.attack) / attack_cooldown_duration)
 	-- A plain auto-attack answers to no skill for kill xp now.
 	local player_atk_skill = nil
@@ -605,8 +634,9 @@ function M.update(s, dt)
 			if next_anim ~= m.anim or not combat.MOB_ANIMS[next_anim].loop then m.anim_time = 0 end
 			m.anim = next_anim
 		end
-		local detect = m.type == "boss" and 99999
-			or (m.type == "ranged" and 260 or combat.RANGED_ATTACK_RANGE)
+		local mob_base = combat.base_mob_type(m.type)
+		local detect = mob_base == "boss" and 99999
+			or (mob_base == "ranged" and 260 or combat.RANGED_ATTACK_RANGE)
 
 		local nearest, nearest_dist = nil, math.huge
 		local d_to_player = combat.dist(m.pos, p.pos)
@@ -617,7 +647,7 @@ function M.update(s, dt)
 		for _, a in ipairs(s.allies) do
 			-- Flying summons are invisible to melee enemies and can only be
 			-- targeted by ranged mobs.
-			if a.hp > 0 and (not a.flying or m.type == "ranged") then
+			if a.hp > 0 and (not a.flying or mob_base == "ranged") then
 				local d_to_ally = combat.dist(m.pos, a.pos)
 				if d_to_ally <= detect and d_to_ally < nearest_dist then
 					nearest = { kind = "ally", id = a.id, pos = a.pos }
@@ -634,7 +664,7 @@ function M.update(s, dt)
 		else
 			m.facing = combat.facing_from_delta(nearest.pos.x - m.pos.x, nearest.pos.y - m.pos.y)
 
-			if m.type == "ranged" then
+			if mob_base == "ranged" then
 				if nearest_dist <= combat.MOB_RANGED_FIRE_RANGE then
 					if m.attack_cooldown <= 0 then
 						s.projectiles_new = s.projectiles_new or {}
@@ -840,8 +870,8 @@ function M.update(s, dt)
 					local dy = nearest.pos.y - a.pos.y
 					local ratio = math.min(1, combat.ALLY_SPEED * dt / d)
 					a.pos = {
-						x = math.max(combat.ALLY_RADIUS,
-							math.min(SCREEN_W - combat.ALLY_RADIUS, a.pos.x + dx * ratio)),
+							x = math.max(combat.ALLY_RADIUS,
+								math.min(SCREEN_W - combat.PLAYER_RIGHT_BUFFER - combat.ALLY_RADIUS, a.pos.x + dx * ratio)),
 						y = math.max(combat.ALLY_RADIUS + combat.PLAYER_TOP_BUFFER,
 							math.min(PLAY_H - combat.ALLY_RADIUS, a.pos.y + dy * ratio)),
 					}
@@ -878,14 +908,14 @@ function M.update(s, dt)
 	do
 		local pending = {}
 		for _, m in ipairs(s.mobs) do
-			if m.hp <= 0 and (m.burn_pct or 0) > 0 then pending[#pending + 1] = m end
+			if m.hp <= 0 and (m.burn_blast or 0) > 0 then pending[#pending + 1] = m end
 		end
 		local exploded = {}
 		while #pending > 0 do
 			local src = table.remove(pending, 1)
 			if not exploded[src.id] then
 				exploded[src.id] = true
-				local blast = src.max_hp * (src.burn_pct or 0)
+				local blast = src.burn_blast or 0
 				local burn_radius = skills.BURN_EXPLODE_RADIUS * (1 + bonus.splash)
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text("boom!", src.pos, { 1, 0.439, 0.263 }, now)
 				for _, m in ipairs(s.mobs) do
@@ -894,7 +924,7 @@ function M.update(s, dt)
 						m.last_hit_skill = "burn"
 						s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
 						s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(blast + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
-						if m.hp <= 0 and (m.burn_pct or 0) > 0 and not exploded[m.id] then
+						if m.hp <= 0 and (m.burn_blast or 0) > 0 and not exploded[m.id] then
 							pending[#pending + 1] = m
 						end
 					end
@@ -913,7 +943,7 @@ function M.update(s, dt)
 		else
 			any_mob_died = true
 			last_death_pos = { x = m.pos.x, y = m.pos.y }
-			if m.type == "melee" then
+			if combat.base_mob_type(m.type) == "melee" then
 				s.corpses[#s.corpses + 1] = {
 					id = next_id("corpse"), pos = { x = m.pos.x, y = m.pos.y }, facing = m.facing,
 					anim = math.random() < 0.5 and "die" or "die2", age = 0,
@@ -928,7 +958,7 @@ function M.update(s, dt)
 			if m.last_hit_skill then
 				grant_skill_kill_xp(s, m.last_hit_skill, m.pos)
 			end
-			local coins = m.type == "boss" and combat.BOSS_COINS or (math.random() < combat.MOB_COIN_CHANCE and 1 or 0)
+			local coins = combat.base_mob_type(m.type) == "boss" and combat.BOSS_COINS or (math.random() < combat.MOB_COIN_CHANCE and 1 or 0)
 			if coins > 0 then
 				-- Greeder upgrade: more gold this whole run.
 				coins = math.floor(coins * (1 + bonus.gold) + 0.5)
@@ -1162,8 +1192,8 @@ function M.update(s, dt)
 		local still_spawning = {}
 		for _, entry in ipairs(s.wave_queues) do
 			entry.timer = entry.timer + dt
-			if entry.timer >= combat.WAVE_SPAWN_INTERVAL then
-				entry.timer = entry.timer - combat.WAVE_SPAWN_INTERVAL
+			while #entry.types > 0 and entry.timer >= entry.interval do
+				entry.timer = entry.timer - entry.interval
 				local mob_type = table.remove(entry.types, 1)
 				if mob_type then s.mobs[#s.mobs + 1] = combat.spawn_mob(mob_type, entry.wave) end
 			end
@@ -1173,11 +1203,13 @@ function M.update(s, dt)
 		if #s.wave_queues == 0 then s.wave_active = false end
 	end
 
-	-- Each owed wave clears on its own: an upgrade offer and gold count. The
+	-- Each owed wave clears on its own. Every ninth wave schedules an upgrade
+	-- choice one second after its final enemy dies.
 	-- offer is queued rather than picked for you -- the player
 	-- answers it (M.choose_upgrade) whenever they get to it; movement waits
 	-- on the oldest unanswered one (see tap_field).
 	local wave_just_cleared = false
+	local upgrade_scheduled_this_frame = false
 	if #s.loot_owed > 0 then
 		local still_owed = {}
 		for _, w in ipairs(s.loot_owed) do
@@ -1190,9 +1222,10 @@ function M.update(s, dt)
 				if m.wave == w then any_alive = true break end
 			end
 			if done_spawning and not any_alive then
-				-- Only boss waves (3, 6, 9, ...) hand out an upgrade choice.
-				if combat.boss_tier_for_wave(w) > 0 then
-					s.pending_upgrade_offers[#s.pending_upgrade_offers + 1] = upgrades.roll_offers(w)
+				if w % M.UPGRADE_EVERY_WAVES == 0 then
+					s.upgrade_offer_timer = M.UPGRADE_REVEAL_DELAY
+					s.upgrade_offer_wave = w
+					upgrade_scheduled_this_frame = true
 				end
 				wave_just_cleared = true
 				s.highest_wave_cleared = math.max(s.highest_wave_cleared, w)
@@ -1209,13 +1242,22 @@ function M.update(s, dt)
 		end
 	end
 
+	if s.upgrade_offer_timer ~= nil and not upgrade_scheduled_this_frame then
+		s.upgrade_offer_timer = s.upgrade_offer_timer - dt
+		if s.upgrade_offer_timer <= 0 then
+			s.pending_upgrade_offers[#s.pending_upgrade_offers + 1] = upgrades.roll_offers(s.upgrade_offer_wave)
+			s.upgrade_offer_timer = nil
+			s.upgrade_offer_wave = nil
+		end
+	end
+
 	-- Auto-advance: once the intro is done, a cleared wave (or the start of the
 	-- run) counts down and then launches the next wave on its own. It holds
 	-- while a wave is live, the player is dying, or an upgrade offer is still
 	-- unanswered; the player can always tap Next Wave to go early.
 	if s.wave_countdown ~= nil and not s.game_over and not s.wave_active
 		and s.die_timer == nil and s.player.intro_phase == "done"
-		and #s.pending_upgrade_offers == 0 then
+		and #s.pending_upgrade_offers == 0 and s.upgrade_offer_timer == nil then
 		s.wave_countdown = s.wave_countdown - dt
 		if s.wave_countdown <= 0 then
 			M.start_next_wave(s)
