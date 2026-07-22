@@ -107,9 +107,12 @@ function init(self)
 	local scale = math.max(W / 941, H / 1672)
 	self.bg = ui.tex_box(W / 2, H / 2, 941 * scale, 1672 * scale, "bg")
 
-	local bw = W * BUTTON_WIDTH
+	-- The source menu was composed for portrait. In landscape, keep the main
+	-- plaque compact so the loadout and Skills button remain on-screen below it.
+	local landscape = W > H
+	local bw = landscape and math.min(420, W * 0.52) or W * BUTTON_WIDTH
 	local bh = bw / BUTTON_ASPECT
-	local by = H - (H * BUTTON_TOP) - bh / 2
+	local by = landscape and (H - 105) or (H - (H * BUTTON_TOP) - bh / 2)
 	self.plaque = ui.tex_box(W / 2, by, bw, bh, "button")
 	ui.button(self.buttons, self.plaque, function()
 		if not session.actions or self.tearing then return end
@@ -168,9 +171,26 @@ function init(self)
 	-- after the links so the falling pieces pass over them, before the
 	-- settings overlay so that stays on top.
 	self.tearing = false
-	self.tear = gui.new_box_node(
-		vmath.vector3(TEAR_BOX.x + TEAR_BOX.w / 2, H - (TEAR_BOX.y + TEAR_BOX.h / 2), 0),
-		vmath.vector3(TEAR_BOX.w, TEAR_BOX.h, 0))
+	local tear_x = TEAR_BOX.x + TEAR_BOX.w / 2
+	local tear_y = H - (TEAR_BOX.y + TEAR_BOX.h / 2)
+	local tear_w, tear_h = TEAR_BOX.w, TEAR_BOX.h
+	if landscape then
+		-- The film is a 390x413 crop of the original portrait screen, not a
+		-- plaque-shaped image. Scale both axes uniformly so its intact first
+		-- frame matches the resized plaque without vertically squashing every
+		-- falling piece. Preserve the crop-to-plaque centre offset as well.
+		local source_w, source_h = 390, 844
+		local source_button_w = source_w * BUTTON_WIDTH
+		local source_button_h = source_button_w / BUTTON_ASPECT
+		local source_button_y = source_h - source_h * BUTTON_TOP - source_button_h / 2
+		local source_tear_y = source_h - (TEAR_BOX.y + TEAR_BOX.h / 2)
+		local film_scale = bw / source_button_w
+		tear_x = W / 2
+		tear_y = by + (source_tear_y - source_button_y) * film_scale
+		tear_w = TEAR_BOX.w * film_scale
+		tear_h = TEAR_BOX.h * film_scale
+	end
+	self.tear = gui.new_box_node(vmath.vector3(tear_x, tear_y, 0), vmath.vector3(tear_w, tear_h, 0))
 	gui.set_texture(self.tear, "tear")
 	gui.set_enabled(self.tear, false)
 
@@ -283,7 +303,10 @@ function on_input(self, action_id, action)
 			for i, pod in ipairs(self.loadout_icons) do
 				local sid = m.loadout[i]
 				if sid and gui.pick_node(pod.disc, action.x, action.y) then
-					local p = gui.get_screen_position(pod.disc)
+					-- These menu icons are unparented and already live in logical GUI
+					-- space. Screen position is DPI-scaled and made the tooltip hit its
+					-- top clamp instead of sitting above the icon.
+					local p = gui.get_position(pod.disc)
 					local level = m.skill_levels[sid] or 1
 					skill_tip_ui.show(self.skill_tip, sid, level, m.skill_xp[sid] or 0, skills.skill_xp_to_next(level), p.x, p.y)
 					return true

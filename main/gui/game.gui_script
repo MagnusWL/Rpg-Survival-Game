@@ -86,71 +86,66 @@ function init(self)
 	self.aim_cone = ui.box(0, 0, 10, 10, { 1, 0.541, 0.314 }, 0.28)
 	gui.set_enabled(self.aim_cone, false)
 
-	-- Top bar.
-	self.top_bar = ui.box(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT, { 0.11, 0.082, 0.055 }, 1)
-	ui.grain(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT)
-	-- Top-bar actions: Exit Run on the left; the wave readout, Mobs, and the
-	-- settings cog on the right (the cog pinned to the very edge). The Next
-	-- Wave button now lives in the bottom bar, built further down.
-	self.exit_btn = ui.plaque_button(52, H - 25, 92, 38)
-	self.exit_text = ui.text(52, H - 25, "Exit run", 11, { 0.965, 0.86, 0.6 })
-	self.wave_text = ui.text(W - 170, H - 25, "Wave 1", 12, { 1, 1, 1 })
-	self.mobstats_btn = ui.plaque_button(W - 92, H - 25, 74, 38)
-	self.mobstats_text = ui.text(W - 92, H - 25, "Mobs", 11, { 0.965, 0.86, 0.6 })
-	self.gear_btn = ui.plaque_button(W - 26, H - 25, 36, 36)
-	self.gear_text = ui.tex_box(W - 26, H - 25, 20, 20, "cog")
+	-- Floating top controls, with no banner behind them. Next Wave owns the
+	-- far-right thumb position, immediately beside the smaller Mobs button.
+	local top_y = H - 18
+	self.wave_btn = ui.plaque_button(W - 51, top_y, 82, 30)
+	self.wave_btn_text = ui.text(W - 51, top_y, "Next Wave", 8, { 0.965, 0.86, 0.6 })
+	self.mobstats_btn = ui.plaque_button(W - 128, top_y, 58, 30)
+	self.mobstats_text = ui.text(W - 128, top_y, "Mobs", 9, { 0.965, 0.86, 0.6 })
+	self.gear_btn = ui.plaque_button(W - 178, top_y, 30, 30)
+	self.gear_text = ui.tex_box(W - 178, top_y, 17, 17, "cog")
+	self.wave_text = ui.text(W - 235, top_y, "Wave 1", 10, { 1, 1, 1 })
 
 	-- HUD: HP alone now, spanning the width where three columns used to sit.
 	-- Built before the quick-cast bar so its background can never draw over
 	-- the quick-cast bar's own text (Defold GUI stacks by creation order,
 	-- and the two strips sit close enough that the old order clipped the
 	-- bottom of the quick-cast labels under the HUD's opaque panel).
-	local hud_y = layout.HUD_HEIGHT / 2
-	self.hud_bg = ui.box(W / 2, hud_y, W, layout.HUD_HEIGHT, { 0.11, 0.082, 0.055 }, 1)
-	ui.grain(W / 2, hud_y, W, layout.HUD_HEIGHT)
-	local hp_w = W - 40
-	local hp_x = 20
-	local hp_h = 20 -- doubled from the original 10
-	self.hp_bg = ui.box(hp_x + hp_w / 2, hud_y + 6, hp_w, hp_h, { 0, 0, 0 }, 1)
-	self.hp_fill = ui.box(hp_x, hud_y + 6, hp_w, hp_h, { 0.298, 0.686, 0.314 }, 1)
+	local hp_w = W * 0.20
+	local hp_x = 10
+	local hp_h = 14
+	self.hp_w = hp_w
+	self.hp_bg = ui.box(hp_x + hp_w / 2, top_y, hp_w, hp_h, { 0, 0, 0 }, 1)
+	self.hp_fill = ui.box(hp_x, top_y, hp_w, hp_h, { 0.298, 0.686, 0.314 }, 1)
 	gui.set_pivot(self.hp_fill, gui.PIVOT_W)
 	-- "HP 82/100", centred inside the bar itself rather than as separate
 	-- labels above it.
-	self.hp_text = ui.text(hp_x + hp_w / 2, hud_y + 6, "", 11, { 1, 1, 1 })
-	self.stats_text = ui.text(hp_x, hud_y - 16, "", 10, { 0.85, 0.85, 0.9 }, gui.PIVOT_W)
+	self.hp_text = ui.text(hp_x + hp_w / 2, top_y, "", 8, { 1, 1, 1 })
 	self.tech_text = ui.text(W - 10, layout.PLAY_TOP - 12, "", 9, { 0.6, 1, 0.6 }, gui.PIVOT_E)
 
-	-- Quick-cast bar strip + upgrades button.
-	local qc_y = layout.HUD_HEIGHT + layout.QUICK_CAST_BAR_HEIGHT / 2
-	self.qc_bar = ui.box(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT, { 0.11, 0.082, 0.055 }, 1)
-	ui.grain(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT)
+	-- Upgrades sits in the top row immediately after health, with the same
+	-- 30 px footprint as Settings.
+	local upgrade_x = hp_x + hp_w + 22
 	-- Same skill-face look as an upgrade card (dark disc, light-blue ring),
 	-- since this button is the door to the Upgrades screen.
-	self.bag_btn = ui.tex_box(28, qc_y + 14, 44, 44, "ring")
+	self.bag_btn = ui.tex_box(upgrade_x, top_y, 30, 30, "ring")
 	gui.set_color(self.bag_btn, vmath.vector4(skill_icon_ui.LIGHT_BLUE[1], skill_icon_ui.LIGHT_BLUE[2], skill_icon_ui.LIGHT_BLUE[3], 1))
-	self.bag_disc = ui.tex_box(28, qc_y + 14, 39, 39, "circle")
+	self.bag_disc = ui.tex_box(upgrade_x, top_y, 27, 27, "circle")
 	gui.set_color(self.bag_disc, vmath.vector4(skill_icon_ui.DISC[1], skill_icon_ui.DISC[2], skill_icon_ui.DISC[3], 1))
-	self.bag_icon = ui.tex_box(28, qc_y + 14, 22, 22, "arrow_up")
-	self.bag_badge = ui.text(44, qc_y + 28, "", 9, { 1, 0.835, 0.31 })
+	self.bag_icon = ui.tex_box(upgrade_x, top_y, 16, 16, "arrow_up")
+	self.bag_badge = ui.text(upgrade_x + 12, top_y + 10, "", 8, { 1, 0.835, 0.31 })
 	self.qc_slots = {}
+	-- Thumb-friendly landscape fan: all three centres sit on the same radius
+	-- from the bottom-right corner, with equal angular spacing and a small gap
+	-- between their 56 px touch faces.
+	local quick_radius = 128
 	for i = 1, 3 do
-		local x = W / 2 + (i - 2) * 80
+		local angle = math.rad(18 + (i - 1) * 27)
+		local x = W - quick_radius * math.cos(angle)
+		local y = quick_radius * math.sin(angle)
 		-- Same circular design as the skill tree and the menu's loadout
 		-- preview: dark disc, orange ring, icon on top -- no more per-skill
 		-- background colour, one look everywhere a skill's face shows up.
-		local icon_ui = skill_icon_ui.build(x, qc_y + 22, 56, 44)
-		local cd_text = ui.text(x, qc_y + 22, "", 16, { 1, 1, 1 })
-		local label = ui.text(x, qc_y - 12, "", 9, { 0.85, 0.85, 0.9 })
+		local icon_ui = skill_icon_ui.build(x, y, 56, 44)
+		local cd_text = ui.text(x, y, "", 16, { 1, 1, 1 })
+		local label = ui.text(x, y, "", 9, { 0.85, 0.85, 0.9 })
 		-- The skill's own rank and kill/wave xp toward the next one.
-		local progress = ui.text(x, qc_y - 22, "", 7, { 0.7, 0.9, 1 })
+		local progress = ui.text(x, y, "", 7, { 0.7, 0.9, 1 })
+		gui.set_enabled(label, false)
+		gui.set_enabled(progress, false)
 		self.qc_slots[i] = { icon_ui = icon_ui, cd = cd_text, label = label, progress = progress }
 	end
-
-	-- Next Wave: the run's pacing button, balanced opposite the upgrades
-	-- button on the left. It shows the auto-launch countdown and can be tapped
-	-- to start the next wave early. (Moved here from the top bar.)
-	self.wave_btn = ui.plaque_button(W - 46, qc_y + 14, 76, 34)
-	self.wave_btn_text = ui.text(W - 46, qc_y + 14, "Next Wave", 8, { 0.965, 0.86, 0.6 })
 
 	self.pool_hp = make_pool(function()
 		local bg = ui.box(0, 0, 10, 4, { 0, 0, 0 }, 1)
@@ -420,20 +415,14 @@ local function sync_hud(self, s)
 	end
 	gui.set_enabled(self.wave_btn, not s.game_over)
 	gui.set_enabled(self.wave_btn_text, not s.game_over)
-	gui.set_enabled(self.exit_btn, not s.game_over)
-	gui.set_enabled(self.exit_text, not s.game_over)
 
 	local max_hp = p.max_hp
 
 	local hp_frac = max_hp > 0 and p.hp / max_hp or 0
 	gui.set_text(self.hp_text, ("HP %d/%d"):format(math.floor(p.hp + 0.5), math.floor(max_hp + 0.5)))
-	gui.set_size(self.hp_fill, vmath.vector3((W - 40) * math.max(0, math.min(1, hp_frac)), 20, 0))
+	gui.set_size(self.hp_fill, vmath.vector3(self.hp_w * math.max(0, math.min(1, hp_frac)), 14, 0))
 	local c = hp_bar_color(hp_frac)
 	gui.set_color(self.hp_fill, vmath.vector4(c[1], c[2], c[3], 1))
-
-	local display_damage = combat.PLAYER_BASE_DAMAGE
-	local cd = combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)
-	gui.set_text(self.stats_text, ("DMG %d   SPD %.1f/s"):format(display_damage, 1 / cd))
 
 	-- Quick-cast slots. Every slot shows its ring: a filled skill, an empty
 	-- unlocked slot, or a locked slot (lock icon) past the unlocked count.
@@ -448,9 +437,11 @@ local function sync_hud(self, s)
 		gui.set_enabled(slot.icon_ui.rim, true)
 		gui.set_enabled(slot.icon_ui.disc, true)
 		skill_icon_ui.set_lit(slot.icon_ui, filled)
-		for _, n in pairs({ slot.cd, slot.label, slot.progress }) do
-			gui.set_enabled(n, filled)
-		end
+		gui.set_enabled(slot.cd, filled)
+		-- Text below circular buttons would collide along the arc. Rank details
+		-- remain available in the skill menu; only cooldown belongs on the face.
+		gui.set_enabled(slot.label, false)
+		gui.set_enabled(slot.progress, false)
 		if filled then
 			local meta = skills.SKILL_META[ab.skill]
 			local can_cast = ab.cooldown <= 0
@@ -726,10 +717,6 @@ function on_input(self, action_id, action)
 
 	if action.pressed then
 		-- Top bar.
-		if gui.pick_node(self.exit_btn, action.x, action.y) then
-			session.actions.exit_run()
-			return true
-		end
 		if gui.pick_node(self.gear_btn, action.x, action.y) then
 			session.overlay = "settings"
 			return true

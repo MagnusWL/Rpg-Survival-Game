@@ -7,6 +7,7 @@ local upgrades = require("game.upgrades")
 local meta_mod = require("game.meta")
 local sim = require("game.sim")
 local session = require("game.session")
+local layout = require("game.layout")
 
 local M = {}
 
@@ -118,7 +119,7 @@ function M.run()
 
 	-- skills: catalog and per-skill xp curve. No passives here any more --
 	-- Haste/Summon Regen/Pierce moved to game.upgrades.
-	check("cone range", near(skills.CONE_RANGE, math.sqrt(390 ^ 2 + 686 ^ 2)))
+	check("cone range", near(skills.CONE_RANGE, math.sqrt(layout.SCREEN_W ^ 2 + layout.PLAY_H ^ 2)))
 	check("wild boar lvl3", skills.ability1_stats(3).hp == 200 and skills.ability1_stats(3).damage == 15)
 	check("wild boar health curve", skills.ability1_stats(1).hp == 40 and skills.ability1_stats(4).hp == 400)
 	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 160 and skills.seagull_stats(4).damage == 40)
@@ -199,9 +200,11 @@ function M.run()
 	s.abilities = meta_mod.make_abilities({ "summon", "cone", "ranged" }, { summon = 1, cone = 1, ranged = 1 })
 	s.wave_countdown = nil -- drive waves manually here, no auto-launch
 	check("player starts entering", s.player.intro_phase == "enter")
+	check("player enters from the left", s.player.pos.x < 0
+		and s.player.target.x > 0 and s.player.facing == 0)
 	for _ = 1, 600 do sim.update(s, 1 / 60) end
 	check("intro completes", s.player.intro_phase == "done")
-	check("player inside field", s.player.pos.y < 686)
+	check("player inside field", s.player.pos.y < layout.PLAY_H)
 	local saw_draw = false
 	for _, ev in ipairs(sim.take_events(s)) do
 		if ev.type == "sfx" and ev.name == "draw" then saw_draw = true end
@@ -212,8 +215,11 @@ function M.run()
 	sim.start_next_wave(s)
 	check("wave counter", s.wave == 1)
 	check("wave queued", #s.wave_queues == 1)
-	for _ = 1, 60 * 60 do
+	-- This is a wave-lifecycle test, not an AI travel-time test. Mark each
+	-- spawned enemy dead so it remains deterministic at every arena aspect.
+	for _ = 1, 60 * 30 do
 		sim.update(s, 1 / 60)
+		for _, mob in ipairs(s.mobs) do mob.hp = 0 end
 		sim.take_events(s)
 		if #s.loot_owed == 0 and not s.wave_active then break end
 	end
@@ -232,7 +238,8 @@ function M.run()
 	check("offer answered", #s.pending_upgrade_offers == 0)
 	check("upgrade recorded", #s.upgrades == 1)
 	sim.tap_field(s, 10, 10)
-	check("move accepted once answered", s.player.target ~= nil and s.player.target.x == 10)
+	check("move accepted once answered", s.player.target ~= nil
+		and s.player.target.x == combat.PLAYER_RADIUS)
 	check("player target respects top buffer", s.player.target.y == combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER)
 
 	-- sim: cone cast queues wave-riding hits, and kills with it level the skill
@@ -334,16 +341,21 @@ function M.run()
 	sim.update(no_clear_heal, 1)
 	check("wave clear does not heal to full", near(no_clear_heal.player.hp, 52))
 
-	-- sim: ranged enemies cannot acquire or shoot until below the top buffer.
+	-- sim: enemies enter from the right, outside the top exclusion zone, and
+	-- march left until a target enters their detection range.
 	local ranged_exit = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	ranged_exit.player.intro_phase = "done"
-	ranged_exit.player.pos = { x = 195, y = combat.MOB_RADIUS + 5 }
+	ranged_exit.player.pos = { x = combat.PLAYER_RADIUS, y = layout.PLAY_H - combat.PLAYER_RADIUS }
 	local top_ranged = combat.spawn_mob("ranged", 1)
-	top_ranged.pos = { x = 195, y = combat.MOB_RADIUS }
 	ranged_exit.mobs = { top_ranged }
+	local spawn_x, spawn_y = top_ranged.pos.x, top_ranged.pos.y
 	sim.update(ranged_exit, 0.1)
-	check("ranged mob walks out of top buffer before attacking",
-		top_ranged.pos.y > combat.MOB_RADIUS and #ranged_exit.projectiles == 0)
+	check("mob spawns at right edge", spawn_x > layout.SCREEN_W - 40)
+	check("mob spawns below top buffer",
+		spawn_y >= top_ranged.radius + combat.PLAYER_TOP_BUFFER)
+	check("ranged mob marches left before attacking",
+		top_ranged.pos.x < spawn_x and near(top_ranged.pos.y, spawn_y)
+		and #ranged_exit.projectiles == 0)
 
 	-- sim: Chain Lightning follows nearest-neighbour order with 20% falloff.
 	local chain_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -461,15 +473,16 @@ function M.run()
 	s6.player.hp = 100000
 	sim.start_next_wave(s6)
 	local saw_save = nil
-	for _ = 1, 60 * 90 do
+	for _ = 1, 60 * 30 do
 		sim.update(s6, 1 / 60)
+		for _, mob in ipairs(s6.mobs) do mob.hp = 0 end
 		for _, ev in ipairs(sim.take_events(s6)) do
 			if ev.type == "autosave" then saw_save = ev.save end
 		end
 		if saw_save then break end
 	end
 	check("autosave after wave clear", saw_save ~= nil and saw_save.wave == 1 and saw_save.id == "r-save")
-	check("autosave carries upgrades field", saw_save.upgrades ~= nil)
+	check("autosave carries upgrades field", saw_save ~= nil and saw_save.upgrades ~= nil)
 
 	-- session: a pending upgrade choice pauses the field, same as an overlay
 	local s8 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })

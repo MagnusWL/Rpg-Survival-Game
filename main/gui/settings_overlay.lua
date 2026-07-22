@@ -25,8 +25,9 @@ local ROWS = {
 
 function M.build(buttons)
 	local o = { rows = {} }
+	local row_h = W > H and 36 or 44
 	-- One extra row's worth of panel for the Test run button under the list.
-	local panel_h = 60 + #ROWS * 44 + 52
+	local panel_h = 60 + #ROWS * row_h + 52
 	-- Every node here goes on the "overlay" layer so this always draws above
 	-- the field/HUD regardless of which was built first -- Defold GUI has no
 	-- other way to reorder nodes after the fact, and this panel is built
@@ -37,7 +38,7 @@ function M.build(buttons)
 	o.title = ui.overlay(ui.text(W / 2, H / 2 + panel_h / 2 - 22, "Settings", 16, { 1, 1, 1 }))
 	local top = H / 2 + panel_h / 2 - 54
 	for i, row in ipairs(ROWS) do
-		local y = top - (i - 1) * 44
+		local y = top - (i - 1) * row_h
 		local label = ui.overlay(ui.text(W / 2 - (W - 100) / 2, y, row.label, 13, { 1, 1, 1 }, gui.PIVOT_W))
 		local pill = ui.overlay(ui.plaque_button(W / 2 + (W - 100) / 2 - 24, y, 52, 26))
 		local pill_text = ui.overlay(ui.text(W / 2 + (W - 100) / 2 - 24, y, "ON", 11, { 1, 1, 1 }))
@@ -45,14 +46,16 @@ function M.build(buttons)
 	end
 	-- Test run, moved here off the main menu. Only offered from the menu:
 	-- starting a throwaway run from inside a live one would discard it.
-	o.test_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * 44 + 6, 140, 34))
-	o.test_text = ui.overlay(ui.text(W / 2, top - #ROWS * 44 + 6, "Test run", 12, { 1, 1, 1 }))
+	o.test_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * row_h + 6, 140, 34))
+	o.test_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Test run", 12, { 1, 1, 1 }))
+	o.exit_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * row_h + 6, 140, 34))
+	o.exit_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Exit run", 12, { 1, 1, 1 }))
 	M.hide(o)
 	return o
 end
 
 local function set_shown(o, on)
-	for _, n in ipairs({ o.backdrop, o.panel, o.grain, o.title, o.test_btn, o.test_text }) do
+	for _, n in ipairs({ o.backdrop, o.panel, o.grain, o.title, o.test_btn, o.test_text, o.exit_btn, o.exit_text }) do
 		gui.set_enabled(n, on)
 	end
 	for _, r in ipairs(o.rows) do
@@ -80,6 +83,8 @@ function M.sync(o)
 	local on_menu = session.screen == "menu"
 	gui.set_enabled(o.test_btn, on_menu)
 	gui.set_enabled(o.test_text, on_menu)
+	gui.set_enabled(o.exit_btn, not on_menu)
+	gui.set_enabled(o.exit_text, not on_menu)
 end
 
 function M.input(o, action)
@@ -93,6 +98,11 @@ function M.input(o, action)
 	if session.screen == "menu" and gui.pick_node(o.test_btn, action.x, action.y) then
 		session.overlay = nil
 		if session.actions then session.actions.start_test_run() end
+		return true
+	end
+	if session.screen ~= "menu" and gui.pick_node(o.exit_btn, action.x, action.y) then
+		session.overlay = nil
+		if session.actions then session.actions.exit_run() end
 		return true
 	end
 	if gui.pick_node(o.panel, action.x, action.y) then return true end

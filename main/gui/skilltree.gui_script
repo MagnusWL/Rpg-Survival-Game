@@ -148,9 +148,8 @@ local function hide_pod(self, key, pod)
 end
 
 -- ===== Camera ==============================================================
--- Fit the bounding box of everything visible into the viewport between the
--- header and the loadout bar, never closer than 1.06x. Design numbers.
-local VP = { x0 = 10, x1 = W - 10, y0 = 100, y1 = 730 }
+-- Fit the flower into the full-height space left of the equipped-skill rail.
+local VP = { x0 = 10, x1 = W - 108, y0 = 10, y1 = H - 10 }
 
 local function refit(self, animate)
 	local vis = { { x = DCX, y = DCY, r = 44 } }
@@ -434,38 +433,38 @@ function init(self)
 		self.pods[sid] = make_pod(self, p.x, p.y, 78, 50, FLOWER[sid].icon)
 	end
 
-	-- Header chrome, fixed to the screen.
-	ui.box(W / 2, H - 45, W, 90, { 0.024, 0.027, 0.024 }, 0.82)
-	self.title = ui.text(W / 2, H - 38, "SKILL TREE", 24, { 0.847, 0.824, 0.753 })
-	self.hint = ui.text(W / 2, H - 64, "", 12, { 0.541, 0.498, 0.384 })
-	self.back = ui.plaque_button(33, H - 33, 40, 40)
-	ui.text(33, H - 32, "<", 18, { 0.788, 0.725, 0.541 })
-	self.gold_pill = ui.box(W - 56, H - 27, 84, 26, { 0.110, 0.090, 0.063 }, 1)
-	local hdr_coin = tex("skilltree", W - 86, H - 27, 17, "coin")
-	self.gold_text = ui.text(W - 74, H - 27, "", 15, COST_GOLD, gui.PIVOT_W)
+	-- No top header: only a floating back control remains in the corner. Its
+	-- arrow is the UI atlas glyph rotated from up to left, not font text.
+	self.back = ui.plaque_button(27, H - 26, 34, 34)
+	self.back_icon = ui.tex_box(27, H - 26, 17, 17, "arrow_up")
+	gui.set_rotation(self.back_icon, vmath.quat_rotation_z(math.rad(90)))
 
-	-- Loadout bar: the three active slots, fixed to the screen. Same circular
+	-- Vertical loadout rail: the three active slots, fixed to the right. Same circular
 	-- design as the pods above and the menu's preview and the quick-cast bar
 	-- in a run: dark disc, orange ring, icon on top.
-	ui.box(W / 2, 55, W, 110, { 0.024, 0.027, 0.024 }, 0.88)
-	self.loadout_caption = ui.text(W / 2, 96, "", 10, { 0.435, 0.749, 0.580 })
+	ui.box(W - 49, H / 2, 98, H, { 0.024, 0.027, 0.024 }, 0.88)
+	self.skills_title = ui.text(W - 49, H - 23, "Skills", 16, { 0.847, 0.824, 0.753 })
+	self.loadout_caption = ui.text(W - 49, H - 47, "", 9, { 0.435, 0.749, 0.580 })
+	self.gold_pill = ui.box(W - 49, H - 72, 76, 22, { 0.110, 0.090, 0.063 }, 1)
+	local hdr_coin = tex("skilltree", W - 76, H - 72, 14, "coin")
+	self.gold_text = ui.text(W - 66, H - 72, "", 12, COST_GOLD, gui.PIVOT_W)
 	self.slots = {}
-	local slot_x = { W / 2 - 60, W / 2, W / 2 + 60 }
+	local slot_y = { H - 118, H - 208, H - 298 }
 	for i = 1, 3 do
-		local x = slot_x[i]
-		local handle = skill_icon_ui.build(x, 48, 52, 34)
-		local diamond = ui.box(x, 48, 16, 16, { 0.184, 0.290, 0.227 }, 1)
+		local x, y = W - 49, slot_y[i]
+		local handle = skill_icon_ui.build(x, y, 52, 34)
+		local diamond = ui.box(x, y, 16, 16, { 0.184, 0.290, 0.227 }, 1)
 		gui.set_rotation(diamond, vmath.quat_rotation_z(math.rad(45)))
 		-- The buy price shown on a still-locked slot (slot 2 costs 10, slot 3
 		-- costs 20; slot 1 is always open).
-		local cost_text = ui.text(x, 20, ("%dg"):format(skills.SLOT_COSTS[i] or 0), 10, COST_GOLD)
+		local cost_text = ui.text(x, y - 31, ("%dg"):format(skills.SLOT_COSTS[i] or 0), 10, COST_GOLD)
 		gui.set_enabled(cost_text, false)
 		self.slots[i] = { icon_ui = handle, diamond = diamond, cost_text = cost_text, cur = nil }
 	end
 
 	-- Flash toast, above everything.
-	self.flash_bg = ui.box(W / 2, H - 112, 280, 30, { 0.110, 0.090, 0.063 }, 0.95)
-	self.flash_text = ui.text(W / 2, H - 112, "", 12, { 0.910, 0.773, 0.416 })
+	self.flash_bg = ui.box((W - 98) / 2, H - 72, 280, 30, { 0.110, 0.090, 0.063 }, 0.95)
+	self.flash_text = ui.text((W - 98) / 2, H - 72, "", 12, { 0.910, 0.773, 0.416 })
 	gui.set_enabled(self.flash_bg, false)
 	gui.set_enabled(self.flash_text, false)
 	self.flash_t = 0
@@ -542,12 +541,7 @@ function update(self, dt)
 
 	-- Chrome.
 	gui.set_text(self.gold_text, tostring(m.gold))
-	if self.awakening < MAX_AWAKENING then
-		gui.set_text(self.hint, "Tap the core to unfurl the tree")
-	else
-		gui.set_text(self.hint, "Tap a skill to unlock or equip")
-	end
-	gui.set_text(self.loadout_caption, ("EQUIPPED - %d/%d"):format(#m.loadout, m.slots_unlocked or 1))
+	gui.set_text(self.loadout_caption, ("Equipped %d/%d"):format(#m.loadout, m.slots_unlocked or 1))
 
 	-- Loadout slots. A slot past the unlocked count shows a lock and its buy
 	-- price instead of an equip target.

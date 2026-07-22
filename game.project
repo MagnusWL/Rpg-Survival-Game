@@ -9,9 +9,10 @@ main_collection = /main/main.collectionc
 shared_state = 1
 
 [display]
-width = 390
-height = 844
+width = 844
+height = 390
 high_dpi = 1
+dynamic_orientation = 0
 
 [render]
 clear_color_red = 0.106

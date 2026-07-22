@@ -1,9 +1,9 @@
 -- Screen layout. The React app derived these from the window; the Defold port
--- uses a fixed logical portrait resolution and lets the engine scale.
+-- uses a fixed logical landscape resolution and lets the engine scale.
 local M = {}
 
-M.SCREEN_W = 390
-M.SCREEN_H = 844
+M.SCREEN_W = 844
+M.SCREEN_H = 390
 M.TOP_BAR_HEIGHT = 50
 M.QUICK_CAST_BAR_HEIGHT = 48
 M.HUD_HEIGHT = 60

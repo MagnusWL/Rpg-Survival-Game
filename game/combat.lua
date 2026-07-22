@@ -17,8 +17,8 @@ M.SPRITE_ROWS = 8
 M.PLAYER_SPRITE_SIZE = 128
 M.PLAYER_SPRITE_FOOT_OFFSET = 49
 
-M.INTRO_START_BELOW = 140
-M.INTRO_STOP_ABOVE_BOTTOM = 160
+M.INTRO_START_LEFT = 140
+M.INTRO_STOP_FROM_LEFT = 160
 M.INTRO_WALK_SPEED = 80
 M.STEPS_PER_CYCLE = 2
 M.WALK_STRIDE = 40
@@ -330,14 +330,16 @@ function M.hurt_mob(m, from, max_shove_range)
 end
 
 function M.make_player()
+	local entrance_y = (M.PLAYER_RADIUS + M.PLAYER_TOP_BUFFER
+		+ PLAY_H - M.PLAYER_RADIUS) / 2
 	return {
-		pos = { x = SCREEN_W / 2, y = PLAY_H + M.INTRO_START_BELOW },
-		target = { x = SCREEN_W / 2, y = PLAY_H - M.INTRO_STOP_ABOVE_BOTTOM },
+		pos = { x = -M.INTRO_START_LEFT, y = entrance_y },
+		target = { x = M.INTRO_STOP_FROM_LEFT, y = entrance_y },
 		hp = 100,
 		max_hp = 100,
 		attack_cooldown = 0,
 		haste_timer = 0,
-		facing = 6, -- north, the way he is about to walk in
+		facing = 0, -- east, the way he is about to walk in
 		anim = "walk",
 		anim_time = 0,
 		anim_speed = M.INTRO_WALK_ANIM,
@@ -411,17 +413,22 @@ function M.spawn_mob(mob_type, wave)
 	local meta = M.MOB_TYPE_META[mob_type]
 	local stats = M.mob_type_stats(mob_type, wave)
 	local margin = meta.radius + 4
+	local min_y = meta.radius + M.PLAYER_TOP_BUFFER
+	local max_y = PLAY_H - meta.radius
 	return {
 		id = mob_id_counter,
 		type = mob_type,
 		wave = wave,
-		pos = { x = margin + math.random() * (SCREEN_W - margin * 2), y = meta.radius },
+		pos = {
+			x = SCREEN_W - margin,
+			y = min_y + math.random() * math.max(0, max_y - min_y),
+		},
 		hp = stats.hp,
 		max_hp = stats.hp,
 		damage = stats.damage,
 		radius = meta.radius,
 		attack_cooldown = 0,
-		facing = 2, -- south: spawned at the top edge walking down
+		facing = 4, -- west: spawned at the right edge walking left
 		anim = "walk",
 		anim_time = 0,
 		flash_time = 0,

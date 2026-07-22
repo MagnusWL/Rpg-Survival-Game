@@ -535,7 +535,7 @@ function M.update(s, dt)
 
 	p.anim_time = p.anim_time + dt
 
-	-- Not while running in: he starts below the bottom edge on purpose.
+	-- Not while running in: he starts beyond the left edge on purpose.
 	if p.intro_phase ~= "enter" then
 		p.pos.x = math.max(combat.PLAYER_RADIUS, math.min(SCREEN_W - combat.PLAYER_RADIUS, p.pos.x))
 		p.pos.y = math.max(combat.PLAYER_RADIUS + combat.PLAYER_TOP_BUFFER,
@@ -605,12 +605,8 @@ function M.update(s, dt)
 			if next_anim ~= m.anim or not combat.MOB_ANIMS[next_anim].loop then m.anim_time = 0 end
 			m.anim = next_anim
 		end
-		-- Ranged enemies spawn inside the top buffer but must walk fully out of
-		-- it before they are allowed to acquire a target or fire.
-		local leaving_top_buffer = m.type == "ranged"
-			and m.pos.y < combat.MOB_RADIUS + combat.PLAYER_TOP_BUFFER
-		local detect = leaving_top_buffer and -1
-			or (m.type == "boss" and 99999 or (m.type == "ranged" and 260 or combat.RANGED_ATTACK_RANGE))
+		local detect = m.type == "boss" and 99999
+			or (m.type == "ranged" and 260 or combat.RANGED_ATTACK_RANGE)
 
 		local nearest, nearest_dist = nil, math.huge
 		local d_to_player = combat.dist(m.pos, p.pos)
@@ -631,9 +627,9 @@ function M.update(s, dt)
 		end
 
 		if not nearest then
-			local advance_speed = leaving_top_buffer and combat.MOB_SPEED or combat.MOB_SPEED * 0.5
-			m.pos = { x = m.pos.x, y = m.pos.y + advance_speed * dt }
-			m.facing = combat.facing_from_delta(0, 1)
+			-- March west from the right-hand entrance until a target is in range.
+			m.pos = { x = m.pos.x - combat.MOB_SPEED * 0.5 * dt, y = m.pos.y }
+			m.facing = combat.facing_from_delta(-1, 0)
 			set_mob_anim("walk")
 		else
 			m.facing = combat.facing_from_delta(nearest.pos.x - m.pos.x, nearest.pos.y - m.pos.y)
