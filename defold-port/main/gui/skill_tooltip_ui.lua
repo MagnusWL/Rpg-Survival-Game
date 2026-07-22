@@ -1,11 +1,9 @@
--- The skill tooltip: label on its own line, then the current rank and its
--- kill/wave xp progress, then the description -- which already carries the
--- per-level stat curve as a bracket (e.g. "(4/8/12/16) damage"), so nothing
--- here repeats it. A small popup anchored just above wherever it was
--- tapped, not a full-screen overlay, sized to the text so there is no
--- leftover whitespace. Shared by the main menu's loadout preview and the
--- skill tree's bottom loadout bar -- each screen builds its own copy of the
--- nodes (a gui scene cannot borrow another screen's).
+-- The skill tooltip: label, the current rank (or "Locked"), the description,
+-- and -- in the skill tree -- an action button to Unlock or Equip the skill.
+-- A small popup anchored just above wherever it was tapped, sized to its
+-- contents. Shared by the main menu's loadout preview (read-only, no button)
+-- and the skill tree's pods and loadout bar. Each screen builds its own copy
+-- of the nodes (a gui scene cannot borrow another screen's).
 local layout = require("game.layout")
 local skills = require("game.skills")
 local ui = require("game.ui")
@@ -16,17 +14,11 @@ local W, H = layout.SCREEN_W, layout.SCREEN_H
 local PANEL_W = 250
 local PAD = 12
 local TITLE_SIZE, LEVEL_SIZE, DESC_SIZE = 13, 10, 9
--- Every ui.text scales its node by size/26.7 against the 28px distance-field
--- font; a line's rendered height follows the same ratio, times a generic
--- 1.2 leading factor.
 local function line_height(size) return 28 * (size / 26.7) * 1.2 end
 local TITLE_H, LEVEL_H, DESC_LINE_H = line_height(TITLE_SIZE), line_height(LEVEL_SIZE), line_height(DESC_SIZE)
 local GAP_TITLE_LEVEL, GAP_LEVEL_DESC = 4, 8
+local BTN_H, GAP_DESC_BTN = 28, 10
 
--- This Defold build has no text-metrics call, so the wrap width is worked
--- out once here (screen px -> chars, assuming the mono font's ~0.6 advance
--- width) and every description's line count is estimated with the same
--- greedy word-wrap a real layout would do, rather than guessed at.
 local DESC_WRAP_PX = PANEL_W - PAD * 2
 local CHARS_PER_LINE = math.max(8, math.floor(DESC_WRAP_PX / (28 * (DESC_SIZE / 26.7) * 0.6)))
 
@@ -48,40 +40,50 @@ end
 
 function M.build()
 	local o = {}
-	-- Positioned and sized by show(); built off-screen until then.
-	-- Every text node uses PIVOT_NW (top-left): a west-pivoted multi-line
-	-- block is vertically CENTRED on its anchor and grows upward as much as
-	-- down, which is what overlaps the description into the title above it.
 	o.edge = ui.overlay(ui.box(0, -400, PANEL_W + 2, 2, { 1, 0.835, 0.31 }, 0.8))
 	o.panel = ui.overlay(ui.box(0, -400, PANEL_W, 1, { 0.08, 0.075, 0.09 }, 0.97))
 	o.title = ui.overlay(ui.text(0, -400, "", TITLE_SIZE, { 1, 1, 1 }, gui.PIVOT_NW))
 	o.level_line = ui.overlay(ui.text(0, -400, "", LEVEL_SIZE, { 1, 0.835, 0.31 }, gui.PIVOT_NW))
 	o.desc = ui.overlay(ui.text(0, -400, "", DESC_SIZE, { 0.82, 0.82, 0.87 }, gui.PIVOT_NW))
 	gui.set_line_break(o.desc, true)
-	-- gui.set_size's wrap width is in the node's own (unscaled) local space,
-	-- but ui.text already scales the node down to render at DESC_SIZE -- so
-	-- the box has to be set that much *wider* than the screen-space width we
-	-- actually want, or the text wraps at a fraction of the panel's width.
 	local desc_scale = DESC_SIZE / 26.7
 	gui.set_size(o.desc, vmath.vector3(DESC_WRAP_PX / desc_scale, 2000 / desc_scale, 0))
+	-- The Unlock/Equip button, hidden unless show() is given an action.
+	o.action_btn = ui.overlay(ui.plaque_button(0, -400, PANEL_W - PAD * 2, BTN_H))
+	o.action_text = ui.overlay(ui.text(0, -400, "", 11, { 0.965, 0.86, 0.6 }))
 	M.hide(o)
 	return o
 end
 
--- x, y: where the tapped icon sits (gui/world space, y up). The panel is
--- anchored just above that point, sized to fit the description's wrapped
--- line count exactly, and clamped so it never runs off-screen.
--- xp/needed: this skill's current kill/wave-clear progress toward its next
--- rank (needed is nil once it is maxed).
-function M.show(o, skill, level, xp, needed, x, y)
+-- opts (optional, skill tree only): { locked, cost, equipped, equip_slot,
+-- on_action }. on_action(kind) is called with "unlock" | "equip" | "unequip".
+function M.show(o, skill, level, xp, needed, x, y, opts)
+	opts = opts or {}
 	local meta = skills.SKILL_META[skill]
 	local desc_text = skills.skill_description(skill)
 	gui.set_text(o.title, meta.label .. ":")
-	gui.set_text(o.level_line, needed and ("Level %d (%d/%d)"):format(level, xp, needed) or ("Level %d (MAX)"):format(level))
+	if opts.locked then
+		gui.set_text(o.level_line, "Locked")
+	else
+		gui.set_text(o.level_line, needed and ("Level %d (%d/%d)"):format(level, xp, needed) or ("Level %d (MAX)"):format(level))
+	end
 	gui.set_text(o.desc, desc_text)
 
+	-- Which action button (if any) applies to this skill right now.
+	local kind, label = nil, nil
+	if opts.locked then
+		kind, label = "unlock", ("Unlock skill (%dg)"):format(opts.cost or 0)
+	elseif opts.equipped then
+		kind, label = "unequip", "Unequip"
+	elseif opts.equip_slot then
+		kind, label = "equip", ("Equip (Slot %d)"):format(opts.equip_slot)
+	end
+	o.action_kind = kind
+	o.on_action = opts.on_action
+
 	local desc_h = wrapped_line_count(desc_text) * DESC_LINE_H
-	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC + desc_h
+	local btn_block = kind and (GAP_DESC_BTN + BTN_H) or 0
+	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC + desc_h + btn_block
 
 	local cx = math.max(PANEL_W / 2 + 4, math.min(W - PANEL_W / 2 - 4, x))
 	local cy = math.min(H - panel_h / 2 - 4, y + panel_h / 2 + 26)
@@ -94,21 +96,43 @@ function M.show(o, skill, level, xp, needed, x, y)
 	gui.set_size(o.edge, vmath.vector3(PANEL_W + 2, panel_h + 2, 0))
 	gui.set_position(o.title, vmath.vector3(left, top, 0))
 	gui.set_position(o.level_line, vmath.vector3(left, top - TITLE_H - GAP_TITLE_LEVEL, 0))
-	gui.set_position(o.desc, vmath.vector3(left, top - TITLE_H - GAP_TITLE_LEVEL - LEVEL_H - GAP_LEVEL_DESC, 0))
+	local desc_top = top - TITLE_H - GAP_TITLE_LEVEL - LEVEL_H - GAP_LEVEL_DESC
+	gui.set_position(o.desc, vmath.vector3(left, desc_top, 0))
 
-	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc }) do gui.set_enabled(n, true) end
+	local base = { o.panel, o.edge, o.title, o.level_line, o.desc }
+	for _, n in ipairs(base) do gui.set_enabled(n, true) end
+	if kind then
+		local by = desc_top - desc_h - GAP_DESC_BTN - BTN_H / 2
+		gui.set_position(o.action_btn, vmath.vector3(cx, by, 0))
+		gui.set_position(o.action_text, vmath.vector3(cx, by, 0))
+		gui.set_text(o.action_text, label)
+		gui.set_enabled(o.action_btn, true)
+		gui.set_enabled(o.action_text, true)
+	else
+		gui.set_enabled(o.action_btn, false)
+		gui.set_enabled(o.action_text, false)
+	end
 	o.open = true
 end
 
 function M.hide(o)
-	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc }) do gui.set_enabled(n, false) end
+	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc, o.action_btn, o.action_text }) do
+		gui.set_enabled(n, false)
+	end
 	o.open = false
+	o.action_kind = nil
 end
 
--- Any tap while open dismisses it; the caller checks o.open first so its
--- own buttons underneath don't also react to that same tap.
+-- A tap on the action button fires its action; any other tap dismisses. The
+-- caller checks o.open first so its own controls don't also react.
 function M.input(o, action)
 	if not o.open then return false end
+	if o.action_kind and gui.is_enabled(o.action_btn) and gui.pick_node(o.action_btn, action.x, action.y) then
+		local kind, cb = o.action_kind, o.on_action
+		M.hide(o)
+		if cb then cb(kind) end
+		return true
+	end
 	M.hide(o)
 	return true
 end

@@ -262,7 +262,7 @@ M.KNOCKBACK_VARIATION = 0.45
 M.KNOCKBACK_TAU = 0.085
 M.KNOCKBACK_STOP = 8
 
-M.WAVE_SPAWN_INTERVAL = 0.5
+M.WAVE_SPAWN_INTERVAL = 1.0 -- doubled: twice the gap between each mob spawn
 
 M.ALLY_RADIUS = 12
 M.ALLY_SPEED = 90
@@ -341,9 +341,11 @@ function M.mob_hp_for_wave(wave) return M.MOB_MAX_HP + (wave - 1) * 8 end
 function M.mob_damage_for_wave(wave) return M.MOB_DAMAGE + math.floor((wave - 1) * 1.5) end
 function M.mob_count_for_wave(wave) return 4 + wave end
 
+-- Bosses arrive on wave 3 and every third wave after (3, 6, 9, ...), each a
+-- tier stronger than the last.
 function M.boss_tier_for_wave(wave)
-	if wave >= 10 and wave % 5 == 0 then
-		return math.floor((wave - 10) / 5) + 1
+	if wave >= 3 and wave % 3 == 0 then
+		return wave / 3
 	end
 	return 0
 end

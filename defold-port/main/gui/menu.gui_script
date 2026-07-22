@@ -85,6 +85,14 @@ local function intro_alpha_at(self, t)
 	return nil -- done
 end
 
+-- A brief warning toast near the plaque (e.g. trying to start with no skill).
+local function show_toast(self, msg)
+	gui.set_text(self.toast_text, msg)
+	gui.set_enabled(self.toast_bg, true)
+	gui.set_enabled(self.toast_text, true)
+	self.toast_t = 2
+end
+
 function init(self)
 	msg.post(".", "acquire_input_focus")
 	self.buttons = {}
@@ -105,6 +113,11 @@ function init(self)
 	self.plaque = ui.tex_box(W / 2, by, bw, bh, "button")
 	ui.button(self.buttons, self.plaque, function()
 		if not session.actions or self.tearing then return end
+		-- A run needs at least one skill equipped; nudge to the skill menu.
+		if not (session.meta and #session.meta.loadout > 0) then
+			show_toast(self, "EQUIP A SKILL FIRST")
+			return
+		end
 		-- Swap the plaque for its baked tear film (same pixels, frame 0 is the
 		-- intact plaque) and start the run when the last piece has fallen.
 		-- The press sound belongs to the press, not the arrival: the web's
@@ -124,14 +137,13 @@ function init(self)
 		end)
 	end)
 
-	-- The three minor actions as a stacked column of plaquettes under the big
-	-- plaque: dark slabs with a thin lit edge, in the button art's spirit.
+	-- The three minor actions as a stacked column, in the carved-plaque look
+	-- used everywhere else (Start Wave, Exit Run, Mob Stats).
 	local function menu_button(y, handler)
-		local edge = ui.box(W / 2, y, 190, 40, { 0.494, 0.086, 0.063 }, 0.9)
-		local body = ui.box(W / 2, y, 184, 34, { 0.078, 0.055, 0.047 }, 0.95)
+		local body = ui.plaque_button(W / 2, y, 190, 40)
 		local label = ui.text(W / 2, y, "", 12, { 0.878, 0.831, 0.729 })
 		ui.button(self.buttons, body, handler)
-		return { edge = edge, body = body, label = label }
+		return { body = body, label = label }
 	end
 	-- The Continue button's old slot now shows the loadout instead: the
 	-- three equipped skills, in the same circular design the skill tree and
@@ -147,7 +159,7 @@ function init(self)
 	self.skills_btn = menu_button(col_top - 48, function() session.actions.open_skilltree() end)
 
 	-- Settings gear, its own corner.
-	self.gear = ui.button_frame(W - 29, H - 29, 34, 34, "btn_steel")
+	self.gear = ui.plaque_button(W - 29, H - 29, 36, 36)
 	ui.button(self.buttons, self.gear, function() session.overlay = "settings" end)
 	self.gear_label = ui.tex_box(W - 29, H - 29, 24, 24, "cog")
 
@@ -167,6 +179,13 @@ function init(self)
 	-- Tap a loadout icon to see the skill's description and per-level stats.
 	self.skill_tip = skill_tip_ui.build()
 
+	-- Warning toast (shown when trying to start a run with no skill equipped).
+	self.toast_bg = ui.box(W / 2, by + bh / 2 + 26, 280, 32, { 0.110, 0.090, 0.063 }, 0.95)
+	self.toast_text = ui.text(W / 2, by + bh / 2 + 26, "", 12, { 0.910, 0.773, 0.416 })
+	gui.set_enabled(self.toast_bg, false)
+	gui.set_enabled(self.toast_text, false)
+	self.toast_t = 0
+
 	if not session.intro_done then build_intro(self) end
 end
 
@@ -178,12 +197,32 @@ function update(self, dt)
 	local m = session.meta
 	if m then
 		local icon_map = require("main.gui.skilltree_icons")
+		local slots_unlocked = m.slots_unlocked or 1
 		for i, handle in ipairs(self.loadout_icons) do
-			local sid = m.loadout[i]
-			skill_icon_ui.set_enabled(handle, sid ~= nil)
+			local locked = i > slots_unlocked
+			local sid = not locked and m.loadout[i] or nil
+			-- The ring/disc are always shown so an empty or locked slot still
+			-- reads as a slot; the icon is the skill, a lock, or nothing.
+			gui.set_enabled(handle.rim, true)
+			gui.set_enabled(handle.disc, true)
+			skill_icon_ui.set_lit(handle, sid ~= nil)
 			if sid then
+				gui.set_enabled(handle.icon, true)
 				gui.play_flipbook(handle.icon, icon_map[sid])
+			elseif locked then
+				gui.set_enabled(handle.icon, true)
+				gui.play_flipbook(handle.icon, "lock")
+			else
+				gui.set_enabled(handle.icon, false)
 			end
+		end
+	end
+
+	if self.toast_t > 0 then
+		self.toast_t = self.toast_t - dt
+		if self.toast_t <= 0 then
+			gui.set_enabled(self.toast_bg, false)
+			gui.set_enabled(self.toast_text, false)
 		end
 	end
 
@@ -233,7 +272,9 @@ function on_input(self, action_id, action)
 		if session.overlay == "settings" then
 			return require("main.gui.settings_overlay").input(self.settings, action)
 		end
-		if skill_tip_ui.input(self.skill_tip, action) then return true end
+		-- Checked before the tooltip's own input handler so a tap on a
+		-- different loadout icon (re)shows its tooltip immediately, instead
+		-- of that tap being swallowed as a close-on-tap-elsewhere first.
 		local m = session.meta
 		if m then
 			for i, pod in ipairs(self.loadout_icons) do
@@ -246,6 +287,7 @@ function on_input(self, action_id, action)
 				end
 			end
 		end
+		if skill_tip_ui.input(self.skill_tip, action) then return true end
 		return ui.hit(self.buttons, action.x, action.y)
 	end
 	return false

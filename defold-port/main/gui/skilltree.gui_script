@@ -29,15 +29,18 @@ local STAR_RADIUS = 400
 -- 90 = down). wave: which tap of the Awakening core brings the skill into
 -- the star -- 1 the roots, 2 their children.
 local FLOWER = {
-	ranged   = { icon = "airblade",     name = "Air Blade", angle = -90,  ring = 0.6, wave = 1 },
-	cone     = { icon = "judgement",    name = "Judgement", angle = 30,   ring = 0.6, wave = 1 },
-	summon   = { icon = "ancestor",     name = "Ancestor",  angle = 150,  ring = 0.6, wave = 1 },
-	push     = { icon = "shieldcharge", name = "Push",      angle = -125, ring = 1.0, wave = 2 },
-	burn     = { icon = "hellfire",     name = "Burn",      angle = -5,   ring = 1.0, wave = 2 },
-	fireball = { icon = "meteor",       name = "Fireball",  angle = 115,  ring = 1.0, wave = 2 },
+	ranged   = { icon = "airblade",     name = "Berserker", angle = -90,  ring = 0.6, wave = 1 },
+	cone     = { icon = "judgement",    name = "Shockwave", angle = 30,   ring = 0.6, wave = 1 },
+	summon   = { icon = "ancestor",     name = "Wild Boar", angle = 150,  ring = 0.6, wave = 1 },
+	-- Each child sits directly outward from its required parent (same angle,
+	-- farther ring) so the vine reads as a branch off it: Air Blade -> Push,
+	-- Judgement -> Burn, Ancestor -> Fireball.
+	push     = { icon = "shieldcharge", name = "Push",      angle = -90,  ring = 1.0, wave = 2 },
+	burn     = { icon = "hellfire",     name = "Burn",      angle = 30,   ring = 1.0, wave = 2 },
+	fireball = { icon = "meteor",       name = "Fireball",  angle = 150,  ring = 1.0, wave = 2 },
 }
 local ORDER = { "ranged", "cone", "summon", "push", "burn", "fireball" }
-local MAX_AWAKENING = 2
+local MAX_AWAKENING = 1
 
 -- Palette, from the handoff's data-props defaults.
 local LIT = { 0.612, 0.106, 0.086 }        -- vine lit        #9c1b16
@@ -61,18 +64,22 @@ end
 
 local function v4(c, a) return vmath.vector4(c[1], c[2], c[3], a or 1) end
 
--- The core IS the awakening. Each tap brings the next wave into the star --
--- roots, then their children -- and self.awakening counts how many taps have
--- landed. Free taps; there is nothing left to buy.
-local function skill_shown(self, sid)
-	return self.awakening >= FLOWER[sid].wave
-end
-
 local function is_equipped(m, sid)
 	for _, s in ipairs(m.loadout) do
 		if s == sid then return true end
 	end
 	return false
+end
+
+-- The core's one tap unfurls the roots. A child no longer waits on a second
+-- awakening: it appears on its own once its required parent is equipped, so
+-- activating a requirement reveals exactly that one branch.
+local function skill_shown(self, sid)
+	if self.awakening < 1 then return false end
+	if FLOWER[sid].wave <= 1 then return true end
+	local m = session.meta
+	local parent = skills.SKILL_PARENT[sid]
+	return m ~= nil and parent ~= nil and is_equipped(m, parent)
 end
 
 -- ===== Node builders =======================================================
@@ -177,27 +184,101 @@ local function flash(self, msg)
 	self.flash_t = 1.6
 end
 
-local function toggle_equip(self, skill)
-	local m = session.meta
-	local i = nil
+local function loadout_index(m, skill)
 	for k, s in ipairs(m.loadout) do
-		if s == skill then i = k end
+		if s == skill then return k end
 	end
-	if i then
-		table.remove(m.loadout, i)
-	else
-		if #m.loadout >= skills.MAX_EQUIPPED then
-			flash(self, "ONLY " .. skills.MAX_EQUIPPED .. " SKILLS CAN BE EQUIPPED")
-			return
+	return nil
+end
+
+-- Unlock cost: the three roots around the awakening cost 5 gold, their
+-- children (the next row) cost 10.
+local function unlock_cost(sid)
+	return FLOWER[sid].wave <= 1 and 5 or 10
+end
+
+local function try_unlock(self, sid)
+	local m = session.meta
+	if (m.skill_levels[sid] or 0) >= 1 then return end
+	local cost = unlock_cost(sid)
+	if (m.gold or 0) < cost then
+		flash(self, "NEED " .. cost .. " GOLD")
+		return
+	end
+	m.gold = m.gold - cost
+	m.skill_levels[sid] = 1
+	session.commit_meta(m)
+	flash(self, "UNLOCKED")
+end
+
+local function equip_skill(self, sid)
+	local m = session.meta
+	if (m.skill_levels[sid] or 0) < 1 or loadout_index(m, sid) then return end
+	-- A child needs its parent equipped first.
+	local parent = skills.SKILL_PARENT[sid]
+	if parent and not loadout_index(m, parent) then
+		flash(self, "REQUIRES " .. string.upper(FLOWER[parent].name))
+		return
+	end
+	if #m.loadout >= (m.slots_unlocked or 1) then
+		flash(self, "UNLOCK ANOTHER SLOT FIRST")
+		return
+	end
+	m.loadout[#m.loadout + 1] = sid
+	session.commit_meta(m)
+end
+
+local function unequip_skill(self, sid)
+	local m = session.meta
+	local i = loadout_index(m, sid)
+	if not i then return end
+	table.remove(m.loadout, i)
+	-- Dropping a parent drops its (now requirement-less) child too.
+	for _, child in ipairs(ORDER) do
+		if skills.SKILL_PARENT[child] == sid then
+			local ci = loadout_index(m, child)
+			if ci then table.remove(m.loadout, ci) end
 		end
-		m.loadout[#m.loadout + 1] = skill
 	end
 	session.commit_meta(m)
 end
 
+-- Open the tooltip for a skill, carrying the right action button for its
+-- state (Unlock while locked, Equip while unlocked with a free slot, Unequip
+-- while equipped). The button's action re-opens the tooltip so it reflects
+-- the new state at once.
+local function show_skill_tooltip(self, sid, x, y)
+	local m = session.meta
+	local level = m.skill_levels[sid] or 0
+	local locked = level < 1
+	local equipped = is_equipped(m, sid)
+	local opts = { locked = locked, cost = unlock_cost(sid), equipped = equipped }
+	if not locked and not equipped and #m.loadout < (m.slots_unlocked or 1) then
+		local parent = skills.SKILL_PARENT[sid]
+		if not parent or is_equipped(m, parent) then
+			opts.equip_slot = #m.loadout + 1
+		end
+	end
+	opts.on_action = function(kind)
+		if kind == "unlock" then
+			try_unlock(self, sid)
+		elseif kind == "equip" then
+			equip_skill(self, sid)
+			refit(self, true) -- a newly equipped parent reveals its child branch
+		elseif kind == "unequip" then
+			unequip_skill(self, sid)
+			refit(self, true)
+		end
+		show_skill_tooltip(self, sid, x, y)
+	end
+	local disp = math.max(1, level)
+	skill_tip_ui.show(self.skill_tip, sid, disp, m.skill_xp[sid] or 0, skills.skill_xp_to_next(disp), x, y, opts)
+end
+
 -- ===== The vine field ======================================================
--- Just the root-to-skill strand now -- there is no rank chain to grow
--- outward any more, ranks being an xp readout rather than separate nodes.
+-- A root's strand grows from the Awakening core; a child's strand grows from
+-- its required parent instead, so the tree shows the dependency as a branch
+-- (core -> Ancestor -> Fireball) rather than every skill hanging off the core.
 
 local function build_desired(self)
 	local out = {}
@@ -211,8 +292,11 @@ local function build_desired(self)
 			local di = i - 1 -- the design's 0-based index drives seeds and delays
 			local p = skill_pos(sid)
 			local lit = is_equipped(m, sid)
+			-- Children branch off their parent's pod; roots off the core.
+			local parent = skills.SKILL_PARENT[sid]
+			local a = parent and skill_pos(parent) or { x = DCX, y = DCY }
 			out[#out + 1] = {
-				key = "o_" .. sid, ax = DCX, ay = DCY, bx = p.x, by = p.y,
+				key = "o_" .. sid, ax = a.x, ay = a.y, bx = p.x, by = p.y,
 				seed = di * 13 + 3, delay = (di < 3 and 0 or 120), dur = 900,
 				thick = 4 + (di % 3), sag = 8 + di * 4, lit = lit,
 			}
@@ -265,14 +349,18 @@ end
 
 -- ===== Per-frame pod dressing =============================================
 
+-- A pod shows a yellow border once the skill is unlocked, and that border
+-- pulses while it is equipped. Locked skills keep the dim resting rim. (The
+-- core passes opts.lit for its own always-lit, pulsing state.)
 local function sync_pod(pod, opts)
-	gui.set_color(pod.rim, v4(opts.lit and GLOW or RIM_OWNED, 1))
-	ui.set_alpha(pod.icon, opts.lit and 1 or 0.75)
+	local hot = opts.equipped or opts.unlocked or opts.lit
+	gui.set_color(pod.rim, v4(hot and GLOW or RIM_OWNED, 1))
+	ui.set_alpha(pod.icon, (opts.unlocked or opts.lit) and 1 or 0.55)
 	gui.set_text(pod.name, opts.name)
-	gui.set_color(pod.name, v4(opts.lit and GLOW_LIGHT or NAME_OWNED, 1))
+	gui.set_color(pod.name, v4(hot and GLOW_LIGHT or NAME_OWNED, 1))
 	gui.set_text(pod.sub, opts.sub or "")
-	gui.set_color(pod.sub, v4(opts.lit and GLOW_LIGHT or SUB_DIM, 1))
-	gui.set_enabled(pod.pulse, (opts.pulse or opts.lit) and true or false)
+	gui.set_color(pod.sub, v4(hot and GLOW_LIGHT or SUB_DIM, 1))
+	gui.set_enabled(pod.pulse, (opts.pulse or opts.equipped) and true or false)
 end
 
 -- ===== Build ===============================================================
@@ -343,7 +431,7 @@ function init(self)
 	ui.box(W / 2, H - 45, W, 90, { 0.024, 0.027, 0.024 }, 0.82)
 	self.title = ui.text(W / 2, H - 38, "SKILL TREE", 24, { 0.847, 0.824, 0.753 })
 	self.hint = ui.text(W / 2, H - 64, "", 12, { 0.541, 0.498, 0.384 })
-	self.back = ui.button_frame(33, H - 33, 38, 38, "btn_steel")
+	self.back = ui.plaque_button(33, H - 33, 40, 40)
 	ui.text(33, H - 32, "<", 18, { 0.788, 0.725, 0.541 })
 	self.gold_pill = ui.box(W - 56, H - 27, 84, 26, { 0.110, 0.090, 0.063 }, 1)
 	local hdr_coin = tex("skilltree", W - 86, H - 27, 17, "coin")
@@ -361,7 +449,11 @@ function init(self)
 		local handle = skill_icon_ui.build(x, 48, 52, 34)
 		local diamond = ui.box(x, 48, 16, 16, { 0.184, 0.290, 0.227 }, 1)
 		gui.set_rotation(diamond, vmath.quat_rotation_z(math.rad(45)))
-		self.slots[i] = { icon_ui = handle, diamond = diamond, cur = nil }
+		-- The buy price shown on a still-locked slot (slot 2 costs 10, slot 3
+		-- costs 20; slot 1 is always open).
+		local cost_text = ui.text(x, 20, ("%dg"):format(skills.SLOT_COSTS[i] or 0), 10, COST_GOLD)
+		gui.set_enabled(cost_text, false)
+		self.slots[i] = { icon_ui = handle, diamond = diamond, cost_text = cost_text, cur = nil }
 	end
 
 	-- Flash toast, above everything.
@@ -421,12 +513,21 @@ function update(self, dt)
 		local pod = self.pods[sid]
 		if skill_shown(self, sid) then
 			show_pod(self, sid, pod, i <= 3 and 0.9 or 1.1)
-			local level = m.skill_levels[sid] or 1
-			local needed = skills.skill_xp_to_next(level)
-			local sub = needed
-				and ("Lv %d  %d/%d"):format(level, m.skill_xp[sid] or 0, needed)
-				or ("Lv %d  MAX"):format(level)
-			sync_pod(pod, { lit = is_equipped(m, sid), name = FLOWER[sid].name, sub = sub })
+			local level = m.skill_levels[sid] or 0
+			local unlocked = level >= 1
+			local sub
+			if not unlocked then
+				sub = ("Unlock: %dg"):format(unlock_cost(sid))
+			else
+				local needed = skills.skill_xp_to_next(level)
+				sub = needed
+					and ("Lv %d  %d/%d"):format(level, m.skill_xp[sid] or 0, needed)
+					or ("Lv %d  MAX"):format(level)
+			end
+			sync_pod(pod, {
+				unlocked = unlocked, equipped = is_equipped(m, sid),
+				name = FLOWER[sid].name, sub = sub,
+			})
 		else
 			hide_pod(self, sid, pod)
 		end
@@ -437,21 +538,35 @@ function update(self, dt)
 	if self.awakening < MAX_AWAKENING then
 		gui.set_text(self.hint, "Tap the core to unfurl the tree")
 	else
-		gui.set_text(self.hint, "Tap a skill to equip it")
+		gui.set_text(self.hint, "Tap a skill to unlock or equip")
 	end
-	gui.set_text(self.loadout_caption, ("EQUIPPED - %d/%d"):format(#m.loadout, skills.MAX_EQUIPPED))
+	gui.set_text(self.loadout_caption, ("EQUIPPED - %d/%d"):format(#m.loadout, m.slots_unlocked or 1))
 
-	-- Loadout slots.
+	-- Loadout slots. A slot past the unlocked count shows a lock and its buy
+	-- price instead of an equip target.
+	local slots_unlocked = m.slots_unlocked or 1
 	for i = 1, 3 do
 		local slot = self.slots[i]
-		local sid = m.loadout[i]
-		if sid ~= slot.cur then
-			slot.cur = sid
-			if sid then gui.play_flipbook(slot.icon_ui.icon, FLOWER[sid].icon) end
+		if i > slots_unlocked then
+			if slot.cur ~= "__locked" then
+				slot.cur = "__locked"
+				gui.play_flipbook(slot.icon_ui.icon, "lock")
+			end
+			gui.set_enabled(slot.icon_ui.icon, true)
+			gui.set_enabled(slot.diamond, false)
+			gui.set_enabled(slot.cost_text, true)
+			skill_icon_ui.set_lit(slot.icon_ui, false)
+		else
+			local sid = m.loadout[i]
+			if sid ~= slot.cur then
+				slot.cur = sid
+				if sid then gui.play_flipbook(slot.icon_ui.icon, FLOWER[sid].icon) end
+			end
+			gui.set_enabled(slot.icon_ui.icon, sid ~= nil)
+			gui.set_enabled(slot.diamond, sid == nil)
+			gui.set_enabled(slot.cost_text, false)
+			skill_icon_ui.set_lit(slot.icon_ui, sid ~= nil)
 		end
-		gui.set_enabled(slot.icon_ui.icon, sid ~= nil)
-		gui.set_enabled(slot.diamond, sid == nil)
-		skill_icon_ui.set_lit(slot.icon_ui, sid ~= nil)
 	end
 end
 
@@ -466,46 +581,73 @@ function on_input(self, action_id, action)
 	if session.screen ~= "skilltree" then return false end
 	if action_id ~= hash("touch") or not action.pressed then return false end
 
-	if skill_tip_ui.input(self.skill_tip, action) then return true end
-
-	if gui.pick_node(self.back, action.x, action.y) then
-		session.actions.back_to_menu()
-		return true
-	end
+	-- A tap on a slot icon always (re)shows the tooltip for that skill, even
+	-- if another skill's tooltip is already open -- checked before the
+	-- tooltip's own input handler so that tap isn't swallowed as a
+	-- close-on-tap-elsewhere first (which used to force a second tap to
+	-- actually open the new one).
 	for i = 1, 3 do
 		if gui.pick_node(self.slots[i].icon_ui.disc, action.x, action.y) then
+			local m = session.meta
+			local slots_unlocked = m and m.slots_unlocked or 1
+			if i > slots_unlocked then
+				-- Buy the next slot in order, if it is the very next one and
+				-- there is enough gold.
+				if i == slots_unlocked + 1 then
+					local cost = skills.SLOT_COSTS[i] or 0
+					if (m.gold or 0) >= cost then
+						m.gold = m.gold - cost
+						m.slots_unlocked = i
+						session.commit_meta(m)
+						flash(self, "SLOT UNLOCKED")
+					else
+						flash(self, "NEED " .. cost .. " GOLD")
+					end
+				else
+					flash(self, "UNLOCK THE PREVIOUS SLOT FIRST")
+				end
+				return true
+			end
 			local sid = self.slots[i].cur
 			if not sid then
 				flash(self, "EQUIP A SKILL")
 			else
-				local m = session.meta
 				local p = gui.get_position(self.slots[i].icon_ui.disc)
-				local level = m and m.skill_levels[sid] or 1
-				local xp = m and m.skill_xp[sid] or 0
-				skill_tip_ui.show(self.skill_tip, sid, level, xp, skills.skill_xp_to_next(level), p.x, p.y)
+				show_skill_tooltip(self, sid, p.x, p.y)
 			end
 			return true
 		end
 	end
 
+	if gui.pick_node(self.back, action.x, action.y) then
+		session.actions.back_to_menu()
+		return true
+	end
+
 	if pod_hit(self, "core", action.x, action.y) then
-		-- Each tap on the core is the next awakening: roots, then children.
+		-- The one tap unfurls the roots; children awaken by being required.
 		if self.awakening < MAX_AWAKENING then
 			self.awakening = self.awakening + 1
-			if self.awakening == MAX_AWAKENING then flash(self, "SECOND AWAKENING") end
 			refit(self, true)
 		end
 		return true
 	end
 
+	-- Tapping a skill pod opens its tooltip (Unlock / Equip / Unequip). Checked
+	-- before the tooltip's own dismiss handler so tapping a different pod
+	-- switches to it rather than just closing the open one.
 	local m = session.meta
-	if not m then return true end
-	for _, sid in ipairs(ORDER) do
-		if pod_hit(self, sid, action.x, action.y) then
-			toggle_equip(self, sid)
-			return true
+	if m then
+		for _, sid in ipairs(ORDER) do
+			if pod_hit(self, sid, action.x, action.y) then
+				show_skill_tooltip(self, sid, action.x, action.y)
+				return true
+			end
 		end
 	end
+
+	-- Any other tap dismisses an open tooltip.
+	if skill_tip_ui.input(self.skill_tip, action) then return true end
 
 	return true
 end

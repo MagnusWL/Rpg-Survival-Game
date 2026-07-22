@@ -27,20 +27,31 @@ M.RUPTURE_ZONE_DELAY = combat.frame_start_time(combat.ANIMS.rupture, M.RUPTURE_Z
 M.ALL_SKILLS = { "summon", "cone", "ranged", "fireball", "burn", "push" }
 M.ROOT_SKILLS = { "summon", "cone", "ranged" }
 M.MAX_EQUIPPED = 3
+-- Equip slots are unlocked with gold in the skill tree: slot 1 is free, slot 2
+-- costs 10, slot 3 costs 20. Index is the slot number.
+M.SLOT_COSTS = { 0, 10, 20 }
 
 M.SKILL_PARENT = {
 	summon = nil, cone = nil, ranged = nil,
 	fireball = "summon", burn = "cone", push = "ranged",
 }
 
+-- Ids stay the same (summon/cone/ranged) for save compatibility; only the
+-- player-facing labels changed: Summon->Wild Boar, Cone->Shockwave,
+-- Ranged->Berserker.
 M.SKILL_META = {
-	summon = { label = "Summon", icon = "Z", color = { 0.494, 0.341, 0.761 }, cast = "instant", cooldown = 12 },
-	cone = { label = "Cone", icon = "V", color = { 1.0, 0.541, 0.314 }, cast = "instant", cooldown = 5 },
-	ranged = { label = "Ranged", icon = "R", color = { 0.4, 0.733, 0.416 }, cast = "instant", cooldown = 15 },
+	summon = { label = "Wild Boar", icon = "Z", color = { 0.494, 0.341, 0.761 }, cast = "instant", cooldown = 12 },
+	cone = { label = "Shockwave", icon = "V", color = { 1.0, 0.541, 0.314 }, cast = "instant", cooldown = 5 },
+	ranged = { label = "Berserker", icon = "R", color = { 0.4, 0.733, 0.416 }, cast = "instant", cooldown = 15 },
 	fireball = { label = "Fireball", icon = "F", color = { 0.361, 0.42, 0.753 }, cast = "instant", cooldown = 8 },
 	burn = { label = "Burn", icon = "B", color = { 0.937, 0.325, 0.314 }, cast = "instant", cooldown = 6 },
 	push = { label = "Push", icon = "P", color = { 0.263, 0.627, 0.278 }, cast = "instant", cooldown = 8 },
 }
+
+-- Berserker's flat passive (no per-level scaling): a health pool and regen
+-- just for having it equipped, on top of the +50% attack-speed tap.
+M.BERSERKER_BONUS_HP = 100
+M.BERSERKER_REGEN = 10
 
 -- Per-skill progression: every skill starts owned at rank 1 and ranks up on
 -- this curve from two income streams (see game.sim) -- half from clearing
@@ -52,18 +63,22 @@ end
 
 local function pick(t, level) return t[level] or 0 end
 
-function M.fireball_damage_percent(level) return pick({ 1.0, 1.5, 2.0, 2.5 }, level) end
-M.FIREBALL_RADIUS = 95
+-- Fireball is now an enrage buff on your summons: +50% attack speed and a
+-- burning aura dealing this much damage per second to nearby enemies.
+M.FIREBALL_ENRAGE_DURATION = 5
+M.FIREBALL_ENRAGE_ATKSPD = 0.5
+M.FIREBALL_AURA_RADIUS = 95
+function M.fireball_aura_dps(level) return pick({ 20, 30, 40, 50 }, level) end
 function M.burn_explode_percent(level) return pick({ 0.5, 0.6, 0.7, 1.0 }, level) end
-M.BURN_EXPLODE_RADIUS = 90
+M.BURN_EXPLODE_RADIUS = 140 -- widened from 90
 function M.burn_damage_per_sec(level) return pick({ 5, 10, 15, 20 }, level) end
 function M.push_damage_percent(level) return pick({ 0.5, 1.0, 1.5, 2.0 }, level) end
-M.PUSH_SPEED = 620
+M.PUSH_SPEED = 360 -- gentler shove, so ranged enemies aren't knocked out of reach
 -- How close to a pierced shot's line an enemy must be to be swept up in it.
 M.PIERCE_WIDTH = 26
 
 function M.ability1_stats(level)
-	return { hp = 20 + (level - 1) * 15, damage = 4 + (level - 1) * 3 }
+	return { hp = 40 + (level - 1) * 30, damage = 5 * level }
 end
 function M.ability2_base_damage(level) return 10 * level end
 function M.ability2_damage_percent(level) return 0.1 + (level - 1) * 0.05 end
@@ -117,19 +132,18 @@ function M.skill_description(skill)
 	elseif skill == "cone" then
 		local bases = bracket(M.ability2_base_damage)
 		local pcts = bracket(function(l) return math.floor(M.ability2_damage_percent(l) * 100 + 0.5) .. "%" end)
-		return ("Deals %s damage plus %s of each enemy's max HP in a widening cone toward where you aim."):format(bases, pcts)
+		return ("Deals %s damage plus %s of each enemy's max HP in a widening cone. Auto-aims at the nearest enemy, turning you to face it."):format(bases, pcts)
 	elseif skill == "ranged" then
-		local dmgs = bracket(M.ability3_damage_bonus)
-		return ("Passively turns your attacks ranged, adding %s damage. Tap to gain +50%% attack speed for 5s."):format(dmgs)
+		return "Gain 100 health and 10 health regen/second. Tap to gain +50% attack speed for 5s."
 	elseif skill == "fireball" then
-		local pcts = bracket(function(l) return math.floor(M.fireball_damage_percent(l) * 100 + 0.5) .. "%" end)
-		return ("A fireball explodes from every one of your summons, dealing %s of that summon's attack damage to nearby enemies. Needs Summon."):format(pcts)
+		local dps = bracket(M.fireball_aura_dps)
+		return ("Enrage your summons for 5s: +50%% attack speed and a burning aura dealing %s damage/s to nearby enemies."):format(dps)
 	elseif skill == "burn" then
 		local pcts = bracket(function(l) return math.floor(M.burn_explode_percent(l) * 100 + 0.5) .. "%" end)
-		return ("Sets the closest enemy afire. When it dies it explodes, dealing %s of its max health to nearby enemies. Needs Cone."):format(pcts)
+		return ("Sets the closest enemy afire. When it dies it explodes, dealing %s of its max health to nearby enemies."):format(pcts)
 	end
 	local pcts = bracket(function(l) return math.floor(M.push_damage_percent(l) * 100 + 0.5) .. "%" end)
-	return ("Shoves all enemies away from you, dealing %s of your attack damage. Needs Ranged."):format(pcts)
+	return ("Shoves all enemies away from you, dealing %s of your attack damage."):format(pcts)
 end
 
 function M.skill_stats_suffix(skill)

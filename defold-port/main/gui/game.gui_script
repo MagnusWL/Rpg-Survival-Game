@@ -87,21 +87,18 @@ function init(self)
 	gui.set_enabled(self.aim_cone, false)
 
 	-- Top bar.
-	self.top_bar = ui.box(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	self.top_bar = ui.box(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT, { 0.11, 0.082, 0.055 }, 1)
 	ui.grain(W / 2, H - layout.TOP_BAR_HEIGHT / 2, W, layout.TOP_BAR_HEIGHT)
-	-- Carved-frame button look everywhere: red for the destructive exit,
-	-- steel for the neutral gear/mob-stats toggles, gold for the primary
-	-- start-wave action -- same four textures used on every button in the
-	-- game, one look per action kind rather than per screen.
-	self.exit_btn = ui.button_frame(44, H - 25, 72, 26, "btn_red")
-	self.exit_text = ui.text(44, H - 25, "Exit run", 10, { 1, 1, 1 })
-	self.wave_text = ui.text(W - 210, H - 25, "Wave 1", 12, { 1, 1, 1 })
-	self.gear_btn = ui.button_frame(W - 160, H - 25, 30, 26, "btn_steel")
-	self.gear_text = ui.tex_box(W - 160, H - 25, 20, 20, "cog")
-	self.mobstats_btn = ui.button_frame(W - 108, H - 25, 66, 26, "btn_steel")
-	self.mobstats_text = ui.text(W - 108, H - 25, "Mob Stats", 9, { 1, 1, 1 })
-	self.wave_btn = ui.button_frame(W - 38, H - 25, 62, 26, "btn_gold")
-	self.wave_btn_text = ui.text(W - 38, H - 25, "Start 1", 9, { 1, 1, 1 })
+	-- Top-bar actions: Exit Run on the left; the wave readout, Mobs, and the
+	-- settings cog on the right (the cog pinned to the very edge). The Next
+	-- Wave button now lives in the bottom bar, built further down.
+	self.exit_btn = ui.plaque_button(52, H - 25, 92, 38)
+	self.exit_text = ui.text(52, H - 25, "Exit run", 11, { 0.965, 0.86, 0.6 })
+	self.wave_text = ui.text(W - 170, H - 25, "Wave 1", 12, { 1, 1, 1 })
+	self.mobstats_btn = ui.plaque_button(W - 92, H - 25, 74, 38)
+	self.mobstats_text = ui.text(W - 92, H - 25, "Mobs", 11, { 0.965, 0.86, 0.6 })
+	self.gear_btn = ui.plaque_button(W - 26, H - 25, 36, 36)
+	self.gear_text = ui.tex_box(W - 26, H - 25, 20, 20, "cog")
 
 	-- HUD: HP alone now, spanning the width where three columns used to sit.
 	-- Built before the quick-cast bar so its background can never draw over
@@ -109,7 +106,7 @@ function init(self)
 	-- and the two strips sit close enough that the old order clipped the
 	-- bottom of the quick-cast labels under the HUD's opaque panel).
 	local hud_y = layout.HUD_HEIGHT / 2
-	self.hud_bg = ui.box(W / 2, hud_y, W, layout.HUD_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	self.hud_bg = ui.box(W / 2, hud_y, W, layout.HUD_HEIGHT, { 0.11, 0.082, 0.055 }, 1)
 	ui.grain(W / 2, hud_y, W, layout.HUD_HEIGHT)
 	local hp_w = W - 40
 	local hp_x = 20
@@ -125,7 +122,7 @@ function init(self)
 
 	-- Quick-cast bar strip + upgrades button.
 	local qc_y = layout.HUD_HEIGHT + layout.QUICK_CAST_BAR_HEIGHT / 2
-	self.qc_bar = ui.box(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT, { 0.067, 0.067, 0.133 }, 1)
+	self.qc_bar = ui.box(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT, { 0.11, 0.082, 0.055 }, 1)
 	ui.grain(W / 2, qc_y, W, layout.QUICK_CAST_BAR_HEIGHT)
 	-- Same skill-face look as an upgrade card (dark disc, light-blue ring),
 	-- since this button is the door to the Upgrades screen.
@@ -148,6 +145,12 @@ function init(self)
 		local progress = ui.text(x, qc_y - 22, "", 7, { 0.7, 0.9, 1 })
 		self.qc_slots[i] = { icon_ui = icon_ui, cd = cd_text, label = label, progress = progress }
 	end
+
+	-- Next Wave: the run's pacing button, balanced opposite the upgrades
+	-- button on the left. It shows the auto-launch countdown and can be tapped
+	-- to start the next wave early. (Moved here from the top bar.)
+	self.wave_btn = ui.plaque_button(W - 46, qc_y + 14, 76, 34)
+	self.wave_btn_text = ui.text(W - 46, qc_y + 14, "Next Wave", 8, { 0.965, 0.86, 0.6 })
 
 	self.pool_hp = make_pool(function()
 		local bg = ui.box(0, 0, 10, 4, { 0, 0, 0 }, 1)
@@ -202,9 +205,9 @@ function init(self)
 
 	-- Game over.
 	self.go_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.75))
-	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "Game Over", 26, { 1, 1, 1 }))
+	self.go_text = ui.overlay(ui.text(W / 2, H / 2 + 40, "She's is still lost in the dark", 15, { 1, 1, 1 }))
 	self.go_gold = ui.overlay(ui.text(W / 2, H / 2, "", 14, { 1, 0.835, 0.31 }))
-	self.go_btn = ui.overlay(ui.button_frame(W / 2, H / 2 - 60, 140, 44, "btn_gold"))
+	self.go_btn = ui.overlay(ui.plaque_button(W / 2, H / 2 - 60, 140, 44))
 	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Main Menu", 13, { 1, 1, 1 }))
 end
 
@@ -244,8 +247,8 @@ local function build_upgrades_list(self)
 	local s = session.sim
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
 	local panel_top = H / 2 + UPG_PANEL_H / 2
-	add(self, ui.box(W / 2, H / 2, W - 40, UPG_PANEL_H, { 0.1, 0.1, 0.18 }, 1))
-	add(self, ui.grain(W / 2, H / 2, W - 40, UPG_PANEL_H, 0.16))
+	add(self, ui.box(W / 2, H / 2, W - 40, UPG_PANEL_H, { 0.14, 0.105, 0.072 }, 1))
+	add(self, ui.grain(W / 2, H / 2, W - 40, UPG_PANEL_H, 0.16, "overlay"))
 	add(self, ui.text(W / 2, panel_top - 24, "Upgrades", 16, { 1, 1, 1 }))
 
 	if #s.upgrades == 0 then
@@ -302,9 +305,9 @@ local function build_mobstats(self)
 	local s = session.sim
 	local shown_wave = s.wave_active and s.wave or s.wave + 1
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.box(W / 2, H / 2, W - 40, 260, { 0.1, 0.1, 0.18 }, 1))
-	add(self, ui.grain(W / 2, H / 2, W - 40, 260, 0.16))
-	add(self, ui.text(W / 2, H / 2 + 105, ("Mob Stats · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
+	add(self, ui.box(W / 2, H / 2, W - 40, 260, { 0.14, 0.105, 0.072 }, 1))
+	add(self, ui.grain(W / 2, H / 2, W - 40, 260, 0.16, "overlay"))
+	add(self, ui.text(W / 2, H / 2 + 105, ("Mobs · Wave %d"):format(shown_wave), 15, { 1, 1, 1 }))
 	local y = H / 2 + 55
 	for _, row in ipairs(combat.wave_composition(shown_wave)) do
 		local meta = combat.MOB_TYPE_META[row.type]
@@ -356,7 +359,7 @@ local function build_choice(self, offers)
 	for i, offer in ipairs(offers) do
 		local y = H / 2 + 80 - (i - 1) * (card_h + 14)
 		local def = upgrades.DEFS[offer.kind]
-		local box = add_c(ui.box(W / 2, y, W - 60, card_h, { 0.1, 0.1, 0.18 }, 1))
+		local box = add_c(ui.box(W / 2, y, W - 60, card_h, { 0.14, 0.105, 0.072 }, 1))
 		-- Every upgrade wears the same face a skill would: dark disc, ring
 		-- border, icon on top -- light blue rather than the skills' orange,
 		-- so an upgrade still reads as its own kind of thing at a glance.
@@ -400,16 +403,25 @@ local function sync_hud(self, s)
 	local p = s.player
 	local shown_wave = s.wave_active and s.wave or s.wave + 1
 	gui.set_text(self.wave_text, "Wave " .. shown_wave)
-	gui.set_text(self.wave_btn_text, "Start " .. (s.wave + 1))
+	-- Next Wave: always tappable (even mid-spawn, to rush the next wave) and
+	-- always reads "Next Wave", with the auto-launch countdown appended while
+	-- one is running.
+	if s.wave_countdown ~= nil then
+		gui.set_text(self.wave_btn_text, ("Next Wave  %d"):format(math.max(0, math.ceil(s.wave_countdown))))
+	else
+		gui.set_text(self.wave_btn_text, "Next Wave")
+	end
 	gui.set_enabled(self.wave_btn, not s.game_over)
 	gui.set_enabled(self.wave_btn_text, not s.game_over)
 	gui.set_enabled(self.exit_btn, not s.game_over)
 	gui.set_enabled(self.exit_text, not s.game_over)
 
-	local bonus = upgrades.bonuses(s.upgrades)
-	local hp_bonus = bonus.health
-	local dmg_bonus = bonus.dmg
-	local atkspd_bonus = bonus.atkspd
+	-- Berserker (the "ranged" id) grants the flat health passive while equipped.
+	local berserker = false
+	for k = 1, 3 do
+		if s.abilities[k].skill == "ranged" then berserker = true end
+	end
+	local hp_bonus = berserker and skills.BERSERKER_BONUS_HP or 0
 	local max_hp = p.max_hp + hp_bonus
 
 	local hp_frac = max_hp > 0 and p.hp / max_hp or 0
@@ -418,27 +430,31 @@ local function sync_hud(self, s)
 	local c = hp_bar_color(hp_frac)
 	gui.set_color(self.hp_fill, vmath.vector4(c[1], c[2], c[3], 1))
 
-	local ranged_lvl = 0
-	for k = 1, 3 do
-		if s.abilities[k].skill == "ranged" then ranged_lvl = s.abilities[k].level end
-	end
-	local display_damage = combat.PLAYER_BASE_DAMAGE + skills.ability3_damage_bonus(ranged_lvl) + dmg_bonus
-	local cd = (combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)) / (1 + atkspd_bonus)
+	local display_damage = combat.PLAYER_BASE_DAMAGE
+	local cd = combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)
 	gui.set_text(self.stats_text, ("DMG %d   SPD %.1f/s"):format(display_damage, 1 / cd))
 
-	-- Quick-cast slots.
+	-- Quick-cast slots. Every slot shows its ring: a filled skill, an empty
+	-- unlocked slot, or a locked slot (lock icon) past the unlocked count.
+	local slots_unlocked = (session.meta and session.meta.slots_unlocked) or 1
 	for i = 1, 3 do
 		local slot = self.qc_slots[i]
 		local ab = s.abilities[i]
-		local show = ab.skill ~= nil and ab.level > 0
-		skill_icon_ui.set_enabled(slot.icon_ui, show)
+		local locked = i > slots_unlocked
+		local filled = not locked and ab.skill ~= nil and ab.level > 0
+		-- The ring and disc are always visible so an empty/locked slot still
+		-- reads as a slot; only a filled slot carries the label/xp text.
+		gui.set_enabled(slot.icon_ui.rim, true)
+		gui.set_enabled(slot.icon_ui.disc, true)
+		skill_icon_ui.set_lit(slot.icon_ui, filled)
 		for _, n in pairs({ slot.cd, slot.label, slot.progress }) do
-			gui.set_enabled(n, show)
+			gui.set_enabled(n, filled)
 		end
-		if show then
+		if filled then
 			local meta = skills.SKILL_META[ab.skill]
 			local can_cast = ab.cooldown <= 0
 			skill_icon_ui.set_alpha(slot.icon_ui, can_cast and 1 or 0.55)
+			gui.set_enabled(slot.icon_ui.icon, true)
 			gui.play_flipbook(slot.icon_ui.icon, SKILL_ICON[ab.skill])
 			gui.set_text(slot.cd, ab.cooldown > 0 and tostring(math.ceil(ab.cooldown)) or "")
 			gui.set_text(slot.label, meta.label)
@@ -448,22 +464,33 @@ local function sync_hud(self, s)
 			else
 				gui.set_text(slot.progress, ("Lv%d  MAX"):format(ab.level))
 			end
+		elseif locked then
+			skill_icon_ui.set_alpha(slot.icon_ui, 0.6)
+			gui.set_enabled(slot.icon_ui.icon, true)
+			gui.play_flipbook(slot.icon_ui.icon, "lock")
+		else
+			-- Unlocked but empty: just the dim ring, no icon.
+			skill_icon_ui.set_alpha(slot.icon_ui, 0.6)
+			gui.set_enabled(slot.icon_ui.icon, false)
 		end
 	end
 
-	gui.set_text(self.bag_badge, #s.upgrades > 0 and tostring(#s.upgrades) or "")
+	-- The Upgrades button is hidden until the first upgrade is earned.
+	local has_upgrades = #s.upgrades > 0
+	for _, n in ipairs({ self.bag_btn, self.bag_disc, self.bag_icon }) do
+		gui.set_enabled(n, has_upgrades)
+	end
+	gui.set_text(self.bag_badge, has_upgrades and tostring(#s.upgrades) or "")
+	gui.set_enabled(self.bag_badge, has_upgrades)
 end
 
 local function sync_field(self, s)
 	local p = s.player
 
 	-- Range ring around the knight.
-	local pierce_bonus = upgrades.bonuses(s.upgrades).pierce
-	local ranged_lvl = 0
-	for k = 1, 3 do
-		if s.abilities[k].skill == "ranged" then ranged_lvl = s.abilities[k].level end
-	end
-	local range = (ranged_lvl > 0 or pierce_bonus > 0) and combat.RANGED_ATTACK_RANGE or combat.PLAYER_ATTACK_RANGE
+	-- The basic attack is always melee now (Berserker no longer makes it
+	-- ranged), so the reach ring is the melee range regardless of loadout.
+	local range = combat.PLAYER_ATTACK_RANGE
 	gui.set_position(self.range_ring, vmath.vector3(p.pos.x, gy(p.pos.y), 0))
 	gui.set_size(self.range_ring, vmath.vector3(range * 2, range * 2, 0))
 
@@ -708,12 +735,12 @@ function on_input(self, action_id, action)
 			return true
 		end
 		if gui.pick_node(self.wave_btn, action.x, action.y) then
-			local sim = require("game.sim")
-			sim.start_next_wave(s)
+			require("game.sim").start_next_wave(s)
 			return true
 		end
-		-- Quick-cast bar.
-		if gui.pick_node(self.bag_btn, action.x, action.y) then
+		-- Quick-cast bar. The Upgrades button only responds once it is shown
+		-- (i.e. at least one upgrade has been earned).
+		if #s.upgrades > 0 and gui.pick_node(self.bag_btn, action.x, action.y) then
 			session.overlay = "upgrades"
 			return true
 		end

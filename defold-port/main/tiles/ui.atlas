@@ -49,3 +49,6 @@ images {
 images {
   image: "/assets/sprites/prim/btn_blue.png"
 }
+images {
+  image: "/assets/sprites/prim/btn_plaque.png"
+}

@@ -10,7 +10,10 @@ local M = {}
 -- saves carry upgrades instead of equipped/bag items, and the player has no
 -- level/xp/mana of his own. v2: meta gained per-skill xp.
 M.RUNS_FILE = "runs_v4"
-M.META_FILE = "meta_v3"
+-- v5: skills start locked (level 0) and are unlocked with gold in the tree;
+-- the account starts with 5 gold and one equip slot. v4: empty loadout + gold
+-- equip slots.
+M.META_FILE = "meta_v5"
 
 local function save_path(name)
 	return sys.get_save_file("emojiautobattler", name)
@@ -20,15 +23,16 @@ end
 -- left; rank 2-4 are earned in the field (see game.sim's grant_skill_kill_xp
 -- and grant_wave_clear_xp).
 function M.default_meta()
+	-- Every skill starts locked (level 0); unlocking one in the tree costs gold
+	-- and sets it to rank 1. A fresh account has 5 gold -- enough for one root
+	-- skill -- and one equip slot open.
 	local skill_levels = {}
 	local skill_xp = {}
 	for _, s in ipairs(skills.ALL_SKILLS) do
-		skill_levels[s] = 1
+		skill_levels[s] = 0
 		skill_xp[s] = 0
 	end
-	local loadout = {}
-	for i, s in ipairs(skills.ROOT_SKILLS) do loadout[i] = s end
-	return { gold = 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout }
+	return { gold = 5, skill_levels = skill_levels, skill_xp = skill_xp, loadout = {}, slots_unlocked = 1 }
 end
 
 local function contains(list, v)
@@ -46,17 +50,14 @@ function M.sanitize_meta(raw)
 	local skill_levels = base.skill_levels
 	if raw.skill_levels then
 		for k, v in pairs(raw.skill_levels) do
-			if skill_levels[k] ~= nil then skill_levels[k] = v end
+			-- Levels are 0 (locked) through ABILITY_MAX_LEVEL.
+			if skill_levels[k] ~= nil then skill_levels[k] = math.max(0, math.min(skills.ABILITY_MAX_LEVEL, v)) end
 		end
 	end
-	-- Old saves could have a skill locked at 0 (never bought). There is no
-	-- locked state any more -- every skill starts owned -- so bump it to 1.
-	for _, s in ipairs(skills.ALL_SKILLS) do
-		if (skill_levels[s] or 0) < 1 then skill_levels[s] = 1 end
-	end
+	local slots = math.max(1, math.min(skills.MAX_EQUIPPED, math.floor(raw.slots_unlocked or 1)))
 	local loadout = {}
-	for _, s in ipairs(raw.loadout or base.loadout) do
-		if contains(skills.ALL_SKILLS, s) and (skill_levels[s] or 0) > 0 and #loadout < skills.MAX_EQUIPPED then
+	for _, s in ipairs(raw.loadout or {}) do
+		if contains(skills.ALL_SKILLS, s) and (skill_levels[s] or 0) > 0 and #loadout < slots then
 			loadout[#loadout + 1] = s
 		end
 	end
@@ -66,7 +67,7 @@ function M.sanitize_meta(raw)
 			if skill_xp[k] ~= nil then skill_xp[k] = v end
 		end
 	end
-	return { gold = raw.gold or 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout }
+	return { gold = raw.gold or 0, skill_levels = skill_levels, skill_xp = skill_xp, loadout = loadout, slots_unlocked = slots }
 end
 
 function M.load_meta()

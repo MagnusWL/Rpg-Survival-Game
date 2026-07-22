@@ -12,6 +12,10 @@ local M = {}
 local SCREEN_W = layout.SCREEN_W
 local PLAY_H = layout.PLAY_H
 
+-- Seconds a cleared wave (or the start of the run) counts down before the next
+-- wave launches on its own. The player can still start early with Next Wave.
+M.WAVE_COUNTDOWN = 5
+
 -- Measured clip lead times (assets/sounds/leads.json): how early each clip
 -- must start so its loudest moment lands on the frame it belongs to.
 M.CLIP_LEAD = {
@@ -56,6 +60,10 @@ function M.new(game_state, opts)
 		wave_queues = {},
 		loot_owed = {},
 		wave_active = false,
+		-- Seconds until the next wave auto-launches. Set at run start and
+		-- after each cleared wave; ticks only once the intro is done and no
+		-- upgrade offer is waiting. nil means "not counting down".
+		wave_countdown = M.WAVE_COUNTDOWN,
 		game_over = false,
 		aiming_slot = nil,
 		aim_point = nil,
@@ -99,10 +107,25 @@ local function equipped_level_of(s, skill)
 end
 M.equipped_level_of = equipped_level_of
 
--- Haste is now a stacking upgrade rather than a passive skill; clamped so a
--- pile of them cannot reach a zero or negative cooldown.
+-- Cooldowns shrink with the Spellcaster upgrade; clamped so a pile of them
+-- cannot reach a zero or negative cooldown.
 local function cd_scale(s)
-	return math.max(0.1, 1 - upgrades.bonuses(s.upgrades).haste)
+	return math.max(0.1, 1 - upgrades.bonuses(s.upgrades).cooldown)
+end
+
+-- Berserker's flat health passive raises the effective HP cap while equipped.
+local function player_max_hp(s)
+	local base = s.player.max_hp
+	if equipped_level_of(s, "ranged") > 0 then base = base + skills.BERSERKER_BONUS_HP end
+	return base
+end
+
+-- Vampire lifesteal: heal the player a fraction of damage they deal, capped at
+-- their (Berserker-boosted) max HP.
+local function apply_lifesteal(s, dmg)
+	local ls = upgrades.bonuses(s.upgrades).lifesteal
+	if ls <= 0 or dmg <= 0 or s.die_timer ~= nil then return end
+	s.player.hp = math.min(player_max_hp(s), s.player.hp + dmg * ls)
 end
 
 -- Queue the cone's blows onto the travelling wave (or land at once when the
@@ -156,47 +179,56 @@ function M.press_ability(s, slot)
 
 	if skill == "summon" then
 		s.pending_cast_anim = "ancestor"
-		s.allies = combat.make_allies_for_level(ab.level, p.pos, skills.ability1_stats)
+		-- Summoner upgrade: every summon rolls off with extra health.
+		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health
+		s.allies = combat.make_allies_for_level(ab.level, p.pos, function(l)
+			local st = skills.ability1_stats(l)
+			st.hp = math.floor(st.hp * sh)
+			return st
+		end)
 	elseif skill == "cone" then
 		s.pending_cast_anim = "rupture"
-		-- Same rule as the aimed cast: casting the cone stops the walk.
+		-- Same rule as the aimed cast: casting the shockwave stops the walk.
 		p.target = nil
-		local dir = combat.direction_from_facing(p.facing)
-		local aim = { x = p.pos.x + dir.x * skills.CONE_RANGE, y = p.pos.y + dir.y * skills.CONE_RANGE }
-		add_cone_zone(s, p.pos, math.atan2(dir.y, dir.x) * 180 / math.pi)
+		-- Auto-aim: point the shockwave at the nearest enemy, turning to face
+		-- it; with none around, fall back to whichever way he already faces.
+		local nearest, best = nil, math.huge
+		for _, m in ipairs(s.mobs) do
+			if m.hp > 0 then
+				local d = combat.dist(m.pos, p.pos)
+				if d < best then best = d; nearest = m end
+			end
+		end
+		local aim
+		if nearest then
+			aim = { x = nearest.pos.x, y = nearest.pos.y }
+			p.facing = combat.facing_from_delta(nearest.pos.x - p.pos.x, nearest.pos.y - p.pos.y)
+		else
+			local dir = combat.direction_from_facing(p.facing)
+			aim = { x = p.pos.x + dir.x * skills.CONE_RANGE, y = p.pos.y + dir.y * skills.CONE_RANGE }
+		end
+		local splash = 1 + upgrades.bonuses(s.upgrades).splash
+		add_cone_zone(s, p.pos, math.atan2(aim.y - p.pos.y, aim.x - p.pos.x) * 180 / math.pi)
 		local hits = skills.fire_cone(p.pos, aim, s.mobs,
 			skills.ability2_base_damage(ab.level), skills.ability2_damage_percent(ab.level),
-			skills.CONE_RANGE, skills.ABILITY2_HALF_ANGLE_DEG)
+			skills.CONE_RANGE * splash, skills.ABILITY2_HALF_ANGLE_DEG)
 		queue_cone_hits(s, hits, p.pos)
 	elseif skill == "ranged" then
+		-- Berserker's active: a burst of attack speed (the health/regen is a
+		-- passive handled in update).
 		p.haste_timer = skills.ABILITY3_HASTE_DURATION
 	elseif skill == "fireball" then
-		local living = {}
+		-- Enrage every living summon: faster attacks plus a burning aura,
+		-- both applied in the ally AI below.
+		local any = false
 		for _, a in ipairs(s.allies) do
-			if a.hp > 0 then living[#living + 1] = a end
-		end
-		if #living == 0 then return end
-		local pct = skills.fireball_damage_percent(ab.level)
-		for _, a in ipairs(living) do
-			s.skill_marks[#s.skill_marks + 1] = {
-				id = next_id("mark"), pos = { x = a.pos.x, y = a.pos.y },
-				radius = skills.FIREBALL_RADIUS, color = skills.SKILL_META.fireball.color, created_at = s.now,
-			}
-		end
-		for _, m in ipairs(s.mobs) do
-			local dmg = 0
-			for _, a in ipairs(living) do
-				if combat.dist(a.pos, m.pos) <= skills.FIREBALL_RADIUS then
-					dmg = dmg + pct * a.damage
-				end
-			end
-			if dmg > 0 then
-				m.hp = m.hp - dmg
-				m.last_hit_skill = "fireball"
-				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = s.now }
-				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(dmg + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, s.now)
+			if a.hp > 0 then
+				a.enrage_timer = skills.FIREBALL_ENRAGE_DURATION
+				a.enrage_dps = skills.fireball_aura_dps(ab.level)
+				any = true
 			end
 		end
+		if not any then return end
 	elseif skill == "burn" then
 		local candidates = {}
 		for _, m in ipairs(s.mobs) do
@@ -216,10 +248,7 @@ function M.press_ability(s, slot)
 			radius = 18, color = skills.SKILL_META.burn.color, created_at = s.now,
 		}
 	elseif skill == "push" then
-		local dmg_bonus = upgrades.bonuses(s.upgrades).dmg
-		local ranged_lvl = equipped_level_of(s, "ranged")
-		local atk_dmg = combat.PLAYER_BASE_DAMAGE + skills.ability3_damage_bonus(ranged_lvl) + dmg_bonus
-		local dmg = skills.push_damage_percent(ab.level) * atk_dmg
+		local dmg = skills.push_damage_percent(ab.level) * combat.PLAYER_BASE_DAMAGE
 		for _, m in ipairs(s.mobs) do
 			local dx = m.pos.x - p.pos.x
 			local dy = m.pos.y - p.pos.y
@@ -230,6 +259,7 @@ function M.press_ability(s, slot)
 			m.hp = m.hp - dmg
 			m.last_hit_skill = "push"
 			m.knock = { x = dx / d * skills.PUSH_SPEED, y = dy / d * skills.PUSH_SPEED }
+			apply_lifesteal(s, dmg)
 		end
 		s.skill_marks[#s.skill_marks + 1] = {
 			id = next_id("mark"), pos = { x = p.pos.x, y = p.pos.y },
@@ -242,6 +272,7 @@ end
 
 function M.start_next_wave(s)
 	if s.game_over then return end
+	s.wave_countdown = nil -- launching now cancels any pending auto-launch
 	s.wave = s.wave + 1
 	s.wave_queues[#s.wave_queues + 1] = { wave = s.wave, types = combat.build_wave_queue(s.wave), timer = 0 }
 	s.wave_active = true
@@ -292,6 +323,8 @@ local function add_skill_xp(s, sid, amount, pos)
 	if level <= 0 or level >= skills.ABILITY_MAX_LEVEL then return end
 	local needed = skills.skill_xp_to_next(level)
 	if not needed then return end
+	-- Grinder upgrade: more experience on all skills.
+	amount = math.floor(amount * (1 + upgrades.bonuses(s.upgrades).xp) + 0.5)
 	s.skill_xp[sid] = (s.skill_xp[sid] or 0) + amount
 	local leveled = false
 	while s.skill_xp[sid] >= needed and level < skills.ABILITY_MAX_LEVEL do
@@ -336,10 +369,12 @@ function M.update(s, dt)
 	local p = s.player
 
 	local bonus = upgrades.bonuses(s.upgrades)
-	local dmg_bonus = bonus.dmg
-	local atkspd_bonus = bonus.atkspd
-	local hp_bonus = bonus.health
-	local hpregen_bonus = bonus.healthregen
+	-- Health and regen now come from the Berserker skill (flat, while equipped)
+	-- rather than upgrades; the upgrade side contributes lifesteal and splash.
+	local berserker = equipped_level_of(s, "ranged") > 0
+	local hp_bonus = berserker and skills.BERSERKER_BONUS_HP or 0
+	local hpregen_bonus = berserker and skills.BERSERKER_REGEN or 0
+	local lifesteal = bonus.lifesteal
 
 	local damage_to_player = 0
 
@@ -442,20 +477,17 @@ function M.update(s, dt)
 	p.attack_cooldown = math.max(0, p.attack_cooldown - dt)
 	p.haste_timer = math.max(0, p.haste_timer - dt)
 
-	local ability3_level = equipped_level_of(s, "ranged")
-	-- Pierce is a stacking upgrade now rather than a passive skill; its
-	-- extra-targets count is the summed bonus directly (no per-level curve).
-	local pierce_extra = bonus.pierce
-	local ally_regen = bonus.summonregen
-	local is_ranged_attack = ability3_level > 0 or pierce_extra > 0
-	local player_attack_range = is_ranged_attack and combat.RANGED_ATTACK_RANGE or combat.PLAYER_ATTACK_RANGE
-	local player_damage = combat.PLAYER_BASE_DAMAGE + skills.ability3_damage_bonus(ability3_level) + dmg_bonus
-	local attack_cooldown_duration = (combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)) / (1 + atkspd_bonus)
+	-- Berserker is a melee health passive now, so the basic attack is a plain
+	-- short-range swing -- no ranged shots and no pierce (that upgrade is gone).
+	local pierce_extra = 0
+	local is_ranged_attack = false
+	local ally_regen = 0
+	local player_attack_range = combat.PLAYER_ATTACK_RANGE
+	local player_damage = combat.PLAYER_BASE_DAMAGE
+	local attack_cooldown_duration = combat.PLAYER_ATTACK_COOLDOWN * (p.haste_timer > 0 and 0.5 or 1)
 	local attack_anim_speed = math.max(1, combat.anim_duration(combat.ANIMS.attack) / attack_cooldown_duration)
-	-- Which skill (if any) a plain auto-attack answers to, for kill xp: the
-	-- Ranged skill, if equipped, is what a basic attack answers to now that
-	-- Pierce is an upgrade rather than a skill of its own.
-	local player_atk_skill = ability3_level > 0 and "ranged" or nil
+	-- A plain auto-attack answers to no skill for kill xp now.
+	local player_atk_skill = nil
 
 	-- Mob AI.
 	for _, m in ipairs(s.mobs) do
@@ -644,6 +676,7 @@ function M.update(s, dt)
 					m.hp = m.hp - player_damage
 					m.last_hit_skill = player_atk_skill
 					combat.hurt_mob(m, swing_hidden and nil or p.pos)
+					apply_lifesteal(s, player_damage)
 					hit_any = true
 					attack_targets[#attack_targets + 1] = { x = m.pos.x, y = m.pos.y }
 					s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
@@ -658,10 +691,34 @@ function M.update(s, dt)
 	end
 
 	-- Ally AI.
+	local fireball_aura = skills.FIREBALL_AURA_RADIUS * (1 + bonus.splash)
+	-- The enrage aura pulses a lingering red ring on the enemies caught in it
+	-- a few times a second, so it reads as a glowing aura on the mobs rather
+	-- than a one-off burst.
+	local aura_pulse = math.floor(now / 0.2) ~= math.floor((now - dt) / 0.2)
 	for _, a in ipairs(s.allies) do
 		if a.hp > 0 then
 			if ally_regen > 0 and a.hp < a.max_hp then
 				a.hp = math.min(a.max_hp, a.hp + ally_regen * dt)
+			end
+			-- Fireball enrage: a burning aura and faster swings for its duration.
+			local enraged = (a.enrage_timer or 0) > 0
+			if enraged then
+				a.enrage_timer = a.enrage_timer - dt
+				if (a.enrage_dps or 0) > 0 then
+					for _, m in ipairs(s.mobs) do
+						if m.hp > 0 and combat.dist(a.pos, m.pos) <= fireball_aura then
+							m.hp = m.hp - a.enrage_dps * dt
+							m.last_hit_skill = "fireball"
+							if aura_pulse then
+								s.skill_marks[#s.skill_marks + 1] = {
+									id = next_id("mark"), pos = { x = m.pos.x, y = m.pos.y },
+									radius = m.radius + 6, color = { 0.898, 0.184, 0.145 }, created_at = now,
+								}
+							end
+						end
+					end
+				end
 			end
 			a.attack_cooldown = math.max(0, a.attack_cooldown - dt)
 			local engage_range = a.ranged and combat.ALLY_RANGED_ENGAGE_RANGE or combat.ALLY_ENGAGE_RANGE
@@ -702,7 +759,7 @@ function M.update(s, dt)
 								s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(a.damage), mob.pos, combat.DAMAGE_TEXT_COLOR, now)
 							end
 						end
-						a.attack_cooldown = combat.ALLY_ATTACK_COOLDOWN
+						a.attack_cooldown = combat.ALLY_ATTACK_COOLDOWN / (enraged and (1 + skills.FIREBALL_ENRAGE_ATKSPD) or 1)
 					end
 				else
 					local dx = nearest.pos.x - a.pos.x
@@ -729,6 +786,7 @@ function M.update(s, dt)
 					m.hp = m.hp - h.amount
 					m.last_hit_skill = "cone"
 					combat.hurt_mob(m) -- no from-point: the cone never shoved anyone
+					apply_lifesteal(s, h.amount)
 					s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(h.amount + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
 					s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
 				end
@@ -749,9 +807,10 @@ function M.update(s, dt)
 			if not exploded[src.id] then
 				exploded[src.id] = true
 				local blast = src.max_hp * (src.burn_pct or 0)
+				local burn_radius = skills.BURN_EXPLODE_RADIUS * (1 + bonus.splash)
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text("boom!", src.pos, { 1, 0.439, 0.263 }, now)
 				for _, m in ipairs(s.mobs) do
-					if m.id ~= src.id and m.hp > 0 and combat.dist(m.pos, src.pos) <= skills.BURN_EXPLODE_RADIUS then
+					if m.id ~= src.id and m.hp > 0 and combat.dist(m.pos, src.pos) <= burn_radius then
 						m.hp = m.hp - blast
 						m.last_hit_skill = "burn"
 						s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
@@ -791,7 +850,11 @@ function M.update(s, dt)
 				grant_skill_kill_xp(s, m.last_hit_skill, m.pos)
 			end
 			local coins = m.type == "boss" and combat.BOSS_COINS or (math.random() < combat.MOB_COIN_CHANCE and 1 or 0)
-			if coins > 0 then emit(s, { type = "coins", count = coins }) end
+			if coins > 0 then
+				-- Greeder upgrade: more gold this whole run.
+				coins = math.floor(coins * (1 + bonus.gold) + 0.5)
+				emit(s, { type = "coins", count = coins })
+			end
 		end
 	end
 	s.mobs = survivor_mobs
@@ -1047,7 +1110,10 @@ function M.update(s, dt)
 				if m.wave == w then any_alive = true break end
 			end
 			if done_spawning and not any_alive then
-				s.pending_upgrade_offers[#s.pending_upgrade_offers + 1] = upgrades.roll_offers(w)
+				-- Only boss waves (3, 6, 9, ...) hand out an upgrade choice.
+				if combat.boss_tier_for_wave(w) > 0 then
+					s.pending_upgrade_offers[#s.pending_upgrade_offers + 1] = upgrades.roll_offers(w)
+				end
 				wave_just_cleared = true
 				s.highest_wave_cleared = math.max(s.highest_wave_cleared, w)
 				grant_wave_clear_xp(s)
@@ -1058,6 +1124,22 @@ function M.update(s, dt)
 		s.loot_owed = still_owed
 		if wave_just_cleared then
 			p.hp = p.max_hp + hp_bonus
+			-- Begin the countdown to the next wave (held below until any boss
+			-- upgrade offer is answered).
+			s.wave_countdown = M.WAVE_COUNTDOWN
+		end
+	end
+
+	-- Auto-advance: once the intro is done, a cleared wave (or the start of the
+	-- run) counts down and then launches the next wave on its own. It holds
+	-- while a wave is live, the player is dying, or an upgrade offer is still
+	-- unanswered; the player can always tap Next Wave to go early.
+	if s.wave_countdown ~= nil and not s.game_over and not s.wave_active
+		and s.die_timer == nil and s.player.intro_phase == "done"
+		and #s.pending_upgrade_offers == 0 then
+		s.wave_countdown = s.wave_countdown - dt
+		if s.wave_countdown <= 0 then
+			M.start_next_wave(s)
 		end
 	end
 
