@@ -24,7 +24,6 @@ local function clear_rows(self)
 end
 
 function update(self, dt)
-	-- Rebuild when the list changes size (cheap: a handful of rows at most).
 	local sorted = {}
 	for _, r in ipairs(session.saved_runs) do sorted[#sorted + 1] = r end
 	table.sort(sorted, function(a, b) return (a.saved_at or 0) > (b.saved_at or 0) end)
@@ -34,8 +33,12 @@ function update(self, dt)
 		for i, run in ipairs(sorted) do
 			local y = H - 130 - (i - 1) * 64
 			local box = ui.box(W / 2, y, W - 40, 56, { 0.14, 0.14, 0.24 }, 1)
-			local title = ui.text(W / 2 - (W - 60) / 2, y + 10, ("Wave %d · Lv %d"):format(run.wave, run.level), 14, { 1, 1, 1 }, gui.PIVOT_W)
-			local sub = ui.text(W / 2 - (W - 60) / 2, y - 12, os.date("%Y-%m-%d %H:%M", run.saved_at or 0), 11, { 0.7, 0.7, 0.75 }, gui.PIVOT_W)
+			local local_wave = (run.wave or 0) > 0 and (((run.wave or 0) - 1) % 5) + 1 or 1
+			local map_index = run.map_index or math.floor((run.wave or 0) / 5) + 1
+			local title = ui.text(W / 2 - (W - 60) / 2, y + 10,
+				("Map %d - Wave %d"):format(map_index, local_wave), 14, { 1, 1, 1 }, gui.PIVOT_W)
+			local sub = ui.text(W / 2 - (W - 60) / 2, y - 12,
+				os.date("%Y-%m-%d %H:%M", run.saved_at or 0), 11, { 0.7, 0.7, 0.75 }, gui.PIVOT_W)
 			self.rows[i] = { box = box, title = title, sub = sub, run = run }
 		end
 	end

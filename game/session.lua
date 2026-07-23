@@ -11,9 +11,11 @@ local M = {
 	saved_runs = {},
 	runs_loaded = false,
 	last_run_gold = 0,
+	last_run_skill_points = 0,
 	current_run_id = nil,
 	is_test_run = false,
 	gold_banked = false,
+	skill_points_banked = false,
 	-- overlays pause the simulation
 	overlay = nil, -- "settings" | "inventory" | "skills" | "mobstats" | nil
 	tooltip = nil,
@@ -62,6 +64,8 @@ function M.paused()
 	-- The wave-clear choice pauses the field too, the same as any overlay --
 	-- it just isn't one, since it opens itself rather than being toggled.
 	if M.sim and #M.sim.pending_upgrade_offers > 0 then return true end
+	if M.sim and M.sim.route_pending and M.sim.upgrade_offer_timer == nil
+		and #M.sim.pending_upgrade_offers == 0 then return true end
 	return false
 end
 
@@ -76,6 +80,21 @@ function M.bank_gold(highest_wave)
 		M.commit_meta(m)
 		M.last_run_gold = earned
 	end
+end
+
+-- Award every reached five-wave checkpoint once per account. If a player
+-- jumps across several new checkpoints in one run, each one pays a point.
+function M.bank_skill_points(highest_wave)
+	if M.is_test_run or M.skill_points_banked then return end
+	M.skill_points_banked = true
+	local m = M.meta
+	local reached = meta_mod.checkpoint_for_waves_cleared(highest_wave)
+	local previous = m.highest_checkpoint_rewarded or 0
+	local earned = math.max(0, reached - previous)
+	m.highest_checkpoint_rewarded = math.max(previous, reached)
+	M.last_run_skill_points = earned
+	if earned > 0 then m.skill_points = (m.skill_points or 0) + earned end
+	if reached > previous then M.commit_meta(m) end
 end
 
 function M.delete_run(id)

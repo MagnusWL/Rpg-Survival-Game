@@ -16,8 +16,9 @@ local PLAY_H = layout.PLAY_H
 -- Seconds a cleared wave (or the start of the run) counts down before the next
 -- wave launches on its own. The player can still start early with Next Wave.
 M.WAVE_COUNTDOWN = 5
-M.UPGRADE_EVERY_WAVES = 9
+M.UPGRADE_EVERY_WAVES = 5
 M.UPGRADE_REVEAL_DELAY = 1
+M.MAPS_PER_ROUTE = 10
 
 -- Measured clip lead times (assets/sounds/leads.json): how early each clip
 -- must start so its loudest moment lands on the frame it belongs to.
@@ -34,6 +35,14 @@ local function next_id(kind)
 	return id_counters[kind]
 end
 
+local function make_route_grid(start_wave)
+	local grid = {}
+	for row = 1, M.MAPS_PER_ROUTE do
+		grid[row] = upgrades.roll_offers((start_wave or 0) + (row - 1) * M.UPGRADE_EVERY_WAVES)
+	end
+	return grid
+end
+
 function M.new(game_state, opts)
 	opts = opts or {}
 	local gear = inventory.bonuses(opts.equipment)
@@ -46,8 +55,8 @@ function M.new(game_state, opts)
 		abilities = game_state.abilities,
 		upgrades = game_state.upgrades or {},
 		gear_bonus = gear,
-		-- Choices owed to the player: one set of three offers per cleared
-		-- wave, answered oldest first.
+		-- Legacy direct offers remain supported for old saves/tests; current
+		-- checkpoint upgrades live on route-grid nodes.
 		pending_upgrade_offers = {},
 		upgrade_offer_timer = nil,
 		upgrade_offer_wave = nil,
@@ -56,6 +65,13 @@ function M.new(game_state, opts)
 		skill_levels = opts.skill_levels or {},
 		skill_xp = opts.skill_xp or {},
 		wave = game_state.wave,
+		map_index = game_state.map_index or math.floor((game_state.wave or 0) / M.UPGRADE_EVERY_WAVES) + 1,
+		route_column = (game_state.route_column and game_state.route_column >= 1) and game_state.route_column or 2,
+		route_history = game_state.route_history or { 2 },
+		route_grid = game_state.route_grid or make_route_grid(
+			math.floor((game_state.wave or 0) / (M.MAPS_PER_ROUTE * M.UPGRADE_EVERY_WAVES))
+				* M.MAPS_PER_ROUTE * M.UPGRADE_EVERY_WAVES),
+		route_pending = game_state.route_pending or game_state.upgrade_owed or false,
 		mobs = {},
 		allies = {},
 		girl = {
@@ -410,9 +426,105 @@ function M.press_ability(s, slot)
 end
 
 function M.can_start_next_wave(s)
-	if s.game_over or s.upgrade_offer_timer ~= nil or #s.pending_upgrade_offers > 0 then return false end
+	if s.game_over or s.route_pending or s.upgrade_offer_timer ~= nil or #s.pending_upgrade_offers > 0 then return false end
 	for _, wave in ipairs(s.loot_owed) do
 		if wave % M.UPGRADE_EVERY_WAVES == 0 then return false end
+	end
+	return true
+end
+
+function M.local_wave(s)
+	if s.wave <= 0 then return 0 end
+	return ((s.wave - 1) % M.UPGRADE_EVERY_WAVES) + 1
+end
+
+function M.route_row(s)
+	return ((s.map_index - 1) % M.MAPS_PER_ROUTE) + 1
+end
+
+function M.route_choices(s)
+	local row = M.route_row(s)
+	if row == M.MAPS_PER_ROUTE then return { 1, 2, 3 } end
+	if row == M.MAPS_PER_ROUTE - 1 then return { 2 } end
+	local out = {}
+	for column = math.max(1, s.route_column - 1), math.min(3, s.route_column + 1) do
+		out[#out + 1] = column
+	end
+	return out
+end
+
+function M.route_choice_count(s) return #M.route_choices(s) end
+
+function M.route_node_upgrade(s, row, column)
+	return s.route_grid and s.route_grid[row] and s.route_grid[row][column] or nil
+end
+
+local function reset_map_field(s)
+	local p = combat.make_player()
+	p.max_hp = p.max_hp + s.gear_bonus.max_health
+	p.hp = p.max_hp
+	s.player = p
+	s.girl = {
+		pos = { x = SCREEN_W / 2, y = PLAY_H / 2 },
+		hp = 100, max_hp = 100, radius = 14,
+	}
+	for _, key in ipairs({
+		"mobs", "allies", "projectiles", "hit_flashes", "skill_marks",
+		"lightning_links", "explosions", "blood", "corpses", "cone_zones",
+		"cone_hits", "floating_texts", "ground_items", "wave_queues", "loot_owed",
+	}) do s[key] = {} end
+	for _, ability in ipairs(s.abilities) do ability.cooldown = 0 end
+	s.wave_active = false
+	s.aiming_slot = nil
+	s.aim_point = nil
+	s.die_timer = nil
+	s.pending_cast_anim = nil
+	s.hurt_anim_gap = 0
+	s.swing_sound_timer = 0
+	s.swing_sound_name = nil
+	s.swing_gore_pos = nil
+	s.kick_shove_timer = 0
+	s.kick_sound_timer = 0
+	s.kick_sound_name = nil
+	s.footstep_step = nil
+end
+
+function M.choose_route(s, target_column)
+	if not s.route_pending then return false end
+	local allowed = false
+	for _, column in ipairs(M.route_choices(s)) do
+		if column == target_column then allowed = true break end
+	end
+	if not allowed then return false end
+	local current_row = M.route_row(s)
+	local target_row = current_row == M.MAPS_PER_ROUTE and 1 or current_row + 1
+	local picked = M.route_node_upgrade(s, target_row, target_column)
+	if picked then s.upgrades[#s.upgrades + 1] = picked end
+	s.route_history[#s.route_history + 1] = target_column
+	s.route_column = target_column
+	s.map_index = s.map_index + 1
+	s.route_pending = false
+	reset_map_field(s)
+	s.wave_countdown = M.WAVE_COUNTDOWN
+	if not s.is_test_run and s.run_id then
+		emit(s, {
+			type = "autosave",
+			save = {
+				id = s.run_id,
+				saved_at = os.time(),
+				wave = s.wave,
+				hp = s.player.hp,
+				max_hp = s.player.max_hp,
+				abilities = s.abilities,
+				upgrades = s.upgrades,
+				map_index = s.map_index,
+				route_column = s.route_column,
+				route_history = s.route_history,
+				route_grid = s.route_grid,
+				route_pending = false,
+				upgrade_owed = false,
+			},
+		})
 	end
 	return true
 end
@@ -465,8 +577,8 @@ end
 
 -- Per-skill progression, from two income streams so a skill still ranks up
 -- even if it never personally lands a kill: half from landing kills with it
--- equipped, half from simply clearing waves with it equipped. Gold only ever
--- buys rank 1 in the tree; every rank after that is earned here. Levels are
+-- equipped, half from simply clearing waves with it equipped. Skill points
+-- unlock rank 1 in the tree; every rank after that is earned here. Levels are
 -- account-wide, so a levelled skill stays levelled next run.
 local KILL_XP = 20
 local WAVE_CLEAR_XP = 20
@@ -1281,13 +1393,12 @@ function M.update(s, dt)
 		if #s.wave_queues == 0 then s.wave_active = false end
 	end
 
-	-- Each owed wave clears on its own. Every ninth wave schedules an upgrade
+	-- Each owed wave clears on its own. Every fifth wave schedules an upgrade
 	-- choice one second after its final enemy dies.
 	-- offer is queued rather than picked for you -- the player
 	-- answers it (M.choose_upgrade) whenever they get to it; movement waits
 	-- on the oldest unanswered one (see tap_field).
 	local wave_just_cleared = false
-	local upgrade_scheduled_this_frame = false
 	if #s.loot_owed > 0 then
 		local still_owed = {}
 		for _, w in ipairs(s.loot_owed) do
@@ -1300,13 +1411,16 @@ function M.update(s, dt)
 				if m.wave == w then any_alive = true break end
 			end
 			if done_spawning and not any_alive then
-				if w % M.UPGRADE_EVERY_WAVES == 0 then
-					s.upgrade_offer_timer = M.UPGRADE_REVEAL_DELAY
-					s.upgrade_offer_wave = w
-					upgrade_scheduled_this_frame = true
-				end
 				wave_just_cleared = true
 				s.highest_wave_cleared = math.max(s.highest_wave_cleared, w)
+				if w % M.UPGRADE_EVERY_WAVES == 0 then
+					if M.route_row(s) == M.MAPS_PER_ROUTE then
+						s.route_grid = make_route_grid(w)
+						s.route_history = {}
+						s.route_column = 2
+					end
+					s.route_pending = true
+				end
 				grant_wave_clear_xp(s)
 			else
 				still_owed[#still_owed + 1] = w
@@ -1320,22 +1434,13 @@ function M.update(s, dt)
 		end
 	end
 
-	if s.upgrade_offer_timer ~= nil and not upgrade_scheduled_this_frame then
-		s.upgrade_offer_timer = s.upgrade_offer_timer - dt
-		if s.upgrade_offer_timer <= 0 then
-			s.pending_upgrade_offers[#s.pending_upgrade_offers + 1] = upgrades.roll_offers(s.upgrade_offer_wave)
-			s.upgrade_offer_timer = nil
-			s.upgrade_offer_wave = nil
-		end
-	end
-
 	-- Auto-advance: once the intro is done, a cleared wave (or the start of the
 	-- run) counts down and then launches the next wave on its own. It holds
 	-- while a wave is live, the player is dying, or an upgrade offer is still
 	-- unanswered; the player can always tap Next Wave to go early.
 	if s.wave_countdown ~= nil and not s.game_over and not s.wave_active and #s.mobs == 0
 		and s.die_timer == nil and s.player.intro_phase == "done"
-		and #s.pending_upgrade_offers == 0 and s.upgrade_offer_timer == nil then
+		and not s.route_pending and #s.pending_upgrade_offers == 0 and s.upgrade_offer_timer == nil then
 		s.wave_countdown = s.wave_countdown - dt
 		if s.wave_countdown <= 0 then
 			M.start_next_wave(s)
@@ -1394,6 +1499,12 @@ function M.update(s, dt)
 				max_hp = p.max_hp,
 				abilities = s.abilities,
 				upgrades = s.upgrades,
+				map_index = s.map_index,
+				route_column = s.route_column,
+				route_history = s.route_history,
+				route_grid = s.route_grid,
+				route_pending = s.route_pending,
+				upgrade_owed = false,
 			},
 		})
 	end

@@ -1,0 +1,13 @@
+{
+  "project_git" : {
+    "sha1" : "8254eadfb074a183c64ee087c60bbf2f2adf6faa",
+    "origin" : "https://github.com/MagnusWL/Rpg-Survival-Game.git",
+    "branch" : "master"
+  },
+  "bob_arguments" : {
+    "sha1" : "f735c12192bf95684e6ae1ae27c400b8170fc6d8",
+    "version" : "1.13.0",
+    "timestamp" : "2026-07-07 11:40:03"
+  },
+  "defold_sdk" : "f735c12192bf95684e6ae1ae27c400b8170fc6d8"
+}

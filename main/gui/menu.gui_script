@@ -162,6 +162,12 @@ function init(self)
 		self.loadout_icons[i] = handle
 	end
 	self.skills_btn = menu_button(col_top - 48, function() session.actions.open_skilltree() end)
+	self.skills_sp_glow = ui.tex_box(W / 2 + 28, col_top - 48, 17, 17, "ring")
+	self.skills_sp_core = ui.tex_box(W / 2 + 28, col_top - 48, 9, 9, "circle")
+	gui.set_color(self.skills_sp_glow, vmath.vector4(0.25, 0.72, 1.0, 0.5))
+	gui.set_color(self.skills_sp_core, vmath.vector4(0.25, 0.72, 1.0, 1))
+	gui.animate(self.skills_sp_glow, gui.PROP_COLOR, vmath.vector4(0.25, 0.72, 1.0, 0.95),
+		gui.EASING_INOUTSINE, 0.9, 0, nil, gui.PLAYBACK_LOOP_PINGPONG)
 	self.inventory_btn = menu_button(col_top - 96, function() session.actions.open_inventory() end)
 	gui.set_text(self.inventory_btn.label, "Inventory")
 
@@ -241,7 +247,7 @@ function init(self)
 end
 
 function update(self, dt)
-	gui.set_text(self.skills_btn.label, ("Skills (%dg)"):format(session.meta and session.meta.gold or 0))
+	gui.set_text(self.skills_btn.label, ("Skills       %d"):format(session.meta and session.meta.skill_points or 0))
 	local inventory_open = session.overlay == "menu_inventory"
 	for _, n in ipairs(self.inventory_nodes) do gui.set_enabled(n, inventory_open) end
 	if inventory_open and session.meta then

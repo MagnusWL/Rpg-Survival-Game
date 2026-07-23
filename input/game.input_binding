@@ -2,6 +2,14 @@ mouse_trigger {
   input: MOUSE_BUTTON_LEFT
   action: "touch"
 }
+mouse_trigger {
+  input: MOUSE_WHEEL_UP
+  action: "route_scroll_up"
+}
+mouse_trigger {
+  input: MOUSE_WHEEL_DOWN
+  action: "route_scroll_down"
+}
 key_trigger {
   input: KEY_SPACE
   action: "confirm"

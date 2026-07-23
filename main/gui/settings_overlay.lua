@@ -51,7 +51,7 @@ function M.build(buttons)
 	end
 	-- Development convenience available from the main menu only.
 	o.test_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * row_h + 6, 140, 34))
-	o.test_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Get 1000 gold", 12, { 1, 1, 1 }))
+	o.test_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Get 1000 coins", 12, { 1, 1, 1 }))
 	o.exit_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * row_h + 6, 140, 34))
 	o.exit_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Exit run", 12, { 1, 1, 1 }))
 	M.hide(o)

@@ -59,6 +59,7 @@ local DISC = { 0.055, 0.047, 0.031 }
 local NAME_OWNED = { 0.663, 0.620, 0.514 } -- #a99e83
 local SUB_DIM = { 0.478, 0.435, 0.322 }    -- #7a6f52
 local COST_GOLD = { 0.941, 0.784, 0.376 }  -- #f0c860
+local SKILL_POINT_BLUE = { 0.25, 0.72, 1.0 }
 
 local POOL_MAX = 2600
 
@@ -121,6 +122,12 @@ local function make_pod(self, x, y, size, icon_px, icon)
 	pod.icon = child(tex("skilltree", 0, 0, icon_px, icon))
 	pod.name = child(ui.text(0, -size / 2 - 12, "", 13, NAME_OWNED))
 	pod.sub = child(ui.text(0, -size / 2 - 27, "", 8, SUB_DIM))
+	pod.sp_glow = child(tex("ui", 31, -size / 2 - 27, 15, "ring"))
+	pod.sp_core = child(tex("ui", 31, -size / 2 - 27, 8, "circle"))
+	gui.set_color(pod.sp_glow, v4(SKILL_POINT_BLUE, 0.45))
+	gui.set_color(pod.sp_core, v4(SKILL_POINT_BLUE, 1))
+	gui.set_enabled(pod.sp_glow, false)
+	gui.set_enabled(pod.sp_core, false)
 	gui.set_enabled(c, false)
 	return pod
 end
@@ -197,21 +204,24 @@ local function loadout_index(m, skill)
 	return nil
 end
 
--- Unlock cost: the three roots around the awakening cost 5 gold, their
--- children (the next row) cost 10.
-local function unlock_cost(sid)
-	return FLOWER[sid].wave <= 1 and 5 or 10
+local function unlock_cost(_sid) return 1 end
+
+local function has_unlocked_child(m, sid)
+	for child, parent in pairs(skills.SKILL_PARENT) do
+		if parent == sid and (m.skill_levels[child] or 0) > 0 then return true end
+	end
+	return false
 end
 
 local function try_unlock(self, sid)
 	local m = session.meta
 	if (m.skill_levels[sid] or 0) >= 1 then return end
 	local cost = unlock_cost(sid)
-	if (m.gold or 0) < cost then
-		flash(self, "NEED " .. cost .. " GOLD")
+	if (m.skill_points or 0) < cost then
+		flash(self, "NEED " .. cost .. " SKILL POINT")
 		return
 	end
-	m.gold = m.gold - cost
+	m.skill_points = m.skill_points - cost
 	m.skill_levels[sid] = 1
 	local auto_equipped = false
 	if #m.loadout < (m.slots_unlocked or 1) then
@@ -223,6 +233,23 @@ local function try_unlock(self, sid)
 	-- available to auto-equip it.
 	refit(self, true)
 	flash(self, auto_equipped and "UNLOCKED & EQUIPPED" or "UNLOCKED")
+end
+
+local function refund_skill(self, sid)
+	local m = session.meta
+	if (m.skill_levels[sid] or 0) < 1 then return end
+	if has_unlocked_child(m, sid) then
+		flash(self, "REFUND CHILD SKILLS FIRST")
+		return
+	end
+	local i = loadout_index(m, sid)
+	if i then table.remove(m.loadout, i) end
+	m.skill_levels[sid] = 0
+	m.skill_xp[sid] = 0
+	m.skill_points = (m.skill_points or 0) + 1
+	session.commit_meta(m)
+	refit(self, true)
+	flash(self, "SKILL POINT RETURNED")
 end
 
 local function equip_skill(self, sid)
@@ -254,11 +281,14 @@ local function show_skill_tooltip(self, sid, x, y, anchor_gap)
 	local locked = level < 1
 	local equipped = is_equipped(m, sid)
 	local cost = unlock_cost(sid)
+	local refundable = nil
+	if not locked then refundable = not has_unlocked_child(m, sid) end
 	local opts = {
 		locked = locked,
 		cost = cost,
-		can_afford = not locked or (m.gold or 0) >= cost,
+		can_afford = not locked or (m.skill_points or 0) >= cost,
 		equipped = equipped,
+		refundable = refundable,
 		anchor_gap = anchor_gap,
 	}
 	if not locked and not equipped and #m.loadout < (m.slots_unlocked or 1) then
@@ -273,6 +303,8 @@ local function show_skill_tooltip(self, sid, x, y, anchor_gap)
 		elseif kind == "unequip" then
 			unequip_skill(self, sid)
 			refit(self, true)
+		elseif kind == "refund" then
+			refund_skill(self, sid)
 		end
 		show_skill_tooltip(self, sid, x, y, anchor_gap)
 	end
@@ -370,6 +402,8 @@ local function sync_pod(pod, opts)
 	gui.set_text(pod.sub, opts.sub or "")
 	gui.set_color(pod.sub, v4(hot and GLOW_LIGHT or SUB_DIM, 1))
 	gui.set_enabled(pod.pulse, (opts.pulse or opts.equipped) and true or false)
+	gui.set_enabled(pod.sp_glow, opts.skill_point_cost == true)
+	gui.set_enabled(pod.sp_core, opts.skill_point_cost == true)
 end
 
 -- ===== Build ===============================================================
@@ -448,9 +482,16 @@ function init(self)
 	ui.box(W - 49, H / 2, 98, H, { 0.024, 0.027, 0.024 }, 0.88)
 	self.skills_title = ui.text(W - 49, H - 23, "Skills", 16, { 0.847, 0.824, 0.753 })
 	self.loadout_caption = ui.text(W - 49, H - 47, "", 9, { 0.435, 0.749, 0.580 })
-	self.gold_pill = ui.box(W - 49, H - 72, 76, 22, { 0.110, 0.090, 0.063 }, 1)
-	local hdr_coin = tex("skilltree", W - 76, H - 72, 14, "coin")
-	self.gold_text = ui.text(W - 66, H - 72, "", 12, COST_GOLD, gui.PIVOT_W)
+	self.gold_pill = ui.box(W - 49, H - 72, 90, 22, { 0.110, 0.090, 0.063 }, 1)
+	local hdr_coin = tex("skilltree", W - 83, H - 72, 14, "coin")
+	self.gold_text = ui.text(W - 73, H - 72, "", 11, COST_GOLD, gui.PIVOT_W)
+	self.sp_glow = tex("ui", W - 39, H - 72, 17, "ring")
+	self.sp_core = tex("ui", W - 39, H - 72, 9, "circle")
+	gui.set_color(self.sp_glow, v4(SKILL_POINT_BLUE, 0.5))
+	gui.set_color(self.sp_core, v4(SKILL_POINT_BLUE, 1))
+	gui.animate(self.sp_glow, gui.PROP_COLOR, v4(SKILL_POINT_BLUE, 0.95),
+		gui.EASING_INOUTSINE, 0.9, 0, nil, gui.PLAYBACK_LOOP_PINGPONG)
+	self.skill_points_text = ui.text(W - 28, H - 72, "", 11, SKILL_POINT_BLUE, gui.PIVOT_W)
 	self.slots = {}
 	local slot_y = { H - 118, H - 208, H - 298 }
 	for i = 1, 3 do
@@ -460,9 +501,11 @@ function init(self)
 		gui.set_rotation(diamond, vmath.quat_rotation_z(math.rad(45)))
 		-- The buy price shown on a still-locked slot (slot 2 costs 10, slot 3
 		-- costs 20; slot 1 is always open).
-		local cost_text = ui.text(x, y - 31, ("%dg"):format(skills.SLOT_COSTS[i] or 0), 10, COST_GOLD)
+		local cost_text = ui.text(x + 5, y - 31, tostring(skills.SLOT_COSTS[i] or 0), 10, COST_GOLD)
+		local cost_coin = tex("skilltree", x - 9, y - 31, 12, "coin")
 		gui.set_enabled(cost_text, false)
-		self.slots[i] = { icon_ui = handle, diamond = diamond, cost_text = cost_text, cur = nil }
+		gui.set_enabled(cost_coin, false)
+		self.slots[i] = { icon_ui = handle, diamond = diamond, cost_text = cost_text, cost_coin = cost_coin, cur = nil }
 	end
 
 	-- Flash toast, above everything.
@@ -526,7 +569,7 @@ function update(self, dt)
 			local unlocked = level >= 1
 			local sub
 			if not unlocked then
-				sub = ("Unlock: %dg"):format(unlock_cost(sid))
+				sub = ("Unlock: %d"):format(unlock_cost(sid))
 			else
 				local needed = skills.skill_xp_to_next(level)
 				sub = needed
@@ -535,7 +578,7 @@ function update(self, dt)
 			end
 			sync_pod(pod, {
 				unlocked = unlocked, equipped = is_equipped(m, sid),
-				name = FLOWER[sid].name, sub = sub,
+				name = FLOWER[sid].name, sub = sub, skill_point_cost = not unlocked,
 			})
 		else
 			hide_pod(self, sid, pod)
@@ -543,7 +586,8 @@ function update(self, dt)
 	end
 
 	-- Chrome.
-	gui.set_text(self.gold_text, tostring(m.gold))
+	gui.set_text(self.gold_text, tostring(m.gold or 0))
+	gui.set_text(self.skill_points_text, tostring(m.skill_points or 0))
 	gui.set_text(self.loadout_caption, ("Equipped %d/%d"):format(#m.loadout, m.slots_unlocked or 1))
 
 	-- Loadout slots. A slot past the unlocked count shows a lock and its buy
@@ -560,6 +604,7 @@ function update(self, dt)
 			gui.set_enabled(slot.icon_ui.icon, true)
 			gui.set_enabled(slot.diamond, false)
 			gui.set_enabled(slot.cost_text, true)
+			gui.set_enabled(slot.cost_coin, true)
 			skill_icon_ui.set_lit(slot.icon_ui, false)
 		else
 			local sid = m.loadout[i]
@@ -571,6 +616,7 @@ function update(self, dt)
 			gui.set_enabled(slot.icon_ui.icon, sid ~= nil)
 			gui.set_enabled(slot.diamond, sid == nil)
 			gui.set_enabled(slot.cost_text, false)
+			gui.set_enabled(slot.cost_coin, false)
 			skill_icon_ui.set_lit(slot.icon_ui, sid ~= nil)
 		end
 	end
@@ -624,7 +670,7 @@ function on_input(self, action_id, action)
 						session.commit_meta(m)
 						flash(self, "SLOT UNLOCKED")
 					else
-						flash(self, "NEED " .. cost .. " GOLD")
+						flash(self, "NOT ENOUGH COINS")
 					end
 				else
 					flash(self, "UNLOCK THE PREVIOUS SLOT FIRST")

@@ -30,10 +30,10 @@ end
 function M.run()
 	math.randomseed(42)
 
-	-- persistent equipment: one fixed slot, level per cleared ninth wave, and
+	-- persistent equipment: one fixed slot, level per cleared checkpoint, and
 	-- additive stat aggregation without a loose-item bag.
 	check("item level starts at one", inventory.item_level(0) == 1)
-	check("item level follows ninth-wave milestones", inventory.item_level(9) == 1 and inventory.item_level(18) == 2)
+	check("item level follows five-wave checkpoints", inventory.item_level(5) == 1 and inventory.item_level(10) == 2)
 	local item = inventory.roll(3)
 	check("rolled item has valid slot and level", inventory.SLOT_LABELS[item.slot] ~= nil and item.level == 3)
 	local raw_gear = { [item.slot] = item }
@@ -47,17 +47,22 @@ function M.run()
 	check("equipped item contributes bonuses", has_bonus)
 
 	-- wave math
+	check("fresh account starts with one skill point", meta_mod.default_meta().skill_points == 1)
+	check("checkpoint count follows five waves", meta_mod.checkpoint_for_waves_cleared(4) == 0
+		and meta_mod.checkpoint_for_waves_cleared(5) == 1
+		and meta_mod.checkpoint_for_waves_cleared(14) == 2)
 	check("mob_count wave 3", combat.mob_count_for_wave(3) == 6)
 	check("ranged wave 2", combat.ranged_count_for_wave(2) == 0)
-	check("ranged wave 3", combat.ranged_count_for_wave(3) == 1)
-	check("ranged wave 8", combat.ranged_count_for_wave(8) == 4)
+	check("no ranged before first checkpoint", combat.ranged_count_for_wave(5) == 0)
+	check("ranged begin after first checkpoint", combat.ranged_count_for_wave(6) == 1)
+	check("ranged wave 8", combat.ranged_count_for_wave(8) == 2)
 	check("boss tier wave 2", combat.boss_tier_for_wave(2) == 0)
-	check("boss tier wave 3", combat.boss_tier_for_wave(3) == 1)
-	check("boss tier wave 6", combat.boss_tier_for_wave(6) == 2)
+	check("boss tier wave 5", combat.boss_tier_for_wave(5) == 1)
+	check("boss tier wave 10", combat.boss_tier_for_wave(10) == 2)
 	check("boss tier wave 7", combat.boss_tier_for_wave(7) == 0)
-	local q = combat.build_wave_queue(6)
-	check("wave 6 queue ends with boss", combat.base_mob_type(q[#q]) == "boss")
-	check("wave 6 queue size", #q == combat.mob_count_for_wave(6) + 1)
+	local q = combat.build_wave_queue(10)
+	check("wave 10 queue ends with boss", combat.base_mob_type(q[#q]) == "boss")
+	check("wave 10 queue size", #q == combat.mob_count_for_wave(10) + 1)
 	check("wave queue spawns within five seconds", near(combat.WAVE_SPAWN_WINDOW / #q, 5 / #q))
 	local st = combat.mob_type_stats("ranged", 5)
 	check("ranged hp is flat", st.hp == 14 and combat.mob_type_stats("ranged", 20).hp == 14)
@@ -67,9 +72,14 @@ function M.run()
 		and combat.mob_type_stats("boss", 30).hp == 150)
 	check("level 2 zombie starts gentle", combat.mob_type_stats("melee2", 4).hp == 30
 		and combat.mob_type_stats("melee2", 4).damage == 3)
-	check("level 2 zombies begin after wave 3", combat.level2_melee_count_for_wave(3) == 0
-		and combat.level2_melee_count_for_wave(4) == 1
-		and combat.level2_melee_count_for_wave(5) == 2)
+	check("level 2 zombies begin after first checkpoint", combat.level2_melee_count_for_wave(5) == 0
+		and combat.level2_melee_count_for_wave(6) > 0)
+	local first_band = combat.wave_composition(5)
+	check("waves 1-5 contain only level 1 melee plus boss", first_band[1].type == "melee"
+		and first_band[2].type == "boss")
+	local second_band = combat.wave_composition(6)
+	check("wave 6 introduces level 2 melee and ranged", second_band[1].type == "melee2"
+		and second_band[2].type == "ranged2")
 	check("higher mob levels scale exponentially", combat.mob_type_stats("ranged3", 12).hp == 32
 		and combat.mob_type_stats("boss4", 24).hp == 506)
 	check("melee damage is flat swapped value", combat.mob_type_stats("melee", 1).damage == 2
@@ -258,21 +268,43 @@ function M.run()
 	check("player survived wave 1", s.player.hp > 0)
 	check("no upgrade offer on a non-boss wave", #s.pending_upgrade_offers == 0)
 
-	-- Every ninth wave is a hard gate and reveals its upgrade one second after
-	-- the last enemy is gone.
+	-- Every fifth wave opens the route grid; selecting a connected map grants
+	-- that node's upgrade instead of showing a separate three-card choice.
 	local milestone = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	milestone.player.intro_phase = "done"
-	milestone.wave = 9
-	milestone.loot_owed = { 9 }
-	check("wave 9 blocks wave 10", not sim.start_next_wave(milestone) and milestone.wave == 9)
+	milestone.wave = 5
+	milestone.loot_owed = { 5 }
+	check("wave 5 blocks wave 6", not sim.start_next_wave(milestone) and milestone.wave == 5)
 	sim.update(milestone, 0.5)
-	check("milestone clear starts delayed upgrade", milestone.upgrade_offer_timer ~= nil
-		and #milestone.pending_upgrade_offers == 0)
-	sim.update(milestone, 0.49)
-	check("upgrade remains hidden for one second", #milestone.pending_upgrade_offers == 0)
-	sim.update(milestone, 0.52)
-	check("upgrade appears after one second", #milestone.pending_upgrade_offers == 1)
-	check("pending milestone choice still blocks next wave", not sim.can_start_next_wave(milestone))
+	check("checkpoint opens route immediately", milestone.route_pending
+		and #milestone.pending_upgrade_offers == 0 and milestone.upgrade_offer_timer == nil)
+	check("route blocks next map", not sim.can_start_next_wave(milestone))
+	check("early route offers three paths", sim.route_choice_count(milestone) == 3)
+	milestone.allies = { { id = 99 } }
+	milestone.player.hp = 1
+	milestone.abilities[1].cooldown = 9
+	local upgrades_before_route = #milestone.upgrades
+	check("choosing route advances map", sim.choose_route(milestone, 2)
+		and milestone.map_index == 2 and not milestone.route_pending)
+	check("chosen map grants its upgrade", #milestone.upgrades == upgrades_before_route + 1)
+	check("new map resets combat field", #milestone.allies == 0
+		and milestone.player.hp == milestone.player.max_hp
+		and milestone.abilities[1].cooldown == 0
+		and milestone.player.intro_phase == "enter")
+	check("completed map remains on local wave five", sim.local_wave(milestone) == 5
+		and ((milestone.wave) % sim.UPGRADE_EVERY_WAVES) == 0)
+	milestone.wave_countdown = nil
+	check("new map can launch", sim.start_next_wave(milestone)
+		and milestone.wave == 6 and sim.local_wave(milestone) == 1)
+	local converging = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	converging.map_index = 8
+	converging.route_pending = true
+	converging.route_column = 1
+	check("left edge cannot jump to right", sim.route_choice_count(converging) == 2
+		and not sim.choose_route(converging, 3))
+	converging.map_index = 9
+	check("route ends in centre choice", sim.route_choice_count(converging) == 1
+		and sim.route_choices(converging)[1] == 2)
 
 	-- sim: movement is withheld until an offer is answered, then resumes.
 	-- Boss waves are what queue offers; inject one here to drive the flow.
