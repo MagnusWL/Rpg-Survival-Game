@@ -535,26 +535,25 @@ function M.make_allies_for_level(level, origin, ability1_stats)
 	return result
 end
 
-function M.make_seagull(level, origin, seagull_stats)
+-- A one-off ally not tied to the usual per-level spawner: Dead Again's
+-- resummoned corpse, The Cure's charmed mob, Monster Zombie's fusion. `opts`
+-- may set hp/max_hp/damage/level/ranged/flying/source_skill/expire_timer;
+-- pos is used as-is (already clamped by the caller where that matters).
+function M.make_custom_ally(pos, opts)
 	ally_id_counter = ally_id_counter + 1
-	local stats = seagull_stats(level)
-	local spawn_pos = {
-		x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x)),
-		y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
-			math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
-	}
 	return {
 		id = ally_id_counter,
-		pos = spawn_pos,
-		home_pos = { x = spawn_pos.x, y = spawn_pos.y },
-		hp = stats.hp,
-		max_hp = stats.hp,
-		damage = stats.damage,
-		level = level,
+		pos = { x = pos.x, y = pos.y },
+		home_pos = { x = pos.x, y = pos.y },
+		hp = opts.hp,
+		max_hp = opts.max_hp or opts.hp,
+		damage = opts.damage,
+		level = opts.level or 1,
 		attack_cooldown = 0,
-		ranged = true,
-		flying = true,
-		source_skill = "seagull",
+		ranged = opts.ranged or false,
+		flying = opts.flying or false,
+		source_skill = opts.source_skill,
+		expire_timer = opts.expire_timer,
 	}
 end
 

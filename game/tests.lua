@@ -192,16 +192,22 @@ function M.run()
 	-- skills: catalog and per-skill xp curve. No passives here any more --
 	-- Haste/Summon Regen/Pierce moved to game.upgrades.
 	check("cone range", near(skills.CONE_RANGE, math.sqrt(layout.SCREEN_W ^ 2 + layout.PLAY_H ^ 2)))
-	check("wild boar lvl3", skills.ability1_stats(3).hp == 150 and skills.ability1_stats(3).damage == 30)
-	check("wild boar health curve", skills.ability1_stats(1).hp == 50 and skills.ability1_stats(4).hp == 200)
-	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 120 and skills.seagull_stats(4).damage == 80)
-	check("seagull requires wild boar", skills.SKILL_PARENT.seagull == "summon")
+	check("dead again cooldown is halved", skills.SKILL_META.summon.cooldown == 6)
+	check("dead again base stats lvl3", skills.ability1_stats(3).hp == 150 and skills.ability1_stats(3).damage == 30)
+	check("dead again health curve", skills.ability1_stats(1).hp == 50 and skills.ability1_stats(4).hp == 200)
+	check("the cure requires dead again", skills.SKILL_PARENT.seagull == "summon")
+	check("monster zombie requires the cure", skills.SKILL_PARENT.monsterzombie == "seagull")
 	check("fire enrage damage curve", skills.fireball_attack_damage(1) == 20 and skills.fireball_attack_damage(4) == 50)
+	check("fire enrage duration", skills.FIREBALL_ENRAGE_DURATION == 10)
 	check("chain lightning curve", skills.chain_lightning_hits(1) == 3 and skills.chain_lightning_hits(4) == 6
 		and skills.chain_lightning_damage(1) == 25 and skills.chain_lightning_damage(4) == 100)
-	check("chain lightning requires shockwave", skills.SKILL_PARENT.chainlightning == "cone")
-	check("sword throw curve", near(skills.sword_throw_percent(1), 2.0) and near(skills.sword_throw_percent(4), 3.5))
+	check("chain lightning requires fireball", skills.SKILL_PARENT.chainlightning == "burn")
+	check("shockwave requires fireball (swapped roots)", skills.SKILL_PARENT.cone == "burn")
+	check("fireball is now a root", skills.SKILL_PARENT.burn == nil)
+	check("sword throw curve", near(skills.sword_throw_percent(1), 2.5) and near(skills.sword_throw_percent(4), 4.0))
 	check("sword throw requires berserker", skills.SKILL_PARENT.swordthrow == "ranged")
+	check("stomp requires sword throw", skills.SKILL_PARENT.stomp == "swordthrow")
+	check("drain life requires shockwave", skills.SKILL_PARENT.drainlife == "cone")
 	check("burn flat damage lvl4", skills.burn_explode_damage(4) == 100)
 	check("xp to next lvl1", skills.skill_xp_to_next(1) == 100)
 	check("xp curve", skills.skill_xp_to_next(2) == 200 and skills.skill_xp_to_next(3) == 300)
@@ -547,7 +553,8 @@ function M.run()
 	check("chain lightning respects cast range",
 		#chain_out.lightning_links == 0 and chain_out.abilities[1].cooldown == 0)
 
-	-- sim: a lethal Sword Throw immediately recasts at the next target.
+	-- sim: a lethal Sword Throw bounces to another target in range, in the
+	-- same throw, rather than being recast -- the cooldown is untouched.
 	local sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	sword_state.player.intro_phase = "done"
 	sword_state.player.target = nil
@@ -560,10 +567,12 @@ function M.run()
 	sword_next.hp, sword_next.max_hp, sword_next.damage = 1000, 1000, 0
 	sword_state.mobs = { sword_target, sword_next }
 	sim.press_ability(sword_state, 1)
-	check("sword throw starts cooldown", sword_state.abilities[1].cooldown > 0)
+	local sword_cooldown_after_cast = sword_state.abilities[1].cooldown
+	check("sword throw starts cooldown", sword_cooldown_after_cast > 0)
 	for _ = 1, 60 do sim.update(sword_state, 1 / 60) end
-	check("lethal sword throw recasts at next opponent",
-		sword_next.hp < sword_next.max_hp and sword_state.abilities[1].cooldown > 0)
+	check("lethal sword throw bounces to the next opponent", sword_next.hp < sword_next.max_hp)
+	check("bouncing does not touch the ability's own cooldown",
+		near(sword_state.abilities[1].cooldown, math.max(0, sword_cooldown_after_cast - 1)))
 	local far_sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	far_sword_state.player.intro_phase = "done"
 	far_sword_state.abilities = { { skill = "swordthrow", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
@@ -580,23 +589,39 @@ function M.run()
 	check("higher-rank summons attack faster",
 		combat.ally_attack_cooldown(4) < combat.ally_attack_cooldown(1))
 
+	-- Dead Again resummons the oldest corpse in range as a weaker, timed
+	-- zombie -- consuming the corpse. No corpse in range, no cast.
 	local summon_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	summon_state.player.intro_phase = "done"
 	summon_state.abilities = { { skill = "summon", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
 	sim.press_ability(summon_state, 1)
-	summon_state.abilities[1].cooldown = 0
+	check("dead again does nothing without a corpse in range", #summon_state.allies == 0
+		and summon_state.abilities[1].cooldown == 0)
+	summon_state.zombie_corpses = {
+		{ id = 1, pos = { x = summon_state.player.pos.x + 5, y = summon_state.player.pos.y }, age = 3 },
+		{ id = 2, pos = { x = summon_state.player.pos.x + 8, y = summon_state.player.pos.y }, age = 6 },
+	}
 	sim.press_ability(summon_state, 1)
-	check("recasting summon keeps existing allies", #summon_state.allies == 2)
-	local returning_ally = summon_state.allies[1]
-	check("summon home is copied from spawn position",
-		returning_ally.home_pos ~= returning_ally.pos
-			and near(returning_ally.home_pos.x, returning_ally.pos.x)
-			and near(returning_ally.home_pos.y, returning_ally.pos.y))
-	returning_ally.pos = { x = returning_ally.home_pos.x + 50, y = returning_ally.home_pos.y }
-	local distance_before_return = combat.dist(returning_ally.pos, returning_ally.home_pos)
+	check("dead again consumes the oldest corpse in range", #summon_state.zombie_corpses == 1
+		and summon_state.zombie_corpses[1].id == 1)
+	check("dead again spawns one ally at half the base stats",
+		#summon_state.allies == 1
+			and summon_state.allies[1].hp == math.floor(skills.ability1_stats(1).hp / 2)
+			and near(summon_state.allies[1].damage, skills.ability1_stats(1).damage / 2))
+	check("dead again's zombie expires after its own duration", summon_state.allies[1].expire_timer == skills.DEAD_AGAIN_DURATION)
+	local far_summon_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	far_summon_state.player.intro_phase = "done"
+	far_summon_state.abilities = { { skill = "summon", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	far_summon_state.zombie_corpses = {
+		{ id = 1, pos = { x = far_summon_state.player.pos.x + skills.DEAD_AGAIN_RANGE + 50, y = far_summon_state.player.pos.y }, age = 1 },
+	}
+	sim.press_ability(far_summon_state, 1)
+	check("dead again respects its maximum range", #far_summon_state.allies == 0
+		and #far_summon_state.zombie_corpses == 1)
+	local expiring_ally = summon_state.allies[1]
+	expiring_ally.expire_timer = 0.05
 	sim.update(summon_state, 0.1)
-	check("idle summon walks home",
-		combat.dist(returning_ally.pos, returning_ally.home_pos) < distance_before_return)
+	check("an expired summon is removed", #summon_state.allies == 0)
 
 	local objective_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	objective_state.player.intro_phase = "done"
@@ -610,23 +635,25 @@ function M.run()
 	check("mob cannot overlap girl", combat.dist(objective_mob.pos, objective_state.girl.pos)
 		>= objective_mob.radius + objective_state.girl.radius - 0.01)
 
-	-- sim: burn explosion chain
+	-- sim: Fireball throws a projectile at the nearest enemy that explodes on
+	-- impact, damaging everyone nearby -- including the target itself.
 	local s3 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	s3.player.intro_phase = "done"
 	s3.player.target = nil
+	s3.player.pos = { x = 45, y = 50 }
 	local a = combat.spawn_mob("melee", 1)
 	local b = combat.spawn_mob("melee", 1)
-	a.pos = { x = 50, y = 50 }
+	a.pos = { x = 50, y = 50 } -- nearest to the player
 	b.pos = { x = 90, y = 50 } -- inside BURN_EXPLODE_RADIUS of a
-	a.burn_blast = 50
-	a.hp = 0
-	b.hp = 200
-	b.max_hp = 200
+	a.hp, a.max_hp = 10, 10
+	b.hp, b.max_hp = 200, 200
 	s3.mobs = { a, b }
-	s3.player.pos = { x = 350, y = 600 } -- far away, no melee interference
-	sim.update(s3, 1 / 60)
-	check("burn blast damaged neighbour by flat amount", s3.mobs[1] ~= nil and s3.mobs[1].hp <= 150)
-	check("burn blast creates range-matched explosion", #s3.explosions == 1
+	s3.abilities = { { skill = "burn", level = 4, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	sim.press_ability(s3, 1)
+	check("fireball launches a projectile at the nearest enemy", #s3.projectiles == 1)
+	for _ = 1, 60 do sim.update(s3, 1 / 60) end
+	check("fireball explosion damaged the neighbour by a flat amount", b.hp <= 100)
+	check("fireball explosion creates a range-matched blast", #s3.explosions >= 1
 		and near(s3.explosions[1].radius, skills.BURN_EXPLODE_RADIUS))
 
 	-- sim: push shoves and damages everyone, using upgrades instead of items
@@ -646,6 +673,101 @@ function M.run()
 	s4.abilities[1].cooldown = 0
 	sim.press_ability(s4, 1)
 	check("push has a maximum range", far_push.hp == far_push.max_hp and far_push.knock.x == 0)
+
+	-- sim: Stomp stuns and damages everyone nearby; a stunned mob does not
+	-- advance or attack until the stun wears off.
+	local stomp_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	stomp_state.player.intro_phase = "done"
+	stomp_state.player.target = nil
+	stomp_state.abilities = { { skill = "stomp", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local stomp_mob = combat.spawn_mob("melee", 1)
+	stomp_mob.pos = { x = stomp_state.player.pos.x + 30, y = stomp_state.player.pos.y }
+	stomp_mob.hp, stomp_mob.max_hp = 1000, 1000
+	stomp_state.mobs = { stomp_mob }
+	sim.press_ability(stomp_state, 1)
+	check("stomp damages nearby enemies", stomp_mob.hp < 1000)
+	check("stomp stuns nearby enemies", stomp_mob.stun_timer == skills.STOMP_STUN_DURATION)
+	local stomp_pos_before = { x = stomp_mob.pos.x, y = stomp_mob.pos.y }
+	sim.update(stomp_state, 1 / 60)
+	check("a stunned mob does not move", near(stomp_mob.pos.x, stomp_pos_before.x) and near(stomp_mob.pos.y, stomp_pos_before.y))
+
+	-- sim: Drain Life channels, saps nearby enemies into the player's own
+	-- health, and is broken by moving or casting another skill.
+	local drain_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	drain_state.player.intro_phase = "done"
+	drain_state.player.target = nil
+	drain_state.player.max_hp = 200
+	drain_state.player.hp = 100
+	drain_state.abilities = { { skill = "drainlife", level = 1, cooldown = 0 }, { skill = "push", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local drain_mob = combat.spawn_mob("melee", 1)
+	drain_mob.pos = { x = drain_state.player.pos.x + 30, y = drain_state.player.pos.y }
+	drain_mob.hp, drain_mob.max_hp, drain_mob.damage = 1000, 1000, 0
+	drain_state.mobs = { drain_mob }
+	sim.press_ability(drain_state, 1)
+	check("drain life starts a channel", drain_state.drain_channel ~= nil)
+	sim.update(drain_state, 1 / 60)
+	check("drain life damages nearby enemies", drain_mob.hp < 1000)
+	check("drain life heals the player", drain_state.player.hp > 100)
+	check("drain life draws a link to the enemy it's sapping", #drain_state.drain_links == 1)
+	drain_state.player.target = { x = drain_state.player.pos.x + 100, y = drain_state.player.pos.y }
+	sim.update(drain_state, 1 / 60)
+	check("moving breaks the drain life channel", drain_state.drain_channel == nil and #drain_state.drain_links == 0)
+	drain_state.abilities[1].cooldown = 0
+	sim.press_ability(drain_state, 1)
+	drain_state.player.target = nil
+	check("drain life restarted", drain_state.drain_channel ~= nil)
+	sim.press_ability(drain_state, 2)
+	check("casting another skill breaks the drain life channel", drain_state.drain_channel == nil)
+
+	-- sim: The Cure charms a non-boss mob to fight for the player.
+	local cure_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	cure_state.player.intro_phase = "done"
+	cure_state.player.target = nil
+	cure_state.abilities = { { skill = "seagull", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local cure_boss = combat.spawn_mob("boss", 1)
+	cure_boss.pos = { x = cure_state.player.pos.x + 20, y = cure_state.player.pos.y }
+	local cure_mob = combat.spawn_mob("melee", 1)
+	cure_mob.pos = { x = cure_state.player.pos.x + 40, y = cure_state.player.pos.y }
+	cure_mob.hp, cure_mob.max_hp, cure_mob.damage = 42, 42, 5
+	cure_state.mobs = { cure_boss, cure_mob }
+	sim.press_ability(cure_state, 1)
+	check("the cure ignores bosses", #cure_state.mobs == 1 and cure_state.mobs[1] == cure_boss)
+	check("the cure charms the nearest non-boss mob", #cure_state.allies == 1
+		and cure_state.allies[1].hp == 42 and cure_state.allies[1].damage == 5)
+	check("the charmed unit expires after the cure's duration",
+		cure_state.allies[1].expire_timer == skills.CURE_DURATION)
+
+	-- sim: Monster Zombie fuses every Dead Again zombie's current HP and
+	-- attack damage into one, briefly.
+	local mz_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	mz_state.player.intro_phase = "done"
+	mz_state.player.target = nil
+	mz_state.abilities = { { skill = "monsterzombie", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	mz_state.allies = {
+		combat.make_custom_ally(mz_state.player.pos, { hp = 30, damage = 4, source_skill = "summon" }),
+		combat.make_custom_ally(mz_state.player.pos, { hp = 20, damage = 6, source_skill = "summon" }),
+		combat.make_custom_ally(mz_state.player.pos, { hp = 99, damage = 1, source_skill = "seagull" }),
+	}
+	sim.press_ability(mz_state, 1)
+	check("monster zombie fuses only dead again zombies", #mz_state.allies == 2)
+	local fused
+	for _, ally in ipairs(mz_state.allies) do
+		if ally.source_skill == "summon" then fused = ally end
+	end
+	check("monster zombie sums hp and damage", fused ~= nil and fused.hp == 50 and fused.damage == 10)
+	check("monster zombie's fusion expires after its own duration", fused.expire_timer == skills.MONSTER_ZOMBIE_DURATION)
+
+	-- sim: Fire Enrage keeps a borrowed-time summon from expiring while active.
+	local enrage_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	enrage_state.player.intro_phase = "done"
+	enrage_state.player.target = nil
+	enrage_state.abilities = { { skill = "fireball", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local timed_ally = combat.make_custom_ally(enrage_state.player.pos, { hp = 10, damage = 1, source_skill = "summon", expire_timer = 0.05 })
+	enrage_state.allies = { timed_ally }
+	sim.press_ability(enrage_state, 1)
+	sim.update(enrage_state, 0.1)
+	check("fire enrage keeps an enraged summon from expiring", #enrage_state.allies == 1
+		and near(timed_ally.expire_timer, 0.05))
 
 	local held_autostart = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	held_autostart.player.intro_phase = "done"
