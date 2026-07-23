@@ -1420,6 +1420,7 @@ function M.update(s, dt)
 						s.route_column = 2
 					end
 					s.route_pending = true
+					emit(s, { type = "checkpoint_reward", wave = w })
 				end
 				grant_wave_clear_xp(s)
 			else

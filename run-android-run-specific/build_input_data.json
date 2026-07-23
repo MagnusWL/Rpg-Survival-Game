@@ -1,0 +1,13 @@
+{
+  "project_git" : {
+    "sha1" : "e43f88020720eb87415fac90c6a4c23667760a9e",
+    "origin" : "https://github.com/MagnusWL/Rpg-Survival-Game.git",
+    "branch" : "feature/defold-assets"
+  },
+  "bob_arguments" : {
+    "sha1" : "f735c12192bf95684e6ae1ae27c400b8170fc6d8",
+    "version" : "1.13.0",
+    "timestamp" : "2026-07-07 11:40:03"
+  },
+  "defold_sdk" : "f735c12192bf95684e6ae1ae27c400b8170fc6d8"
+}

@@ -470,11 +470,12 @@ function init(self)
 		self.pods[sid] = make_pod(self, p.x, p.y, 78, 50, FLOWER[sid].icon)
 	end
 
-	-- No top header: only a floating back control remains in the corner. Its
-	-- arrow is the UI atlas glyph rotated from up to left, not font text.
-	self.back = ui.plaque_button(27, H - 26, 34, 34)
-	self.back_icon = ui.tex_box(27, H - 26, 17, 17, "arrow_up")
-	gui.set_rotation(self.back_icon, vmath.quat_rotation_z(math.rad(90)))
+	-- This screen is a step in the run flow, so its primary navigation points
+	-- forward to the battlefield instead of implying a return to the menu.
+	self.back = ui.plaque_button(75, H - 26, 130, 34)
+	self.back_text = ui.text(61, H - 26, "Continue", 11, { 0.878, 0.831, 0.729 })
+	self.back_icon = ui.tex_box(119, H - 26, 15, 15, "arrow_up")
+	gui.set_rotation(self.back_icon, vmath.quat_rotation_z(math.rad(-90)))
 
 	-- Vertical loadout rail: the three active slots, fixed to the right. Same circular
 	-- design as the pods above and the menu's preview and the quick-cast bar
@@ -689,7 +690,15 @@ function on_input(self, action_id, action)
 	end
 
 	if gui.pick_node(self.back, action.x, action.y) then
-		session.actions.back_to_menu()
+		if session.run_active then
+			if #session.meta.loadout == 0 then
+				flash(self, "CHOOSE AND EQUIP A SKILL")
+			else
+				session.actions.return_from_skilltree()
+			end
+		else
+			session.actions.back_to_menu()
+		end
 		return true
 	end
 

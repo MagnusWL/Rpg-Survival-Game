@@ -118,11 +118,6 @@ function init(self)
 	self.plaque = ui.tex_box(W / 2, by, bw, bh, "button")
 	ui.button(self.buttons, self.plaque, function()
 		if not session.actions or self.tearing then return end
-		-- A run needs at least one skill equipped; nudge to the skill menu.
-		if not (session.meta and #session.meta.loadout > 0) then
-			show_toast(self, "EQUIP A SKILL FIRST")
-			return
-		end
 		-- Swap the plaque for its baked tear film (same pixels, frame 0 is the
 		-- intact plaque) and start the run when the last piece has fallen.
 		-- The press sound belongs to the press, not the arrival: the web's
@@ -247,7 +242,13 @@ function init(self)
 end
 
 function update(self, dt)
-	gui.set_text(self.skills_btn.label, ("Skills       %d"):format(session.meta and session.meta.skill_points or 0))
+	gui.set_enabled(self.skills_btn.body, false)
+	gui.set_enabled(self.skills_btn.label, false)
+	gui.set_enabled(self.skills_sp_glow, false)
+	gui.set_enabled(self.skills_sp_core, false)
+	gui.set_enabled(self.inventory_btn.body, false)
+	gui.set_enabled(self.inventory_btn.label, false)
+	for _, handle in ipairs(self.loadout_icons) do skill_icon_ui.set_enabled(handle, false) end
 	local inventory_open = session.overlay == "menu_inventory"
 	for _, n in ipairs(self.inventory_nodes) do gui.set_enabled(n, inventory_open) end
 	if inventory_open and session.meta then

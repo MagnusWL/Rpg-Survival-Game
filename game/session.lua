@@ -8,6 +8,9 @@ local M = {
 	intro_done = false,
 	sim = nil, -- live sim state while a run is up
 	meta = nil,
+	run_active = false,
+	choosing_opening_skill = false,
+	checkpoint_reward_open = false,
 	saved_runs = {},
 	runs_loaded = false,
 	last_run_gold = 0,
@@ -40,7 +43,26 @@ end
 
 function M.commit_meta(next_meta)
 	M.meta = next_meta
-	meta_mod.persist_meta(next_meta)
+	if not M.run_active then
+		meta_mod.persist_meta(next_meta)
+		return
+	end
+	if M.sim then
+		M.sim.skill_levels = next_meta.skill_levels
+		M.sim.skill_xp = next_meta.skill_xp
+		M.sim.abilities = meta_mod.make_abilities(next_meta.loadout, next_meta.skill_levels)
+	end
+end
+
+function M.new_run_meta()
+	local m = meta_mod.default_meta()
+	m.gold = 0
+	m.skill_points = 1
+	m.highest_checkpoint_rewarded = 0
+	m.equipment = {}
+	m.loadout = {}
+	m.slots_unlocked = 1
+	return m
 end
 
 function M.prepare_reward(highest_wave)
@@ -55,8 +77,25 @@ function M.equip_reward()
 	M.meta.equipment = M.meta.equipment or {}
 	M.meta.equipment[item.slot] = item
 	M.commit_meta(M.meta)
+	if M.sim then
+		local inventory = require("game.inventory")
+		M.sim.gear_bonus = inventory.bonuses(M.meta.equipment)
+	end
 	M.reward_item = nil
 	return true
+end
+
+function M.grant_checkpoint_reward(wave)
+	if M.is_test_run then return end
+	local inventory = require("game.inventory")
+	local checkpoint = math.max(1, math.floor((wave or 0) / 5))
+	M.meta.skill_points = (M.meta.skill_points or 0) + 1
+	M.meta.gold = (M.meta.gold or 0) + checkpoint * 5
+	M.last_run_gold = checkpoint * 5
+	M.last_run_skill_points = 1
+	M.reward_item = inventory.roll(inventory.item_level(wave))
+	M.checkpoint_reward_open = true
+	M.commit_meta(M.meta)
 end
 
 function M.paused()
@@ -113,7 +152,19 @@ function M.apply_skill_progress(skill, level, xp)
 	if not m then return end
 	m.skill_levels[skill] = level
 	m.skill_xp[skill] = xp
+	if M.run_active then
+		M.meta = m
+		return
+	end
 	M.commit_meta(m)
+end
+
+function M.discard_run_progress()
+	M.run_active = false
+	M.choosing_opening_skill = false
+	M.checkpoint_reward_open = false
+	M.reward_item = nil
+	M.meta = M.new_run_meta()
 end
 
 function M.store_run(save)
