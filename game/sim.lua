@@ -16,7 +16,7 @@ local PLAY_H = layout.PLAY_H
 -- Seconds a cleared wave (or the start of the run) counts down before the next
 -- wave launches on its own. The player can still start early with Next Wave.
 M.WAVE_COUNTDOWN = 5
-M.UPGRADE_EVERY_WAVES = 9
+M.UPGRADE_EVERY_WAVES = 5
 M.UPGRADE_REVEAL_DELAY = 1
 
 -- Measured clip lead times (assets/sounds/leads.json): how early each clip
@@ -1281,7 +1281,7 @@ function M.update(s, dt)
 		if #s.wave_queues == 0 then s.wave_active = false end
 	end
 
-	-- Each owed wave clears on its own. Every ninth wave schedules an upgrade
+	-- Each owed wave clears on its own. Every fifth wave schedules an upgrade
 	-- choice one second after its final enemy dies.
 	-- offer is queued rather than picked for you -- the player
 	-- answers it (M.choose_upgrade) whenever they get to it; movement waits

@@ -769,8 +769,10 @@ function update(self, dt)
 		local ending = s.game_over_cause == "girl" and "You lost all hope"
 			or (s.game_over_cause == "exit" and "Run ended" or "She's all alone now")
 		gui.set_text(self.go_text, ending)
-		gui.set_text(self.reward_gold, session.is_test_run and "No gold earned"
-			or ("%d gold"):format(session.last_run_gold))
+		gui.set_text(self.reward_gold, session.is_test_run and "No rewards earned"
+			or ("%d gold  |  +%d skill point%s"):format(
+				session.last_run_gold, session.last_run_skill_points,
+				session.last_run_skill_points == 1 and "" or "s"))
 		local item = session.reward_item
 		if item then
 			gui.play_flipbook(self.reward_item_icon, item_icons.for_slot(item.slot, true))

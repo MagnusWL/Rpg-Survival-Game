@@ -21,7 +21,9 @@ local function begin_run(game_state, run_id, is_test)
 	session.current_run_id = run_id
 	session.is_test_run = is_test
 	session.gold_banked = false
+	session.skill_points_banked = false
 	session.last_run_gold = 0
+	session.last_run_skill_points = 0
 	session.game_over_shown = false
 	session.reward_item = nil
 	-- Per-skill rank/xp is account-wide, so the sim starts from a snapshot
@@ -80,6 +82,7 @@ function init(self)
 			local s = session.sim
 			if s then
 				session.bank_gold(s.highest_wave_cleared)
+				session.bank_skill_points(s.highest_wave_cleared)
 				session.prepare_reward(s.highest_wave_cleared)
 				if not session.is_test_run and session.current_run_id then
 					session.delete_run(session.current_run_id)
@@ -123,6 +126,7 @@ function update(self, dt)
 			session.store_run(ev.save)
 		elseif ev.type == "game_over" then
 			session.bank_gold(s.highest_wave_cleared)
+			session.bank_skill_points(s.highest_wave_cleared)
 			session.prepare_reward(s.highest_wave_cleared)
 			if not session.is_test_run and session.current_run_id then
 				session.delete_run(session.current_run_id)

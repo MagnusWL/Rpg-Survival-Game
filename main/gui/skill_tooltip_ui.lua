@@ -51,13 +51,15 @@ function M.build()
 	-- The Unlock/Equip button, hidden unless show() is given an action.
 	o.action_btn = ui.overlay(ui.plaque_button(0, -400, PANEL_W - PAD * 2, BTN_H))
 	o.action_text = ui.overlay(ui.text(0, -400, "", 11, { 0.965, 0.86, 0.6 }))
+	o.refund_btn = ui.overlay(ui.plaque_button(0, -400, PANEL_W - PAD * 2, BTN_H))
+	o.refund_text = ui.overlay(ui.text(0, -400, "", 10, { 0.82, 0.82, 0.87 }))
 	M.hide(o)
 	return o
 end
 
 -- opts (optional, skill tree only): { locked, cost, can_afford, equipped,
--- equip_slot, anchor_gap, on_action }. on_action(kind) is called with
--- "unlock" | "equip" | "unequip".
+-- equip_slot, refundable, anchor_gap, on_action }. on_action(kind) is called
+-- with "unlock" | "equip" | "unequip" | "refund".
 function M.show(o, skill, level, xp, needed, x, y, opts)
 	opts = opts or {}
 	local meta = skills.SKILL_META[skill]
@@ -84,10 +86,12 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 	o.action_kind = kind
 	o.action_enabled = kind ~= "unlock" or opts.can_afford ~= false
 	o.on_action = opts.on_action
+	o.refund_enabled = opts.refundable == true
 
 	local desc_h = wrapped_line_count(desc_text) * DESC_LINE_H
 	local btn_block = kind and (GAP_DESC_BTN + BTN_H) or 0
-	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC + desc_h + btn_block
+	local refund_block = opts.refundable ~= nil and (GAP_DESC_BTN + BTN_H) or 0
+	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC + desc_h + btn_block + refund_block
 
 	local cx = math.max(PANEL_W / 2 + 4, math.min(W - PANEL_W / 2 - 4, x))
 	local cy = math.min(H - panel_h / 2 - 4, y + panel_h / 2 + (opts.anchor_gap or 26))
@@ -123,16 +127,31 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 		gui.set_enabled(o.action_btn, false)
 		gui.set_enabled(o.action_text, false)
 	end
+	if opts.refundable ~= nil then
+		local by = desc_top - desc_h - btn_block - GAP_DESC_BTN - BTN_H / 2
+		gui.set_position(o.refund_btn, vmath.vector3(cx, by, 0))
+		gui.set_position(o.refund_text, vmath.vector3(cx, by, 0))
+		gui.set_text(o.refund_text, opts.refundable and "Refund skill (+1 SP)" or "Refund children first")
+		local c = opts.refundable and vmath.vector4(0.82, 0.82, 0.87, 1) or vmath.vector4(0.5, 0.5, 0.5, 1)
+		gui.set_color(o.refund_text, c)
+		gui.set_color(o.refund_btn, opts.refundable and vmath.vector4(1, 1, 1, 1) or vmath.vector4(0.35, 0.35, 0.35, 1))
+		gui.set_enabled(o.refund_btn, true)
+		gui.set_enabled(o.refund_text, true)
+	else
+		gui.set_enabled(o.refund_btn, false)
+		gui.set_enabled(o.refund_text, false)
+	end
 	o.open = true
 end
 
 function M.hide(o)
-	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc, o.action_btn, o.action_text }) do
+	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc, o.action_btn, o.action_text, o.refund_btn, o.refund_text }) do
 		gui.set_enabled(n, false)
 	end
 	o.open = false
 	o.action_kind = nil
 	o.action_enabled = false
+	o.refund_enabled = false
 end
 
 -- A tap on the action button fires its action; any other tap dismisses. Screen
@@ -143,6 +162,12 @@ function M.input(o, action)
 		local kind, cb = o.action_kind, o.on_action
 		M.hide(o)
 		if cb then cb(kind) end
+		return true
+	end
+	if o.refund_enabled and gui.is_enabled(o.refund_btn) and gui.pick_node(o.refund_btn, action.x, action.y) then
+		local cb = o.on_action
+		M.hide(o)
+		if cb then cb("refund") end
 		return true
 	end
 	M.hide(o)

@@ -34,6 +34,10 @@ max_component_count = 64
 [gui]
 max_count = 32
 
+[android]
+package = com.magnuslarsen.emojiautobattler
+version_code = 3
+
 [collection]
 max_instances = 8192
 

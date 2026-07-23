@@ -241,7 +241,7 @@ function init(self)
 end
 
 function update(self, dt)
-	gui.set_text(self.skills_btn.label, ("Skills (%dg)"):format(session.meta and session.meta.gold or 0))
+	gui.set_text(self.skills_btn.label, ("Skills (%d SP)"):format(session.meta and session.meta.skill_points or 0))
 	local inventory_open = session.overlay == "menu_inventory"
 	for _, n in ipairs(self.inventory_nodes) do gui.set_enabled(n, inventory_open) end
 	if inventory_open and session.meta then

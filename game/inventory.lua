@@ -46,7 +46,7 @@ M.STAT_LABELS = {
 local PERCENT = { attack_speed = true, ability_power = true, cooldown = true, lifesteal = true, summon_health = true }
 
 function M.item_level(waves_cleared)
-	return math.max(1, math.floor((waves_cleared or 0) / 9))
+	return math.max(1, math.floor((waves_cleared or 0) / 5))
 end
 
 function M.roll(level)

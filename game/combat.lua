@@ -394,18 +394,17 @@ function M.mob_damage_for_wave(_wave) return M.MOB_DAMAGE end
 function M.ranged_damage_for_wave(_wave) return 3 end
 function M.mob_count_for_wave(wave) return 4 + math.ceil(wave / 2) end
 
--- Bosses arrive on wave 3 and every third wave after (3, 6, 9, ...), each a
--- tier stronger than the last.
+-- Each five-wave checkpoint ends with a boss.
 function M.boss_tier_for_wave(wave)
-	if wave >= 3 and wave % 3 == 0 then
-		return wave / 3
+	if wave >= 5 and wave % 5 == 0 then
+		return wave / 5
 	end
 	return 0
 end
 
 function M.ranged_count_for_wave(wave)
-	if wave < 3 then return 0 end
-	return math.min(math.floor(M.mob_count_for_wave(wave) / 2), wave - 2)
+	if wave <= 5 then return 0 end
+	return math.min(math.floor(M.mob_count_for_wave(wave) / 2), math.ceil((wave - 5) / 2))
 end
 
 function M.mob_type_stats(mob_type, wave)
@@ -421,21 +420,18 @@ function M.mob_type_stats(mob_type, wave)
 	return { hp = scaled(150), damage = scaled(12) }
 end
 
--- Starting at wave 4, one additional level-2 zombie replaces a normal melee
--- zombie each wave. The count is capped by that wave's melee population.
+-- The first checkpoint introduces level-2 enemies. Each later checkpoint
+-- raises the entire incoming population by one level.
 function M.level2_melee_count_for_wave(wave)
 	local melee = M.mob_count_for_wave(wave) - M.ranged_count_for_wave(wave)
-	return math.min(melee, math.max(0, math.min(6, wave - 3)))
+	return wave > 5 and melee or 0
 end
 
 local function progressive_types(base, count, wave)
 	local out = {}
 	if count <= 0 then return out end
-	local progress = math.max(0, wave - 3)
-	local low = progress == 0 and 1 or (1 + math.floor((progress - 1) / 6))
-	local high_count = progress == 0 and 0 or math.min(count, ((progress - 1) % 6) + 1)
-	for _ = 1, count - high_count do out[#out + 1] = M.mob_type_id(base, low) end
-	for _ = 1, high_count do out[#out + 1] = M.mob_type_id(base, low + 1) end
+	local level = 1 + math.floor(math.max(0, wave - 1) / 5)
+	for _ = 1, count do out[#out + 1] = M.mob_type_id(base, level) end
 	return out
 end
 
@@ -452,7 +448,7 @@ function M.wave_composition(wave)
 		counts[boss_id] = 1
 	end
 	for _, base in ipairs({ "melee", "ranged", "boss" }) do
-		for level = 1, 2 + math.floor(math.max(0, wave - 3) / 6) do
+		for level = 1, 1 + math.floor(math.max(0, wave - 1) / 5) do
 			local id = M.mob_type_id(base, level)
 			if counts[id] then rows[#rows + 1] = { type = id, count = counts[id] } end
 		end

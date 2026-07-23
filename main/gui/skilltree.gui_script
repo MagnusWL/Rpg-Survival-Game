@@ -197,21 +197,24 @@ local function loadout_index(m, skill)
 	return nil
 end
 
--- Unlock cost: the three roots around the awakening cost 5 gold, their
--- children (the next row) cost 10.
-local function unlock_cost(sid)
-	return FLOWER[sid].wave <= 1 and 5 or 10
+local function unlock_cost(_sid) return 1 end
+
+local function has_unlocked_child(m, sid)
+	for child, parent in pairs(skills.SKILL_PARENT) do
+		if parent == sid and (m.skill_levels[child] or 0) > 0 then return true end
+	end
+	return false
 end
 
 local function try_unlock(self, sid)
 	local m = session.meta
 	if (m.skill_levels[sid] or 0) >= 1 then return end
 	local cost = unlock_cost(sid)
-	if (m.gold or 0) < cost then
-		flash(self, "NEED " .. cost .. " GOLD")
+	if (m.skill_points or 0) < cost then
+		flash(self, "NEED " .. cost .. " SKILL POINT")
 		return
 	end
-	m.gold = m.gold - cost
+	m.skill_points = m.skill_points - cost
 	m.skill_levels[sid] = 1
 	local auto_equipped = false
 	if #m.loadout < (m.slots_unlocked or 1) then
@@ -223,6 +226,23 @@ local function try_unlock(self, sid)
 	-- available to auto-equip it.
 	refit(self, true)
 	flash(self, auto_equipped and "UNLOCKED & EQUIPPED" or "UNLOCKED")
+end
+
+local function refund_skill(self, sid)
+	local m = session.meta
+	if (m.skill_levels[sid] or 0) < 1 then return end
+	if has_unlocked_child(m, sid) then
+		flash(self, "REFUND CHILD SKILLS FIRST")
+		return
+	end
+	local i = loadout_index(m, sid)
+	if i then table.remove(m.loadout, i) end
+	m.skill_levels[sid] = 0
+	m.skill_xp[sid] = 0
+	m.skill_points = (m.skill_points or 0) + 1
+	session.commit_meta(m)
+	refit(self, true)
+	flash(self, "SKILL REFUNDED  +1 SP")
 end
 
 local function equip_skill(self, sid)
@@ -254,11 +274,14 @@ local function show_skill_tooltip(self, sid, x, y, anchor_gap)
 	local locked = level < 1
 	local equipped = is_equipped(m, sid)
 	local cost = unlock_cost(sid)
+	local refundable = nil
+	if not locked then refundable = not has_unlocked_child(m, sid) end
 	local opts = {
 		locked = locked,
 		cost = cost,
-		can_afford = not locked or (m.gold or 0) >= cost,
+		can_afford = not locked or (m.skill_points or 0) >= cost,
 		equipped = equipped,
+		refundable = refundable,
 		anchor_gap = anchor_gap,
 	}
 	if not locked and not equipped and #m.loadout < (m.slots_unlocked or 1) then
@@ -273,6 +296,8 @@ local function show_skill_tooltip(self, sid, x, y, anchor_gap)
 		elseif kind == "unequip" then
 			unequip_skill(self, sid)
 			refit(self, true)
+		elseif kind == "refund" then
+			refund_skill(self, sid)
 		end
 		show_skill_tooltip(self, sid, x, y, anchor_gap)
 	end
@@ -526,7 +551,7 @@ function update(self, dt)
 			local unlocked = level >= 1
 			local sub
 			if not unlocked then
-				sub = ("Unlock: %dg"):format(unlock_cost(sid))
+				sub = ("Unlock: %d SP"):format(unlock_cost(sid))
 			else
 				local needed = skills.skill_xp_to_next(level)
 				sub = needed
@@ -543,7 +568,7 @@ function update(self, dt)
 	end
 
 	-- Chrome.
-	gui.set_text(self.gold_text, tostring(m.gold))
+	gui.set_text(self.gold_text, ("%dg  %dsp"):format(m.gold or 0, m.skill_points or 0))
 	gui.set_text(self.loadout_caption, ("Equipped %d/%d"):format(#m.loadout, m.slots_unlocked or 1))
 
 	-- Loadout slots. A slot past the unlocked count shows a lock and its buy
