@@ -18,6 +18,7 @@ local function line_height(size) return 28 * (size / 26.7) * 1.2 end
 local TITLE_H, LEVEL_H, DESC_LINE_H = line_height(TITLE_SIZE), line_height(LEVEL_SIZE), line_height(DESC_SIZE)
 local GAP_TITLE_LEVEL, GAP_LEVEL_DESC = 4, 8
 local BTN_H, GAP_DESC_BTN = 28, 10
+local SP_BLUE = vmath.vector4(0.25, 0.72, 1.0, 1)
 
 local DESC_WRAP_PX = PANEL_W - PAD * 2
 local CHARS_PER_LINE = math.max(8, math.floor(DESC_WRAP_PX / (28 * (DESC_SIZE / 26.7) * 0.6)))
@@ -51,8 +52,18 @@ function M.build()
 	-- The Unlock/Equip button, hidden unless show() is given an action.
 	o.action_btn = ui.overlay(ui.plaque_button(0, -400, PANEL_W - PAD * 2, BTN_H))
 	o.action_text = ui.overlay(ui.text(0, -400, "", 11, { 0.965, 0.86, 0.6 }))
+	o.action_sp_glow = ui.overlay(ui.tex_box(0, -400, 16, 16, "ring"))
+	o.action_sp_core = ui.overlay(ui.tex_box(0, -400, 8, 8, "circle"))
 	o.refund_btn = ui.overlay(ui.plaque_button(0, -400, PANEL_W - PAD * 2, BTN_H))
 	o.refund_text = ui.overlay(ui.text(0, -400, "", 10, { 0.82, 0.82, 0.87 }))
+	o.refund_sp_glow = ui.overlay(ui.tex_box(0, -400, 16, 16, "ring"))
+	o.refund_sp_core = ui.overlay(ui.tex_box(0, -400, 8, 8, "circle"))
+	for _, n in ipairs({ o.action_sp_glow, o.refund_sp_glow }) do
+		gui.set_color(n, vmath.vector4(0.25, 0.72, 1.0, 0.5))
+		gui.animate(n, gui.PROP_COLOR, vmath.vector4(0.25, 0.72, 1.0, 0.95),
+			gui.EASING_INOUTSINE, 0.9, 0, nil, gui.PLAYBACK_LOOP_PINGPONG)
+	end
+	for _, n in ipairs({ o.action_sp_core, o.refund_sp_core }) do gui.set_color(n, SP_BLUE) end
 	M.hide(o)
 	return o
 end
@@ -77,7 +88,7 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 	-- Which action button (if any) applies to this skill right now.
 	local kind, label = nil, nil
 	if opts.locked then
-		kind, label = "unlock", ("Unlock skill (%dg)"):format(opts.cost or 0)
+		kind, label = "unlock", ("Unlock skill (%d)"):format(opts.cost or 0)
 	elseif opts.equipped then
 		kind, label = "unequip", "Unequip"
 	elseif opts.equip_slot then
@@ -112,7 +123,10 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 	if kind then
 		local by = desc_top - desc_h - GAP_DESC_BTN - BTN_H / 2
 		gui.set_position(o.action_btn, vmath.vector3(cx, by, 0))
-		gui.set_position(o.action_text, vmath.vector3(cx, by, 0))
+		local has_sp = kind == "unlock"
+		gui.set_position(o.action_text, vmath.vector3(cx - (has_sp and 6 or 0), by, 0))
+		gui.set_position(o.action_sp_glow, vmath.vector3(cx + 67, by, 0))
+		gui.set_position(o.action_sp_core, vmath.vector3(cx + 67, by, 0))
 		gui.set_text(o.action_text, label)
 		if o.action_enabled then
 			gui.set_color(o.action_btn, vmath.vector4(1, 1, 1, 1))
@@ -123,29 +137,41 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 		end
 		gui.set_enabled(o.action_btn, true)
 		gui.set_enabled(o.action_text, true)
+		gui.set_enabled(o.action_sp_glow, has_sp)
+		gui.set_enabled(o.action_sp_core, has_sp)
 	else
 		gui.set_enabled(o.action_btn, false)
 		gui.set_enabled(o.action_text, false)
+		gui.set_enabled(o.action_sp_glow, false)
+		gui.set_enabled(o.action_sp_core, false)
 	end
 	if opts.refundable ~= nil then
 		local by = desc_top - desc_h - btn_block - GAP_DESC_BTN - BTN_H / 2
 		gui.set_position(o.refund_btn, vmath.vector3(cx, by, 0))
 		gui.set_position(o.refund_text, vmath.vector3(cx, by, 0))
-		gui.set_text(o.refund_text, opts.refundable and "Refund skill (+1 SP)" or "Refund children first")
+		gui.set_text(o.refund_text, opts.refundable and "Refund skill (+1)" or "Refund children first")
+		gui.set_position(o.refund_sp_glow, vmath.vector3(cx + 64, by, 0))
+		gui.set_position(o.refund_sp_core, vmath.vector3(cx + 64, by, 0))
 		local c = opts.refundable and vmath.vector4(0.82, 0.82, 0.87, 1) or vmath.vector4(0.5, 0.5, 0.5, 1)
 		gui.set_color(o.refund_text, c)
 		gui.set_color(o.refund_btn, opts.refundable and vmath.vector4(1, 1, 1, 1) or vmath.vector4(0.35, 0.35, 0.35, 1))
 		gui.set_enabled(o.refund_btn, true)
 		gui.set_enabled(o.refund_text, true)
+		gui.set_enabled(o.refund_sp_glow, opts.refundable)
+		gui.set_enabled(o.refund_sp_core, opts.refundable)
 	else
 		gui.set_enabled(o.refund_btn, false)
 		gui.set_enabled(o.refund_text, false)
+		gui.set_enabled(o.refund_sp_glow, false)
+		gui.set_enabled(o.refund_sp_core, false)
 	end
 	o.open = true
 end
 
 function M.hide(o)
-	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc, o.action_btn, o.action_text, o.refund_btn, o.refund_text }) do
+	for _, n in ipairs({ o.panel, o.edge, o.title, o.level_line, o.desc,
+		o.action_btn, o.action_text, o.action_sp_glow, o.action_sp_core,
+		o.refund_btn, o.refund_text, o.refund_sp_glow, o.refund_sp_core }) do
 		gui.set_enabled(n, false)
 	end
 	o.open = false

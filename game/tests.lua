@@ -268,21 +268,43 @@ function M.run()
 	check("player survived wave 1", s.player.hp > 0)
 	check("no upgrade offer on a non-boss wave", #s.pending_upgrade_offers == 0)
 
-	-- Every fifth wave is a hard gate and reveals its upgrade one second after
-	-- the last enemy is gone.
+	-- Every fifth wave opens the route grid; selecting a connected map grants
+	-- that node's upgrade instead of showing a separate three-card choice.
 	local milestone = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	milestone.player.intro_phase = "done"
 	milestone.wave = 5
 	milestone.loot_owed = { 5 }
 	check("wave 5 blocks wave 6", not sim.start_next_wave(milestone) and milestone.wave == 5)
 	sim.update(milestone, 0.5)
-	check("milestone clear starts delayed upgrade", milestone.upgrade_offer_timer ~= nil
-		and #milestone.pending_upgrade_offers == 0)
-	sim.update(milestone, 0.49)
-	check("upgrade remains hidden for one second", #milestone.pending_upgrade_offers == 0)
-	sim.update(milestone, 0.52)
-	check("upgrade appears after one second", #milestone.pending_upgrade_offers == 1)
-	check("pending milestone choice still blocks next wave", not sim.can_start_next_wave(milestone))
+	check("checkpoint opens route immediately", milestone.route_pending
+		and #milestone.pending_upgrade_offers == 0 and milestone.upgrade_offer_timer == nil)
+	check("route blocks next map", not sim.can_start_next_wave(milestone))
+	check("early route offers three paths", sim.route_choice_count(milestone) == 3)
+	milestone.allies = { { id = 99 } }
+	milestone.player.hp = 1
+	milestone.abilities[1].cooldown = 9
+	local upgrades_before_route = #milestone.upgrades
+	check("choosing route advances map", sim.choose_route(milestone, 2)
+		and milestone.map_index == 2 and not milestone.route_pending)
+	check("chosen map grants its upgrade", #milestone.upgrades == upgrades_before_route + 1)
+	check("new map resets combat field", #milestone.allies == 0
+		and milestone.player.hp == milestone.player.max_hp
+		and milestone.abilities[1].cooldown == 0
+		and milestone.player.intro_phase == "enter")
+	check("completed map remains on local wave five", sim.local_wave(milestone) == 5
+		and ((milestone.wave) % sim.UPGRADE_EVERY_WAVES) == 0)
+	milestone.wave_countdown = nil
+	check("new map can launch", sim.start_next_wave(milestone)
+		and milestone.wave == 6 and sim.local_wave(milestone) == 1)
+	local converging = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	converging.map_index = 8
+	converging.route_pending = true
+	converging.route_column = 1
+	check("left edge cannot jump to right", sim.route_choice_count(converging) == 2
+		and not sim.choose_route(converging, 3))
+	converging.map_index = 9
+	check("route ends in centre choice", sim.route_choice_count(converging) == 1
+		and sim.route_choices(converging)[1] == 2)
 
 	-- sim: movement is withheld until an offer is answered, then resumes.
 	-- Boss waves are what queue offers; inject one here to drive the flow.

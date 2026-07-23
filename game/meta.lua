@@ -19,13 +19,11 @@ local function save_path(name)
 	return sys.get_save_file("emojiautobattler", name)
 end
 
--- Every skill starts already owned at rank 1 -- there is no gold unlock step
--- left; rank 2-4 are earned in the field (see game.sim's grant_skill_kill_xp
--- and grant_wave_clear_xp).
+-- Rank 1 is unlocked with a skill point; rank 2-4 are earned in the field
+-- (see game.sim's grant_skill_kill_xp and grant_wave_clear_xp).
 function M.default_meta()
-	-- Every skill starts locked (level 0); unlocking one in the tree costs gold
-	-- and sets it to rank 1. A fresh account has 5 gold -- enough for one root
-	-- skill -- and one equip slot open.
+	-- Every skill starts locked (level 0); unlocking one costs a skill point
+	-- and sets it to rank 1. A fresh account has one point and one equip slot.
 	local skill_levels = {}
 	local skill_xp = {}
 	for _, s in ipairs(skills.ALL_SKILLS) do
@@ -133,6 +131,9 @@ function M.build_fresh_state(meta)
 		abilities = M.make_abilities(meta.loadout, meta.skill_levels),
 		upgrades = {},
 		wave = 0,
+		map_index = 1,
+		route_column = 2,
+		route_history = { 2 },
 	}
 end
 
@@ -150,6 +151,9 @@ function M.build_test_state(meta)
 		abilities = M.make_abilities(meta.loadout, meta.skill_levels),
 		upgrades = ups,
 		wave = target_wave,
+		map_index = math.floor(target_wave / 5) + 1,
+		route_column = 2,
+		route_history = { 2 },
 	}
 end
 
@@ -161,6 +165,12 @@ function M.build_state_from_save(save)
 		abilities = save.abilities,
 		upgrades = save.upgrades or {},
 		wave = save.wave,
+		map_index = save.map_index or math.floor((save.wave or 0) / 5) + 1,
+		route_column = save.route_column or 2,
+		route_history = save.route_history or {},
+		route_grid = save.route_grid,
+		route_pending = save.route_pending or false,
+		upgrade_owed = save.upgrade_owed or false,
 		restored = true,
 	}
 end

@@ -1,5 +1,5 @@
--- Run upgrades: the choice of three offered after every cleared boss wave. A
--- pick follows the run to its end; there is no cap on how many stack up. Each
+-- Run upgrades: every route-map node carries one. Choosing the next connected
+-- map grants its upgrade for the rest of the run. There is no stack cap. Each
 -- kind is a flat effect that stacks additively with itself, and Comboer
 -- amplifies the effect of every OTHER upgrade by 10% per Comboer picked.
 local M = {}
@@ -21,7 +21,7 @@ M.DEFS = {
 	attackspeed = { name = "Frenzy",       color = { 1.0, 0.75, 0.2 },      per = 0.2, desc = "Increase attack speed by 20%" },
 }
 
--- Three distinct kinds drawn for one cleared boss wave.
+-- Three distinct kinds used across one row of the route grid.
 function M.roll_offers(wave)
 	local pool = { unpack(M.KINDS) }
 	local offers = {}

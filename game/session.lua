@@ -64,6 +64,8 @@ function M.paused()
 	-- The wave-clear choice pauses the field too, the same as any overlay --
 	-- it just isn't one, since it opens itself rather than being toggled.
 	if M.sim and #M.sim.pending_upgrade_offers > 0 then return true end
+	if M.sim and M.sim.route_pending and M.sim.upgrade_offer_timer == nil
+		and #M.sim.pending_upgrade_offers == 0 then return true end
 	return false
 end
 
