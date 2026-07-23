@@ -215,11 +215,11 @@ end
 
 local function try_unlock(self, sid)
 	local m = session.meta
-	if (m.skill_levels[sid] or 0) >= 1 then return end
+	if (m.skill_levels[sid] or 0) >= 1 then return false end
 	local cost = unlock_cost(sid)
 	if (m.skill_points or 0) < cost then
 		flash(self, "NEED " .. cost .. " SKILL POINT")
-		return
+		return false
 	end
 	m.skill_points = m.skill_points - cost
 	m.skill_levels[sid] = 1
@@ -229,27 +229,12 @@ local function try_unlock(self, sid)
 		auto_equipped = true
 	end
 	session.commit_meta(m)
+	session.sync_run_abilities()
 	-- Unlocking a parent reveals its child branch even when no free slot was
 	-- available to auto-equip it.
 	refit(self, true)
 	flash(self, auto_equipped and "UNLOCKED & EQUIPPED" or "UNLOCKED")
-end
-
-local function refund_skill(self, sid)
-	local m = session.meta
-	if (m.skill_levels[sid] or 0) < 1 then return end
-	if has_unlocked_child(m, sid) then
-		flash(self, "REFUND CHILD SKILLS FIRST")
-		return
-	end
-	local i = loadout_index(m, sid)
-	if i then table.remove(m.loadout, i) end
-	m.skill_levels[sid] = 0
-	m.skill_xp[sid] = 0
-	m.skill_points = (m.skill_points or 0) + 1
-	session.commit_meta(m)
-	refit(self, true)
-	flash(self, "SKILL POINT RETURNED")
+	return auto_equipped
 end
 
 local function equip_skill(self, sid)
@@ -261,6 +246,18 @@ local function equip_skill(self, sid)
 	end
 	m.loadout[#m.loadout + 1] = sid
 	session.commit_meta(m)
+	session.sync_run_abilities()
+end
+
+local function replace_skill(self, sid, slot)
+	local m = session.meta
+	if (m.skill_levels[sid] or 0) < 1 or loadout_index(m, sid) then return end
+	if slot < 1 or slot > (m.slots_unlocked or 1) then return end
+	m.loadout[slot] = sid
+	session.commit_meta(m)
+	session.sync_run_abilities()
+	refit(self, true)
+	flash(self, ("EQUIPPED IN SLOT %d"):format(slot))
 end
 
 local function unequip_skill(self, sid)
@@ -269,44 +266,47 @@ local function unequip_skill(self, sid)
 	if not i then return end
 	table.remove(m.loadout, i)
 	session.commit_meta(m)
+	session.sync_run_abilities()
 end
 
 -- Open the tooltip for a skill, carrying the right action button for its
--- state (Unlock while locked, Equip while unlocked with a free slot, Unequip
--- while equipped). The button's action re-opens the tooltip so it reflects
--- the new state at once.
-local function show_skill_tooltip(self, sid, x, y, anchor_gap)
+-- state. Unequip is deliberately available only when the tooltip was opened
+-- from the equipped-slot rail, never from the skill-tree branch itself.
+local function show_skill_tooltip(self, sid, x, y, anchor_gap, from_slot)
 	local m = session.meta
 	local level = m.skill_levels[sid] or 0
 	local locked = level < 1
 	local equipped = is_equipped(m, sid)
 	local cost = unlock_cost(sid)
-	local refundable = nil
-	if not locked then refundable = not has_unlocked_child(m, sid) end
 	local opts = {
 		locked = locked,
 		cost = cost,
 		can_afford = not locked or (m.skill_points or 0) >= cost,
-		equipped = equipped,
-		refundable = refundable,
+		equipped = equipped and from_slot,
 		anchor_gap = anchor_gap,
 	}
 	if not locked and not equipped and #m.loadout < (m.slots_unlocked or 1) then
 		opts.equip_slot = #m.loadout + 1
+	elseif not locked and not equipped and #m.loadout >= (m.slots_unlocked or 1) then
+		opts.replace_slots = m.slots_unlocked or 1
 	end
-	opts.on_action = function(kind)
+	opts.on_action = function(kind, slot)
 		if kind == "unlock" then
-			try_unlock(self, sid)
+			if try_unlock(self, sid) then
+				skill_tip_ui.hide(self.skill_tip)
+				return
+			end
 		elseif kind == "equip" then
 			equip_skill(self, sid)
 			refit(self, true) -- a newly equipped parent reveals its child branch
+		elseif kind == "replace_slot" then
+			replace_skill(self, sid, slot)
+			return
 		elseif kind == "unequip" then
 			unequip_skill(self, sid)
 			refit(self, true)
-		elseif kind == "refund" then
-			refund_skill(self, sid)
 		end
-		show_skill_tooltip(self, sid, x, y, anchor_gap)
+		show_skill_tooltip(self, sid, x, y, anchor_gap, from_slot)
 	end
 	local disp = math.max(1, level)
 	skill_tip_ui.show(self.skill_tip, sid, disp, m.skill_xp[sid] or 0, skills.skill_xp_to_next(disp), x, y, opts)
@@ -470,11 +470,11 @@ function init(self)
 		self.pods[sid] = make_pod(self, p.x, p.y, 78, 50, FLOWER[sid].icon)
 	end
 
-	-- No top header: only a floating back control remains in the corner. Its
-	-- arrow is the UI atlas glyph rotated from up to left, not font text.
-	self.back = ui.plaque_button(27, H - 26, 34, 34)
-	self.back_icon = ui.tex_box(27, H - 26, 17, 17, "arrow_up")
-	gui.set_rotation(self.back_icon, vmath.quat_rotation_z(math.rad(90)))
+	-- Continue sits on the right because this screen advances the run flow.
+	self.back = ui.plaque_button(W - 174, H - 26, 130, 34)
+	self.back_text = ui.text(W - 188, H - 26, "Continue", 11, { 0.878, 0.831, 0.729 })
+	self.back_icon = ui.tex_box(W - 130, H - 26, 15, 15, "arrow_up")
+	gui.set_rotation(self.back_icon, vmath.quat_rotation_z(math.rad(-90)))
 
 	-- Vertical loadout rail: the three active slots, fixed to the right. Same circular
 	-- design as the pods above and the menu's preview and the quick-cast bar
@@ -682,14 +682,18 @@ function on_input(self, action_id, action)
 				flash(self, "EQUIP A SKILL")
 			else
 				local p = gui.get_screen_position(self.slots[i].icon_ui.disc)
-				show_skill_tooltip(self, sid, p.x, p.y)
+				show_skill_tooltip(self, sid, p.x, p.y, nil, true)
 			end
 			return true
 		end
 	end
 
 	if gui.pick_node(self.back, action.x, action.y) then
-		session.actions.back_to_menu()
+		if session.sim and #session.meta.loadout == 0 then
+			flash(self, "CHOOSE AND EQUIP A SKILL")
+		else
+			session.actions.return_from_skilltree()
+		end
 		return true
 	end
 

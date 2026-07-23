@@ -7,10 +7,15 @@ local SCREEN_W = layout.SCREEN_W
 local PLAY_H = layout.PLAY_H
 
 M.PLAYER_RADIUS = 18
+-- Movement separation uses a deliberately smaller circle at each character's
+-- feet. Combat ranges and projectile hit radii remain unchanged.
+M.FEET_COLLISION_RADIUS = 12
 M.PLAYER_SPEED = 100
 M.PLAYER_TOP_BUFFER = 0
 M.PLAYER_RIGHT_BUFFER = 14
-M.PLAYER_HEALTH_REGEN = 4
+M.PLAYER_HEALTH_REGEN = 2
+M.GIRL_POSITION_Y = PLAY_H / 2 - 4
+M.GIRL_RENDER_OFFSET_Y = 8
 
 M.SPRITE_CELL = 128
 M.SPRITE_COLS = 15
@@ -482,8 +487,9 @@ function M.spawn_mob(mob_type, wave, side)
 		id = mob_id_counter,
 		type = mob_type,
 		wave = wave,
+		spawn_side = side or "right",
 		pos = {
-			x = side == "left" and margin or SCREEN_W - margin,
+			x = side == "left" and -margin or SCREEN_W + margin,
 			y = min_y + math.random() * math.max(0, max_y - min_y),
 		},
 		hp = stats.hp,
@@ -508,13 +514,15 @@ function M.make_allies_for_level(level, origin, ability1_stats)
 		ally_id_counter = ally_id_counter + 1
 		local offset_x = (i - (count - 1) / 2) * 36
 		local ranged = false
+		local spawn_pos = {
+			x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x + offset_x)),
+			y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
+				math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
+		}
 		result[#result + 1] = {
 			id = ally_id_counter,
-			pos = {
-				x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x + offset_x)),
-				y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
-					math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
-			},
+			pos = spawn_pos,
+			home_pos = { x = spawn_pos.x, y = spawn_pos.y },
 			hp = stats.hp,
 			max_hp = stats.hp,
 			damage = stats.damage,
@@ -530,13 +538,15 @@ end
 function M.make_seagull(level, origin, seagull_stats)
 	ally_id_counter = ally_id_counter + 1
 	local stats = seagull_stats(level)
+	local spawn_pos = {
+		x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x)),
+		y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
+			math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
+	}
 	return {
 		id = ally_id_counter,
-		pos = {
-			x = math.max(M.ALLY_RADIUS, math.min(SCREEN_W - M.PLAYER_RIGHT_BUFFER - M.ALLY_RADIUS, origin.x)),
-			y = math.max(M.ALLY_RADIUS + M.PLAYER_TOP_BUFFER,
-				math.min(PLAY_H - M.ALLY_RADIUS, origin.y - 50)),
-		},
+		pos = spawn_pos,
+		home_pos = { x = spawn_pos.x, y = spawn_pos.y },
 		hp = stats.hp,
 		max_hp = stats.hp,
 		damage = stats.damage,

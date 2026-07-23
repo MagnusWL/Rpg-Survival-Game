@@ -58,6 +58,13 @@ function M.build()
 	o.refund_text = ui.overlay(ui.text(0, -400, "", 10, { 0.82, 0.82, 0.87 }))
 	o.refund_sp_glow = ui.overlay(ui.tex_box(0, -400, 16, 16, "ring"))
 	o.refund_sp_core = ui.overlay(ui.tex_box(0, -400, 8, 8, "circle"))
+	o.replace_btns = {}
+	for i = 1, 3 do
+		o.replace_btns[i] = {
+			btn = ui.overlay(ui.plaque_button(0, -400, PANEL_W - PAD * 2, BTN_H)),
+			text = ui.overlay(ui.text(0, -400, ("Replace Slot %d"):format(i), 11, { 0.965, 0.86, 0.6 })),
+		}
+	end
 	for _, n in ipairs({ o.action_sp_glow, o.refund_sp_glow }) do
 		gui.set_color(n, vmath.vector4(0.25, 0.72, 1.0, 0.5))
 		gui.animate(n, gui.PROP_COLOR, vmath.vector4(0.25, 0.72, 1.0, 0.95),
@@ -69,8 +76,8 @@ function M.build()
 end
 
 -- opts (optional, skill tree only): { locked, cost, can_afford, equipped,
--- equip_slot, refundable, anchor_gap, on_action }. on_action(kind) is called
--- with "unlock" | "equip" | "unequip" | "refund".
+-- equip_slot, replace_slots, refundable, anchor_gap, on_action }. on_action
+-- receives the action kind and, for "replace_slot", the chosen slot number.
 function M.show(o, skill, level, xp, needed, x, y, opts)
 	opts = opts or {}
 	local meta = skills.SKILL_META[skill]
@@ -98,11 +105,14 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 	o.action_enabled = kind ~= "unlock" or opts.can_afford ~= false
 	o.on_action = opts.on_action
 	o.refund_enabled = opts.refundable == true
+	o.replace_slots = opts.replace_slots or 0
 
 	local desc_h = wrapped_line_count(desc_text) * DESC_LINE_H
 	local btn_block = kind and (GAP_DESC_BTN + BTN_H) or 0
+	local replace_block = o.replace_slots * (GAP_DESC_BTN + BTN_H)
 	local refund_block = opts.refundable ~= nil and (GAP_DESC_BTN + BTN_H) or 0
-	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC + desc_h + btn_block + refund_block
+	local panel_h = PAD * 2 + TITLE_H + GAP_TITLE_LEVEL + LEVEL_H + GAP_LEVEL_DESC
+		+ desc_h + btn_block + replace_block + refund_block
 
 	local cx = math.max(PANEL_W / 2 + 4, math.min(W - PANEL_W / 2 - 4, x))
 	local cy = math.min(H - panel_h / 2 - 4, y + panel_h / 2 + (opts.anchor_gap or 26))
@@ -145,8 +155,18 @@ function M.show(o, skill, level, xp, needed, x, y, opts)
 		gui.set_enabled(o.action_sp_glow, false)
 		gui.set_enabled(o.action_sp_core, false)
 	end
+	for i, replacement in ipairs(o.replace_btns) do
+		local shown = i <= o.replace_slots
+		if shown then
+			local by = desc_top - desc_h - btn_block - i * GAP_DESC_BTN - (i - 0.5) * BTN_H
+			gui.set_position(replacement.btn, vmath.vector3(cx, by, 0))
+			gui.set_position(replacement.text, vmath.vector3(cx, by, 0))
+		end
+		gui.set_enabled(replacement.btn, shown)
+		gui.set_enabled(replacement.text, shown)
+	end
 	if opts.refundable ~= nil then
-		local by = desc_top - desc_h - btn_block - GAP_DESC_BTN - BTN_H / 2
+		local by = desc_top - desc_h - btn_block - replace_block - GAP_DESC_BTN - BTN_H / 2
 		gui.set_position(o.refund_btn, vmath.vector3(cx, by, 0))
 		gui.set_position(o.refund_text, vmath.vector3(cx, by, 0))
 		gui.set_text(o.refund_text, opts.refundable and "Refund skill (+1)" or "Refund children first")
@@ -174,10 +194,15 @@ function M.hide(o)
 		o.refund_btn, o.refund_text, o.refund_sp_glow, o.refund_sp_core }) do
 		gui.set_enabled(n, false)
 	end
+	for _, replacement in ipairs(o.replace_btns) do
+		gui.set_enabled(replacement.btn, false)
+		gui.set_enabled(replacement.text, false)
+	end
 	o.open = false
 	o.action_kind = nil
 	o.action_enabled = false
 	o.refund_enabled = false
+	o.replace_slots = 0
 end
 
 -- A tap on the action button fires its action; any other tap dismisses. Screen
@@ -195,6 +220,15 @@ function M.input(o, action)
 		M.hide(o)
 		if cb then cb("refund") end
 		return true
+	end
+	for i = 1, o.replace_slots or 0 do
+		local replacement = o.replace_btns[i]
+		if gui.is_enabled(replacement.btn) and gui.pick_node(replacement.btn, action.x, action.y) then
+			local cb = o.on_action
+			M.hide(o)
+			if cb then cb("replace_slot", i) end
+			return true
+		end
 	end
 	M.hide(o)
 	return true

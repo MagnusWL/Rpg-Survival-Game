@@ -12,6 +12,7 @@ function init(self)
 	self.back = ui.button_frame(W / 2, 70, 120, 40, "btn_steel")
 	self.back_text = ui.text(W / 2, 70, "Back", 14, { 1, 1, 1 })
 	self.rows = {}
+	self.rows_signature = nil
 end
 
 local function clear_rows(self)
@@ -28,8 +29,15 @@ function update(self, dt)
 	for _, r in ipairs(session.saved_runs) do sorted[#sorted + 1] = r end
 	table.sort(sorted, function(a, b) return (a.saved_at or 0) > (b.saved_at or 0) end)
 	gui.set_enabled(self.empty, #sorted == 0)
-	if #self.rows ~= #sorted then
+	local signature_parts = {}
+	for _, run in ipairs(sorted) do
+		signature_parts[#signature_parts + 1] =
+			("%s:%s:%s"):format(run.id or "", run.saved_at or 0, run.wave or 0)
+	end
+	local signature = table.concat(signature_parts, "|")
+	if self.rows_signature ~= signature then
 		clear_rows(self)
+		self.rows_signature = signature
 		for i, run in ipairs(sorted) do
 			local y = H - 130 - (i - 1) * 64
 			local box = ui.box(W / 2, y, W - 40, 56, { 0.14, 0.14, 0.24 }, 1)

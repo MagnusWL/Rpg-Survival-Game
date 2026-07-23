@@ -26,16 +26,16 @@ local ROWS = {
 function M.build(buttons)
 	local o = { rows = {} }
 	local row_h = W > H and 36 or 44
-	-- One extra row's worth of panel for the Test run button under the list.
-	local panel_h = 60 + #ROWS * row_h + 52
+	local panel_w = math.min(W - 60, 440)
+	local panel_h = 50 + #ROWS * row_h + 58
 	-- Every node here goes on the "overlay" layer so this always draws above
 	-- the field/HUD regardless of which was built first -- Defold GUI has no
 	-- other way to reorder nodes after the fact, and this panel is built
 	-- once in init(), well before most of the gameplay chrome exists yet.
 	o.backdrop = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
 	-- Reuse the same carved button texture as one large framed settings pane.
-	o.panel = ui.overlay(ui.plaque_button(W / 2, H / 2, W - 60, panel_h))
-	o.grain = ui.grain(W / 2, H / 2, W - 60, panel_h, 0.16, "overlay")
+	o.panel = ui.overlay(ui.plaque_button(W / 2, H / 2, panel_w, panel_h))
+	o.grain = ui.grain(W / 2, H / 2, panel_w, panel_h, 0.16, "overlay")
 	o.title = ui.overlay(ui.text(W / 2, H / 2 + panel_h / 2 - 22, "Settings", 16, { 1, 1, 1 }))
 	-- Match the skill tree's floating plaque-and-glyph back control.
 	o.back = ui.overlay(ui.plaque_button(27, H - 26, 34, 34))
@@ -44,23 +44,28 @@ function M.build(buttons)
 	local top = H / 2 + panel_h / 2 - 54
 	for i, row in ipairs(ROWS) do
 		local y = top - (i - 1) * row_h
-		local label = ui.overlay(ui.text(W / 2 - (W - 100) / 2, y, row.label, 13, { 1, 1, 1 }, gui.PIVOT_W))
-		local pill = ui.overlay(ui.plaque_button(W / 2 + (W - 100) / 2 - 24, y, 52, 26))
-		local pill_text = ui.overlay(ui.text(W / 2 + (W - 100) / 2 - 24, y, "ON", 11, { 1, 1, 1 }))
+		local label = ui.overlay(ui.text(W / 2 - panel_w / 2 + 28, y, row.label, 13, { 1, 1, 1 }, gui.PIVOT_W))
+		local pill_x = W / 2 + panel_w / 2 - 38
+		local pill = ui.overlay(ui.plaque_button(pill_x, y, 52, 26))
+		local pill_text = ui.overlay(ui.text(pill_x, y, "ON", 11, { 1, 1, 1 }))
 		o.rows[i] = { def = row, label = label, pill = pill, pill_text = pill_text }
 	end
 	-- Development convenience available from the main menu only.
 	o.test_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * row_h + 6, 140, 34))
-	o.test_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Get 1000 coins", 12, { 1, 1, 1 }))
-	o.exit_btn = ui.overlay(ui.plaque_button(W / 2, top - #ROWS * row_h + 6, 140, 34))
-	o.exit_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Exit run", 12, { 1, 1, 1 }))
+	o.test_text = ui.overlay(ui.text(W / 2, top - #ROWS * row_h + 6, "Get 1000 gold + SP", 11, { 1, 1, 1 }))
+	local action_y = top - #ROWS * row_h + 3
+	o.exit_btn = ui.overlay(ui.plaque_button(W / 2 - 82, action_y, 140, 34))
+	o.exit_text = ui.overlay(ui.text(W / 2 - 82, action_y, "End Run", 12, { 1, 1, 1 }))
+	o.save_exit_btn = ui.overlay(ui.plaque_button(W / 2 + 82, action_y, 170, 34))
+	o.save_exit_text = ui.overlay(ui.text(W / 2 + 82, action_y, "Save & Exit Game", 11, { 1, 1, 1 }))
 	M.hide(o)
 	return o
 end
 
 local function set_shown(o, on)
 	for _, n in ipairs({ o.backdrop, o.panel, o.grain, o.title, o.back, o.back_icon,
-		o.test_btn, o.test_text, o.exit_btn, o.exit_text }) do
+		o.test_btn, o.test_text, o.exit_btn, o.exit_text,
+		o.save_exit_btn, o.save_exit_text }) do
 		gui.set_enabled(n, on)
 	end
 	for _, r in ipairs(o.rows) do
@@ -90,6 +95,8 @@ function M.sync(o)
 	gui.set_enabled(o.test_text, on_menu)
 	gui.set_enabled(o.exit_btn, not on_menu)
 	gui.set_enabled(o.exit_text, not on_menu)
+	gui.set_enabled(o.save_exit_btn, not on_menu)
+	gui.set_enabled(o.save_exit_text, not on_menu)
 end
 
 function M.input(o, action)
@@ -113,6 +120,11 @@ function M.input(o, action)
 	if session.screen ~= "menu" and gui.pick_node(o.exit_btn, action.x, action.y) then
 		session.overlay = nil
 		if session.actions then session.actions.exit_run() end
+		return true
+	end
+	if session.screen ~= "menu" and gui.pick_node(o.save_exit_btn, action.x, action.y) then
+		session.overlay = nil
+		if session.actions then session.actions.save_and_exit() end
 		return true
 	end
 	if gui.pick_node(o.panel, action.x, action.y) then return true end

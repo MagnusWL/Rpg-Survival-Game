@@ -30,10 +30,45 @@ end
 function M.run()
 	math.randomseed(42)
 
-	-- persistent equipment: one fixed slot, level per cleared checkpoint, and
+	-- run equipment: one fixed slot, level per cleared checkpoint, and
 	-- additive stat aggregation without a loose-item bag.
 	check("item level starts at one", inventory.item_level(0) == 1)
+	do
+		local collision_state = sim.new(meta_mod.build_fresh_state(meta_mod.default_meta()), {
+			is_test_run = true,
+		})
+		collision_state.player.intro_phase = "done"
+		collision_state.player.pos = { x = 300, y = 200 }
+		collision_state.mobs = {
+			{ id = 1, hp = 10, pos = { x = 300, y = 200 } },
+			{ id = 2, hp = 10, pos = { x = 302, y = 200 } },
+		}
+		collision_state.allies = {
+			{ id = 1, hp = 10, pos = { x = 301, y = 200 } },
+		}
+		sim.resolve_body_collisions(collision_state)
+		local bodies = {
+			collision_state.player,
+			collision_state.mobs[1],
+			collision_state.mobs[2],
+			collision_state.allies[1],
+		}
+		local separated = true
+		for i = 1, #bodies - 1 do
+			for j = i + 1, #bodies do
+				if combat.dist(bodies[i].pos, bodies[j].pos)
+					< combat.FEET_COLLISION_RADIUS * 2 - 0.01 then
+					separated = false
+				end
+			end
+		end
+		check("feet collisions separate player mobs and summons", separated)
+	end
 	check("item level follows five-wave checkpoints", inventory.item_level(5) == 1 and inventory.item_level(10) == 2)
+	check("item stats have strong base and double scaling",
+		inventory.stat_multiplier(1) == 4
+			and inventory.stat_multiplier(2) == 6
+			and inventory.stat_multiplier(4) == 10)
 	local item = inventory.roll(3)
 	check("rolled item has valid slot and level", inventory.SLOT_LABELS[item.slot] ~= nil and item.level == 3)
 	local raw_gear = { [item.slot] = item }
@@ -190,14 +225,14 @@ function M.run()
 	check("cone hits ahead only", #hits == 1 and hits[1].id == 1)
 	check("cone damage is flat", near(hits[1].amount, 10))
 
-	-- meta defaults: every skill starts locked (level 0), 5 starting gold
+	-- meta defaults: every skill starts locked (level 0), no starting gold
 	local dm = meta_mod.default_meta()
 	local all_locked = true
 	for _, sid in ipairs(skills.ALL_SKILLS) do
 		if dm.skill_levels[sid] ~= 0 then all_locked = false end
 	end
 	check("every skill starts locked", all_locked)
-	check("starts with 5 gold", dm.gold == 5)
+	check("starts with 0 gold", dm.gold == 0)
 	check("default loadout empty", #dm.loadout == 0)
 	check("default one slot unlocked", dm.slots_unlocked == 1)
 
@@ -222,13 +257,17 @@ function M.run()
 	})
 	check("sanitize clamps loadout to slots", #clamped.loadout == 1)
 	check("sanitize keeps skill xp", sanitized.skill_xp.summon == 40)
-	check("gold for waves", meta_mod.gold_for_waves_cleared(4) == 10)
-	check("gold for zero waves", meta_mod.gold_for_waves_cleared(0) == 0)
 
 	-- abilities built from loadout
 	local ab = meta_mod.make_abilities({ "cone" }, { cone = 3 })
 	check("ability slot 1", ab[1].skill == "cone" and ab[1].level == 3)
 	check("ability slot 2 empty", ab[2].skill == nil and ab[2].level == 0)
+
+	local opening_wave = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	check("opening wave starts during entrance", opening_wave.player.intro_phase == "enter")
+	sim.update(opening_wave, 1 / 60)
+	check("wave one launches before entrance completes",
+		opening_wave.wave == 1 and opening_wave.player.intro_phase ~= "done")
 
 	-- sim: fresh state walks through the entrance and draws
 	local gs = meta_mod.build_fresh_state(dm)
@@ -262,7 +301,7 @@ function M.run()
 		sim.update(s, 1 / 60)
 		for _, mob in ipairs(s.mobs) do mob.hp = 0 end
 		sim.take_events(s)
-		if #s.loot_owed == 0 and not s.wave_active then break end
+		if s.highest_wave_cleared >= 1 then break end
 	end
 	check("wave 1 cleared", s.highest_wave_cleared == 1)
 	check("player survived wave 1", s.player.hp > 0)
@@ -278,6 +317,13 @@ function M.run()
 	sim.update(milestone, 0.5)
 	check("checkpoint opens route immediately", milestone.route_pending
 		and #milestone.pending_upgrade_offers == 0 and milestone.upgrade_offer_timer == nil)
+	local checkpoint_events = 0
+	for _, ev in ipairs(sim.take_events(milestone)) do
+		if ev.type == "checkpoint_reward" and ev.wave == 5 then
+			checkpoint_events = checkpoint_events + 1
+		end
+	end
+	check("checkpoint reward emitted exactly once", checkpoint_events == 1)
 	check("route blocks next map", not sim.can_start_next_wave(milestone))
 	check("early route offers three paths", sim.route_choice_count(milestone) == 3)
 	milestone.allies = { { id = 99 } }
@@ -401,7 +447,8 @@ function M.run()
 	s10.player.hp = 100
 	s10.abilities = { { skill = "ranged", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
 	sim.update(s10, 1)
-	check("player has two health regen per second", near(s10.player.hp, 102))
+	check("player has configured health regen per second",
+		near(s10.player.hp, 100 + combat.PLAYER_HEALTH_REGEN))
 	local berserker_mob = combat.spawn_mob("melee", 1)
 	berserker_mob.pos = { x = s10.player.pos.x + 10, y = s10.player.pos.y }
 	berserker_mob.hp, berserker_mob.max_hp = 9999, 9999
@@ -418,7 +465,8 @@ function M.run()
 	no_clear_heal.player.hp = 50
 	no_clear_heal.loot_owed = { 1 }
 	sim.update(no_clear_heal, 1)
-	check("wave clear does not heal to full", near(no_clear_heal.player.hp, 52))
+	check("wave clear does not heal to full",
+		near(no_clear_heal.player.hp, 50 + combat.PLAYER_HEALTH_REGEN))
 
 	-- sim: enemies enter from the right, outside the top exclusion zone, and
 	-- march left until a target enters their detection range.
@@ -430,11 +478,32 @@ function M.run()
 	local spawn_x, spawn_y = top_ranged.pos.x, top_ranged.pos.y
 	sim.update(ranged_exit, 0.1)
 	check("mob spawns at right edge", spawn_x > layout.SCREEN_W - 40)
+	check("mob starts fully offscreen", spawn_x > layout.SCREEN_W + top_ranged.radius)
 	check("mob spawns below top buffer",
 		spawn_y >= top_ranged.radius + combat.PLAYER_TOP_BUFFER)
 	check("ranged mob marches left before attacking",
 		top_ranged.pos.x < spawn_x and near(top_ranged.pos.y, spawn_y)
 		and #ranged_exit.projectiles == 0)
+	local left_ranged_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	left_ranged_state.player.intro_phase = "done"
+	left_ranged_state.player.pos = { x = layout.SCREEN_W - combat.PLAYER_RADIUS,
+		y = layout.PLAY_H - combat.PLAYER_RADIUS }
+	local left_ranged = combat.spawn_mob("ranged", 1, "left")
+	left_ranged_state.mobs = { left_ranged }
+	local left_spawn_x = left_ranged.pos.x
+	sim.update(left_ranged_state, 0.1)
+	check("left-side ranged mob marches right toward middle",
+		left_ranged.pos.x > left_spawn_x and #left_ranged_state.projectiles == 0)
+	local gated_ranged = combat.spawn_mob("ranged", 1, "right")
+	gated_ranged.pos.y = ranged_exit.player.pos.y
+	ranged_exit.player.pos = { x = layout.SCREEN_W - 20, y = gated_ranged.pos.y }
+	ranged_exit.mobs = { gated_ranged }
+	sim.update(ranged_exit, 1 / 60)
+	check("offscreen ranged mob cannot attack", #ranged_exit.projectiles == 0)
+	gated_ranged.pos.x = layout.SCREEN_W - gated_ranged.radius - 1
+	gated_ranged.attack_cooldown = 0
+	sim.update(ranged_exit, 1 / 60)
+	check("ranged attack enables inside gameplay area", #ranged_exit.projectiles == 1)
 
 	-- sim: Chain Lightning follows nearest-neighbour order with 20% falloff.
 	local chain_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -448,8 +517,10 @@ function M.run()
 		chain_state.mobs[#chain_state.mobs + 1] = mob
 	end
 	sim.press_ability(chain_state, 1)
-	check("chain lightning hits configured count", near(chain_state.mobs[1].hp, 950)
-		and near(chain_state.mobs[2].hp, 960) and near(chain_state.mobs[3].hp, 968)
+	local chain_damage = skills.chain_lightning_damage(1)
+	check("chain lightning hits configured count", near(chain_state.mobs[1].hp, 1000 - chain_damage)
+		and near(chain_state.mobs[2].hp, 1000 - chain_damage * skills.CHAIN_LIGHTNING_FALLOFF)
+		and near(chain_state.mobs[3].hp, 1000 - chain_damage * skills.CHAIN_LIGHTNING_FALLOFF ^ 2)
 		and near(chain_state.mobs[4].hp, 1000))
 	check("chain lightning creates one visual link per hit", #chain_state.lightning_links == 3)
 
@@ -516,6 +587,16 @@ function M.run()
 	summon_state.abilities[1].cooldown = 0
 	sim.press_ability(summon_state, 1)
 	check("recasting summon keeps existing allies", #summon_state.allies == 2)
+	local returning_ally = summon_state.allies[1]
+	check("summon home is copied from spawn position",
+		returning_ally.home_pos ~= returning_ally.pos
+			and near(returning_ally.home_pos.x, returning_ally.pos.x)
+			and near(returning_ally.home_pos.y, returning_ally.pos.y))
+	returning_ally.pos = { x = returning_ally.home_pos.x + 50, y = returning_ally.home_pos.y }
+	local distance_before_return = combat.dist(returning_ally.pos, returning_ally.home_pos)
+	sim.update(summon_state, 0.1)
+	check("idle summon walks home",
+		combat.dist(returning_ally.pos, returning_ally.home_pos) < distance_before_return)
 
 	local objective_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	objective_state.player.intro_phase = "done"
@@ -580,7 +661,9 @@ function M.run()
 	check("player state has no mana field", s4b.player.mana == nil)
 	check("player state has no level/xp fields", s4b.player.level == nil and s4b.player.xp == nil)
 
-	-- save/load roundtrip (uses the real save file path)
+	-- save/load roundtrip uses isolated in-memory storage. Tests must never
+	-- overwrite the player's real debug-build progression.
+	meta_mod.set_test_storage({})
 	local test_meta = meta_mod.default_meta()
 	test_meta.gold = 77
 	test_meta.skill_levels.summon = 3
@@ -590,7 +673,6 @@ function M.run()
 	check("meta roundtrip gold", loaded.gold == 77)
 	check("meta roundtrip skill level", loaded.skill_levels.summon == 3)
 	check("meta roundtrip skill xp", loaded.skill_xp.summon == 42)
-	meta_mod.persist_meta(meta_mod.default_meta()) -- leave a clean default behind
 
 	local runs = {
 		{
@@ -605,6 +687,7 @@ function M.run()
 	local restored = meta_mod.build_state_from_save(loaded_runs[1])
 	check("state from save", restored.player.hp == 50 and restored.wave == 3 and #restored.upgrades == 1)
 	meta_mod.persist_runs({})
+	meta_mod.set_test_storage(nil)
 
 	-- sim: dying plays the fall, then reports game over exactly once
 	local s5 = sim.new(meta_mod.build_fresh_state(dm), { run_id = "r-go", is_test_run = false })
@@ -624,7 +707,8 @@ function M.run()
 	check("die timer delays game over", saw_over and s5.game_over)
 	check("die anim chosen", s5.player.anim == "die")
 
-	-- sim: clearing a wave with a run id emits an autosave with upgrades
+	-- Normal wave clears do not move the safe restore point. Saving happens
+	-- only after entering a new map.
 	local s6 = sim.new(meta_mod.build_fresh_state(dm), { run_id = "r-save", is_test_run = false })
 	s6.player.intro_phase = "done"
 	s6.player.target = nil
@@ -638,10 +722,9 @@ function M.run()
 		for _, ev in ipairs(sim.take_events(s6)) do
 			if ev.type == "autosave" then saw_save = ev.save end
 		end
-		if saw_save then break end
+		if s6.highest_wave_cleared >= 1 then break end
 	end
-	check("autosave after wave clear", saw_save ~= nil and saw_save.wave == 1 and saw_save.id == "r-save")
-	check("autosave carries upgrades field", saw_save ~= nil and saw_save.upgrades ~= nil)
+	check("ordinary wave clear does not autosave", saw_save == nil)
 
 	-- session: a pending upgrade choice pauses the field, same as an overlay
 	local s8 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -654,6 +737,73 @@ function M.run()
 	s8.pending_upgrade_offers = {}
 	check("session resumes once answered", not session.paused())
 	session.sim = nil
+
+	-- Run-specific progression is saved with an unfinished run and is fully
+	-- discarded when that run ends.
+	meta_mod.set_test_storage({})
+	session.saved_runs = {}
+	session.current_run_id = "run-progress-test"
+	session.run_active = true
+	session.is_test_run = false
+	session.meta = session.new_run_meta()
+	session.sim = sim.new(meta_mod.build_fresh_state(session.meta), {
+		run_id = session.current_run_id,
+		skill_levels = session.meta.skill_levels,
+		skill_xp = session.meta.skill_xp,
+		equipment = session.meta.equipment,
+	})
+	session.store_run(sim.make_save(session.sim))
+	session.meta.skill_levels.summon = 1
+	session.meta.skill_xp.summon = 7
+	session.meta.loadout = { "summon" }
+	session.commit_meta(session.meta)
+	session.sync_run_abilities()
+	check("skill choice syncs complete live state",
+		session.sim.abilities[1].skill == "summon"
+			and session.sim.skill_levels.summon == 1
+			and session.sim.skill_xp.summon == 7)
+	session.grant_checkpoint_reward(5)
+	check("checkpoint grants only configured currency",
+		session.meta.gold == 10 and session.meta.skill_points == 2)
+	check("map-start snapshot is not mutated during map",
+		not session.saved_runs[1].checkpoint_reward_open
+			and session.saved_runs[1].reward_item == nil
+			and session.saved_runs[1].run_meta.gold == 0)
+	local offered_item = session.reward_item
+	session.equip_reward()
+	local expected_gear = inventory.bonuses(session.meta.equipment)
+	check("equipped checkpoint item updates live gear",
+		offered_item ~= nil and session.reward_item == nil
+			and near(session.sim.gear_bonus.max_health, expected_gear.max_health)
+			and near(session.sim.gear_bonus.attack_damage, expected_gear.attack_damage))
+	session.store_run(sim.make_save(session.sim))
+	local saved_progress = session.saved_runs[1]
+	check("next map snapshot captures run progression",
+		saved_progress.run_meta.gold == 10
+			and saved_progress.run_meta.skill_levels.summon == 1)
+	session.meta.gold = 999
+	check("stored map snapshot is isolated from live tables",
+		saved_progress.run_meta.gold == 10)
+	session.store_run({
+		id = "replacement-save", wave = 5, saved_at = os.time(),
+		abilities = {}, upgrades = {}, route_history = {}, route_grid = {},
+	})
+	check("storing a map keeps exactly one save",
+		#session.saved_runs == 1 and session.saved_runs[1].id == "replacement-save")
+	saved_progress = session.saved_runs[1]
+	session.discard_run_progress()
+	check("ending run resets all progression",
+		session.meta.gold == 0 and session.meta.skill_points == 1
+			and #session.meta.loadout == 0 and next(session.meta.equipment) == nil)
+	session.restore_run_progress(saved_progress)
+	check("continue restores run progression",
+		session.meta.gold == 999 and session.meta.skill_levels.summon == 1
+			and session.meta.loadout[1] == "summon")
+	session.sim = nil
+	session.current_run_id = nil
+	session.discard_run_progress()
+	session.saved_runs = {}
+	meta_mod.set_test_storage(nil)
 
 	print(("PORT TESTS: %d passed, %d failed"):format(passed, failed))
 	return failed == 0

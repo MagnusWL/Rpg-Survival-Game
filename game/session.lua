@@ -10,20 +10,20 @@ local M = {
 	meta = nil,
 	saved_runs = {},
 	runs_loaded = false,
-	last_run_gold = 0,
-	last_run_skill_points = 0,
 	current_run_id = nil,
 	is_test_run = false,
-	gold_banked = false,
-	skill_points_banked = false,
 	-- overlays pause the simulation
 	overlay = nil, -- "settings" | "inventory" | "skills" | "mobstats" | nil
 	tooltip = nil,
 	game_over_shown = false,
 	reward_item = nil,
+	checkpoint_reward_open = false,
+	run_active = false,
+	debug_progress = false,
+	skill_selection_open = false,
 	-- settings
 	sfx_off = false,
-	music_off = false,
+	music_off = true,
 	all_sound_off = false,
 	weather_off = false,
 	tech_on = false,
@@ -33,14 +33,100 @@ local M = {
 }
 
 function M.load()
-	M.meta = meta_mod.load_meta()
-	M.saved_runs = meta_mod.load_runs()
+	-- Account-wide progression was retired. The main menu always starts from
+	-- a clean run template; unfinished runs carry their own progression.
+	M.meta = meta_mod.default_meta()
+	local loaded = meta_mod.load_runs()
+	local newest = nil
+	for _, save in ipairs(loaded) do
+		if not newest or (save.saved_at or 0) > (newest.saved_at or 0) then
+			newest = save
+		end
+	end
+	M.saved_runs = newest and { newest } or {}
+	if #loaded ~= #M.saved_runs then meta_mod.persist_runs(M.saved_runs) end
 	M.runs_loaded = true
+end
+
+function M.new_run_meta()
+	return meta_mod.default_meta()
+end
+
+local function deep_copy(value, seen)
+	if type(value) ~= "table" then return value end
+	seen = seen or {}
+	if seen[value] then return seen[value] end
+	local copy = {}
+	seen[value] = copy
+	for key, child in pairs(value) do
+		copy[deep_copy(key, seen)] = deep_copy(child, seen)
+	end
+	return copy
+end
+
+local function attach_progress(save)
+	save.run_meta = deep_copy(M.meta)
+	save.checkpoint_reward_open = M.checkpoint_reward_open
+	save.reward_item = deep_copy(M.reward_item)
+	save.skill_selection_open = M.skill_selection_open
+	return save
 end
 
 function M.commit_meta(next_meta)
 	M.meta = next_meta
-	meta_mod.persist_meta(next_meta)
+end
+
+function M.begin_fresh_progress()
+	local debug_gold = M.debug_progress and 1000 or 0
+	local debug_sp = M.debug_progress and 1000 or 0
+	M.meta = M.new_run_meta()
+	M.meta.gold = M.meta.gold + debug_gold
+	M.meta.skill_points = M.meta.skill_points + debug_sp
+	M.debug_progress = false
+	M.run_active = true
+	M.checkpoint_reward_open = false
+	M.reward_item = nil
+	M.skill_selection_open = true
+end
+
+function M.restore_run_progress(save)
+	M.meta = meta_mod.sanitize_meta(save.run_meta)
+	M.run_active = true
+	M.checkpoint_reward_open = save.checkpoint_reward_open == true
+	M.reward_item = save.reward_item
+	M.skill_selection_open = save.skill_selection_open == true
+		or #M.meta.loadout == 0
+end
+
+function M.discard_run_progress()
+	M.meta = M.new_run_meta()
+	M.run_active = false
+	M.checkpoint_reward_open = false
+	M.reward_item = nil
+	M.skill_selection_open = false
+end
+
+function M.set_skill_selection_open(open)
+	M.skill_selection_open = open == true
+end
+
+-- Refresh the live run after changing its loadout. Preserve a cooldown only
+-- when the same skill remains in the same slot; newly equipped skills start
+-- ready for use.
+function M.sync_run_abilities()
+	if not M.sim or not M.meta then return end
+	local next_abilities = meta_mod.make_abilities(M.meta.loadout, M.meta.skill_levels)
+	for i, ability in ipairs(next_abilities) do
+		local previous = M.sim.abilities and M.sim.abilities[i]
+		if previous and previous.skill == ability.skill then
+			ability.cooldown = previous.cooldown or 0
+		end
+	end
+	M.sim.abilities = next_abilities
+	M.sim.skill_levels = {}
+	M.sim.skill_xp = {}
+	for skill, level in pairs(M.meta.skill_levels) do M.sim.skill_levels[skill] = level end
+	for skill, xp in pairs(M.meta.skill_xp) do M.sim.skill_xp[skill] = xp end
 end
 
 function M.prepare_reward(highest_wave)
@@ -54,7 +140,30 @@ function M.equip_reward()
 	if not item or not M.meta then return false end
 	M.meta.equipment = M.meta.equipment or {}
 	M.meta.equipment[item.slot] = item
+	if M.sim then
+		local inventory = require("game.inventory")
+		local old_max_bonus = M.sim.gear_bonus.max_health or 0
+		M.sim.gear_bonus = inventory.bonuses(M.meta.equipment)
+		local max_delta = M.sim.gear_bonus.max_health - old_max_bonus
+		M.sim.player.max_hp = math.max(1, M.sim.player.max_hp + max_delta)
+		M.sim.player.hp = math.min(M.sim.player.max_hp,
+			M.sim.player.hp + math.max(0, max_delta))
+	end
 	M.commit_meta(M.meta)
+	M.reward_item = nil
+	return true
+end
+
+function M.grant_checkpoint_reward(wave)
+	M.prepare_reward(wave)
+	M.meta.gold = (M.meta.gold or 0) + 10
+	M.meta.skill_points = (M.meta.skill_points or 0) + 1
+	M.checkpoint_reward_open = true
+	M.commit_meta(M.meta)
+end
+
+function M.trash_reward()
+	if not M.reward_item then return false end
 	M.reward_item = nil
 	return true
 end
@@ -69,34 +178,6 @@ function M.paused()
 	return false
 end
 
--- Bank this run's gold once (1 per wave cleared: 1+2+...+N).
-function M.bank_gold(highest_wave)
-	if M.is_test_run or M.gold_banked then return end
-	M.gold_banked = true
-	local earned = meta_mod.gold_for_waves_cleared(highest_wave)
-	if earned > 0 then
-		local m = M.meta
-		m.gold = m.gold + earned
-		M.commit_meta(m)
-		M.last_run_gold = earned
-	end
-end
-
--- Award every reached five-wave checkpoint once per account. If a player
--- jumps across several new checkpoints in one run, each one pays a point.
-function M.bank_skill_points(highest_wave)
-	if M.is_test_run or M.skill_points_banked then return end
-	M.skill_points_banked = true
-	local m = M.meta
-	local reached = meta_mod.checkpoint_for_waves_cleared(highest_wave)
-	local previous = m.highest_checkpoint_rewarded or 0
-	local earned = math.max(0, reached - previous)
-	m.highest_checkpoint_rewarded = math.max(previous, reached)
-	M.last_run_skill_points = earned
-	if earned > 0 then m.skill_points = (m.skill_points or 0) + earned end
-	if reached > previous then M.commit_meta(m) end
-end
-
 function M.delete_run(id)
 	local next_runs = {}
 	for _, r in ipairs(M.saved_runs) do
@@ -106,24 +187,30 @@ function M.delete_run(id)
 	meta_mod.persist_runs(next_runs)
 end
 
--- A skill ranked up in the field: fold the new level/xp back into the
--- account meta so it persists across runs, same as gold does.
+-- Combat XP remains live until the next map-entry snapshot.
 function M.apply_skill_progress(skill, level, xp)
 	local m = M.meta
 	if not m then return end
 	m.skill_levels[skill] = level
 	m.skill_xp[skill] = xp
-	M.commit_meta(m)
 end
 
 function M.store_run(save)
-	local next_runs = {}
-	for _, r in ipairs(M.saved_runs) do
-		if r.id ~= save.id then next_runs[#next_runs + 1] = r end
-	end
-	next_runs[#next_runs + 1] = save
-	M.saved_runs = next_runs
-	meta_mod.persist_runs(next_runs)
+	-- There is exactly one run save. A new map atomically replaces the prior
+	-- map-start snapshot, while the stored table stays isolated from live state.
+	local snapshot = attach_progress(deep_copy(save))
+	M.saved_runs = { snapshot }
+	meta_mod.persist_runs(M.saved_runs)
+	return snapshot
+end
+
+function M.clear_saved_run()
+	M.saved_runs = {}
+	meta_mod.persist_runs(M.saved_runs)
+end
+
+function M.current_save()
+	return M.saved_runs[1]
 end
 
 return M

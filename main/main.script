@@ -17,17 +17,14 @@ local function show_screen(name)
 	audio.refresh_music()
 end
 
-local function begin_run(game_state, run_id, is_test)
+local function begin_run(game_state, run_id, is_test, restoring)
 	session.current_run_id = run_id
 	session.is_test_run = is_test
-	session.gold_banked = false
-	session.skill_points_banked = false
-	session.last_run_gold = 0
-	session.last_run_skill_points = 0
 	session.game_over_shown = false
-	session.reward_item = nil
-	-- Per-skill rank/xp is account-wide, so the sim starts from a snapshot
-	-- of the meta and every change flows straight back into it.
+	if not restoring then
+		session.reward_item = nil
+		session.checkpoint_reward_open = false
+	end
 	session.sim = sim.new(game_state, {
 		run_id = run_id, is_test_run = is_test,
 		skill_levels = session.meta.skill_levels, skill_xp = session.meta.skill_xp,
@@ -54,17 +51,23 @@ function init(self)
 		-- No press sound here: the menu plays it at the plaque press, a full
 		-- tear film before this runs (the web's leaveMenu does the same).
 		start_new_run = function()
+			session.clear_saved_run()
+			session.begin_fresh_progress()
 			begin_run(meta_mod.build_fresh_state(session.meta), "run-" .. os.time() .. "-" .. math.random(9999), false)
+			show_screen("skilltree")
 		end,
 		grant_gold = function()
 			audio.menu_press()
 			session.meta.gold = (session.meta.gold or 0) + 1000
-			session.commit_meta(session.meta)
+			session.meta.skill_points = (session.meta.skill_points or 0) + 1000
+			session.debug_progress = true
 		end,
 		continue_run = function(save)
 			session.sim = nil
-			begin_run(meta_mod.build_state_from_save(save), save.id, false)
+			session.restore_run_progress(save)
+			begin_run(meta_mod.build_state_from_save(save), save.id, false, true)
 			session.sim.highest_wave_cleared = save.wave
+			if session.skill_selection_open then show_screen("skilltree") end
 		end,
 		open_continue = function()
 			audio.menu_press()
@@ -72,35 +75,60 @@ function init(self)
 		end,
 		open_skilltree = function()
 			audio.menu_press()
+			if session.sim then session.set_skill_selection_open(true) end
 			show_screen("skilltree")
+		end,
+		return_from_skilltree = function()
+			session.set_skill_selection_open(false)
+			-- The opening skill choice is the first map entry. Later maps save
+			-- from sim.choose_route after their field has been reset.
+			if session.sim and not session.sim.route_pending and not session.current_save() then
+				session.store_run(sim.make_save(session.sim))
+			end
+			show_screen(session.sim and "game" or "menu")
 		end,
 		back_to_menu = function()
 			show_screen("menu")
 		end,
-		-- Leave the run early and cash out.
+		-- Leaving early ends the run without granting additional rewards.
 		exit_run = function()
-			local s = session.sim
-			if s then
-				session.bank_gold(s.highest_wave_cleared)
-				session.bank_skill_points(s.highest_wave_cleared)
-				session.prepare_reward(s.highest_wave_cleared)
-				if not session.is_test_run and session.current_run_id then
-					session.delete_run(session.current_run_id)
-				end
-				s.game_over = true
-				s.game_over_cause = "exit"
-				session.game_over_shown = true
+			if not session.is_test_run and session.current_run_id then
+				session.delete_run(session.current_run_id)
 			end
+			msg.post("world#world", "run_ended")
 			session.current_run_id = nil
+			session.sim = nil
+			session.discard_run_progress()
+			show_screen("menu")
 		end,
 		open_inventory = function()
 			audio.menu_press()
 			session.overlay = "menu_inventory"
 		end,
 		leave_game_over = function()
+			session.clear_saved_run()
 			msg.post("world#world", "run_ended")
 			session.sim = nil
+			session.current_run_id = nil
+			session.discard_run_progress()
 			show_screen("menu")
+		end,
+		respawn_from_map = function()
+			local save = session.current_save()
+			if not save then return end
+			msg.post("world#world", "run_ended")
+			session.sim = nil
+			session.restore_run_progress(save)
+			begin_run(meta_mod.build_state_from_save(save), save.id, false, true)
+			session.sim.highest_wave_cleared = save.wave
+		end,
+		save_and_exit = function()
+			if session.sim and not session.is_test_run and not session.current_save() then
+				session.store_run(sim.make_save(session.sim))
+			elseif session.current_save() then
+				meta_mod.persist_runs(session.saved_runs)
+			end
+			sys.exit(0)
 		end,
 		refresh_music = function() audio.refresh_music() end,
 		menu_press = function() audio.menu_press() end,
@@ -125,13 +153,9 @@ function update(self, dt)
 		elseif ev.type == "autosave" then
 			session.store_run(ev.save)
 		elseif ev.type == "game_over" then
-			session.bank_gold(s.highest_wave_cleared)
-			session.bank_skill_points(s.highest_wave_cleared)
-			session.prepare_reward(s.highest_wave_cleared)
-			if not session.is_test_run and session.current_run_id then
-				session.delete_run(session.current_run_id)
-			end
 			session.game_over_shown = true
+		elseif ev.type == "checkpoint_reward" then
+			session.grant_checkpoint_reward(ev.wave)
 		elseif ev.type == "skill_progress" then
 			session.apply_skill_progress(ev.skill, ev.level, ev.xp)
 		elseif ev.type == "coins" then

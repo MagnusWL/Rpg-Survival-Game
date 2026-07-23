@@ -6,13 +6,14 @@ local upgrades = require("game.upgrades")
 local inventory = require("game.inventory")
 
 local M = {}
+local test_storage = nil
 
 -- v4: passives are gone from meta -- they moved to run upgrades. v3: run
 -- saves carry upgrades instead of equipped/bag items, and the player has no
 -- level/xp/mana of his own. v2: meta gained per-skill xp.
 M.RUNS_FILE = "runs_v4"
--- v5 is kept so this progression update migrates existing accounts in place.
--- Missing skill-point/checkpoint fields are filled by sanitize_meta.
+-- The legacy meta filename remains readable for migration helpers, while
+-- current progression is stored inside each unfinished run save.
 M.META_FILE = "meta_v5"
 
 local function save_path(name)
@@ -31,9 +32,8 @@ function M.default_meta()
 		skill_xp[s] = 0
 	end
 	return {
-		gold = 5,
+		gold = 0,
 		skill_points = 1,
-		highest_checkpoint_rewarded = 0,
 		skill_levels = skill_levels,
 		skill_xp = skill_xp,
 		loadout = {},
@@ -77,7 +77,6 @@ function M.sanitize_meta(raw)
 	return {
 		gold = math.max(0, raw.gold or 0),
 		skill_points = math.max(0, math.floor(raw.skill_points == nil and 1 or raw.skill_points)),
-		highest_checkpoint_rewarded = math.max(0, math.floor(raw.highest_checkpoint_rewarded or 0)),
 		skill_levels = skill_levels,
 		skill_xp = skill_xp,
 		loadout = loadout,
@@ -87,19 +86,19 @@ function M.sanitize_meta(raw)
 end
 
 function M.load_meta()
+	if test_storage then return M.sanitize_meta(test_storage.meta) end
 	local ok, raw = pcall(sys.load, save_path(M.META_FILE))
 	if ok and raw and next(raw) then return M.sanitize_meta(raw) end
 	return M.default_meta()
 end
 
 function M.persist_meta(meta)
+	if test_storage then test_storage.meta = meta return true end
 	pcall(sys.save, save_path(M.META_FILE), meta)
 end
 
--- Gold: clearing wave N in a run banks 1+2+...+N at the end.
-function M.gold_for_waves_cleared(waves)
-	if waves > 0 then return waves * (waves + 1) / 2 end
-	return 0
+function M.set_test_storage(storage)
+	test_storage = storage
 end
 
 function M.checkpoint_for_waves_cleared(waves)
@@ -107,12 +106,14 @@ function M.checkpoint_for_waves_cleared(waves)
 end
 
 function M.load_runs()
+	if test_storage then return test_storage.runs or {} end
 	local ok, raw = pcall(sys.load, save_path(M.RUNS_FILE))
 	if ok and raw and raw.runs then return raw.runs end
 	return {}
 end
 
 function M.persist_runs(runs)
+	if test_storage then test_storage.runs = runs return true end
 	pcall(sys.save, save_path(M.RUNS_FILE), { runs = runs })
 end
 
@@ -159,10 +160,11 @@ end
 
 function M.build_state_from_save(save)
 	local player = combat.make_player()
-	player.hp = save.hp
+	player.hp = save.hp or player.hp
+	local run_meta = M.sanitize_meta(save.run_meta)
 	return {
 		player = player,
-		abilities = save.abilities,
+		abilities = M.make_abilities(run_meta.loadout, run_meta.skill_levels),
 		upgrades = save.upgrades or {},
 		wave = save.wave,
 		map_index = save.map_index or math.floor((save.wave or 0) / 5) + 1,

@@ -118,11 +118,6 @@ function init(self)
 	self.plaque = ui.tex_box(W / 2, by, bw, bh, "button")
 	ui.button(self.buttons, self.plaque, function()
 		if not session.actions or self.tearing then return end
-		-- A run needs at least one skill equipped; nudge to the skill menu.
-		if not (session.meta and #session.meta.loadout > 0) then
-			show_toast(self, "EQUIP A SKILL FIRST")
-			return
-		end
 		-- Swap the plaque for its baked tear film (same pixels, frame 0 is the
 		-- intact plaque) and start the run when the last piece has fallen.
 		-- The press sound belongs to the press, not the arrival: the web's
@@ -161,7 +156,7 @@ function init(self)
 		skill_icon_ui.set_enabled(handle, false)
 		self.loadout_icons[i] = handle
 	end
-	self.skills_btn = menu_button(col_top - 48, function() session.actions.open_skilltree() end)
+	self.skills_btn = menu_button(col_top - 48, function() session.actions.open_continue() end)
 	self.skills_sp_glow = ui.tex_box(W / 2 + 28, col_top - 48, 17, 17, "ring")
 	self.skills_sp_core = ui.tex_box(W / 2 + 28, col_top - 48, 9, 9, "circle")
 	gui.set_color(self.skills_sp_glow, vmath.vector4(0.25, 0.72, 1.0, 0.5))
@@ -247,7 +242,16 @@ function init(self)
 end
 
 function update(self, dt)
-	gui.set_text(self.skills_btn.label, ("Skills       %d"):format(session.meta and session.meta.skill_points or 0))
+	-- Run-only Skills/Inventory stay hidden. Continue is available whenever
+	-- the single map-start save exists.
+	local can_continue = #session.saved_runs > 0
+	gui.set_enabled(self.skills_btn.body, can_continue)
+	gui.set_enabled(self.skills_btn.label, can_continue)
+	gui.set_text(self.skills_btn.label, "Continue Run")
+	for _, n in ipairs({ self.skills_sp_glow, self.skills_sp_core,
+		self.inventory_btn.body, self.inventory_btn.label }) do
+		gui.set_enabled(n, false)
+	end
 	local inventory_open = session.overlay == "menu_inventory"
 	for _, n in ipairs(self.inventory_nodes) do gui.set_enabled(n, inventory_open) end
 	if inventory_open and session.meta then
@@ -260,33 +264,9 @@ function update(self, dt)
 		end
 	end
 
-	-- The chosen loadout, kept live so returning from the skill menu shows
-	-- the change at once.
-	local m = session.meta
-	if m then
-		local icon_map = require("main.gui.skilltree_icons")
-		local slots_unlocked = m.slots_unlocked or 1
-		for i, handle in ipairs(self.loadout_icons) do
-			local locked = i > slots_unlocked
-			local sid = not locked and m.loadout[i] or nil
-			-- The ring/disc are always shown so an empty or locked slot still
-			-- reads as a slot; the icon is the skill, a lock, or nothing.
-			gui.set_enabled(handle.rim, true)
-			gui.set_enabled(handle.disc, true)
-			skill_icon_ui.set_lit(handle, sid ~= nil)
-			if sid then
-				gui.set_enabled(handle.icon, true)
-				gui.play_flipbook(handle.icon, icon_map[sid])
-				skill_icon_ui.set_rank(handle, m.skill_levels[sid] or 1)
-			elseif locked then
-				skill_icon_ui.set_rank(handle, nil)
-				gui.set_enabled(handle.icon, true)
-				gui.play_flipbook(handle.icon, "lock")
-			else
-				skill_icon_ui.set_rank(handle, nil)
-				gui.set_enabled(handle.icon, false)
-			end
-		end
+	-- Skills are run-specific; the main menu no longer previews a loadout.
+	for _, handle in ipairs(self.loadout_icons) do
+		skill_icon_ui.set_enabled(handle, false)
 	end
 
 	if self.toast_t > 0 then
@@ -364,22 +344,6 @@ function on_input(self, action_id, action)
 		if self.skill_tip.open then
 			skill_tip_ui.input(self.skill_tip, action)
 			return true
-		end
-		-- Tapping a filled loadout icon shows its skill tooltip.
-		local m = session.meta
-		if m then
-			for i, pod in ipairs(self.loadout_icons) do
-				local sid = m.loadout[i]
-				if sid and gui.pick_node(pod.disc, action.x, action.y) then
-					-- These menu icons are unparented and already live in logical GUI
-					-- space. Screen position is DPI-scaled and made the tooltip hit its
-					-- top clamp instead of sitting above the icon.
-					local p = gui.get_position(pod.disc)
-					local level = m.skill_levels[sid] or 1
-					skill_tip_ui.show(self.skill_tip, sid, level, m.skill_xp[sid] or 0, skills.skill_xp_to_next(level), p.x, p.y)
-					return true
-				end
-			end
 		end
 		return ui.hit(self.buttons, action.x, action.y)
 	end

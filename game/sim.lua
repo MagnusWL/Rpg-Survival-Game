@@ -15,7 +15,9 @@ local PLAY_H = layout.PLAY_H
 
 -- Seconds a cleared wave (or the start of the run) counts down before the next
 -- wave launches on its own. The player can still start early with Next Wave.
-M.WAVE_COUNTDOWN = 5
+-- Waves chain immediately once the previous wave has been cleared. The same
+-- zero-delay launch waits behind checkpoint rewards and route selection.
+M.WAVE_COUNTDOWN = 0
 M.UPGRADE_EVERY_WAVES = 5
 M.UPGRADE_REVEAL_DELAY = 1
 M.MAPS_PER_ROUTE = 10
@@ -60,8 +62,8 @@ function M.new(game_state, opts)
 		pending_upgrade_offers = {},
 		upgrade_offer_timer = nil,
 		upgrade_offer_wave = nil,
-		-- Per-skill progression, mirrored from the account meta at run start;
-		-- every change is also emitted as an event for the meta to persist.
+		-- Per-skill progression belongs to this run and is mirrored into its
+		-- resumable run save by the controller.
 		skill_levels = opts.skill_levels or {},
 		skill_xp = opts.skill_xp or {},
 		wave = game_state.wave,
@@ -75,7 +77,7 @@ function M.new(game_state, opts)
 		mobs = {},
 		allies = {},
 		girl = {
-			pos = { x = SCREEN_W / 2, y = PLAY_H / 2 },
+			pos = { x = SCREEN_W / 2, y = combat.GIRL_POSITION_Y },
 			hp = 100, max_hp = 100, radius = 14,
 		},
 		projectiles = {},
@@ -114,7 +116,6 @@ function M.new(game_state, opts)
 		run_id = opts.run_id,
 		is_test_run = opts.is_test_run or false,
 		highest_wave_cleared = game_state.wave or 0,
-		gold_banked = false,
 		events = {},
 	}
 	return s
@@ -122,6 +123,24 @@ end
 
 local function emit(s, ev)
 	s.events[#s.events + 1] = ev
+end
+
+function M.make_save(s)
+	return {
+		id = s.run_id,
+		saved_at = os.time(),
+		wave = s.highest_wave_cleared,
+		hp = s.player.hp,
+		max_hp = s.player.max_hp,
+		abilities = s.abilities,
+		upgrades = s.upgrades,
+		map_index = s.map_index,
+		route_column = s.route_column,
+		route_history = s.route_history,
+		route_grid = s.route_grid,
+		route_pending = s.route_pending,
+		upgrade_owed = false,
+	}
 end
 
 function M.take_events(s)
@@ -465,7 +484,7 @@ local function reset_map_field(s)
 	p.hp = p.max_hp
 	s.player = p
 	s.girl = {
-		pos = { x = SCREEN_W / 2, y = PLAY_H / 2 },
+		pos = { x = SCREEN_W / 2, y = combat.GIRL_POSITION_Y },
 		hp = 100, max_hp = 100, radius = 14,
 	}
 	for _, key in ipairs({
@@ -507,24 +526,7 @@ function M.choose_route(s, target_column)
 	reset_map_field(s)
 	s.wave_countdown = M.WAVE_COUNTDOWN
 	if not s.is_test_run and s.run_id then
-		emit(s, {
-			type = "autosave",
-			save = {
-				id = s.run_id,
-				saved_at = os.time(),
-				wave = s.wave,
-				hp = s.player.hp,
-				max_hp = s.player.max_hp,
-				abilities = s.abilities,
-				upgrades = s.upgrades,
-				map_index = s.map_index,
-				route_column = s.route_column,
-				route_history = s.route_history,
-				route_grid = s.route_grid,
-				route_pending = false,
-				upgrade_owed = false,
-			},
-		})
+		emit(s, { type = "autosave", save = M.make_save(s) })
 	end
 	return true
 end
@@ -579,7 +581,7 @@ end
 -- even if it never personally lands a kill: half from landing kills with it
 -- equipped, half from simply clearing waves with it equipped. Skill points
 -- unlock rank 1 in the tree; every rank after that is earned here. Levels are
--- account-wide, so a levelled skill stays levelled next run.
+-- run-specific, so it is preserved by Continue but reset after death.
 local KILL_XP = 20
 local WAVE_CLEAR_XP = 20
 
@@ -718,6 +720,7 @@ function M.update(s, dt)
 	if p.target and s.die_timer == nil then
 		local d = combat.dist(p.pos, p.target)
 		if d < 4 then
+			p.pos = { x = p.target.x, y = p.target.y }
 			p.target = nil
 		else
 			local dx = p.target.x - p.pos.x
@@ -808,6 +811,9 @@ function M.update(s, dt)
 			m.anim = next_anim
 		end
 		local mob_base = combat.base_mob_type(m.type)
+		local inside_gameplay = m.pos.x >= m.radius
+			and m.pos.x <= SCREEN_W - m.radius
+			and m.pos.y >= m.radius and m.pos.y <= PLAY_H - m.radius
 		local detect = mob_base == "boss" and 99999
 			or (mob_base == "ranged" and 260 or combat.RANGED_ATTACK_RANGE)
 
@@ -831,17 +837,29 @@ function M.update(s, dt)
 		-- The girl is the fallback objective. Nearby living defenders always
 		-- take priority; with none detected, enemies cross the arena for her.
 		if not nearest and s.girl.hp > 0 then
-			nearest = { kind = "girl", pos = s.girl.pos }
-			nearest_dist = combat.dist(m.pos, s.girl.pos)
+			if mob_base ~= "ranged" or math.abs(m.pos.x - s.girl.pos.x) <= detect then
+				nearest = { kind = "girl", pos = s.girl.pos }
+				nearest_dist = combat.dist(m.pos, s.girl.pos)
+			end
 		end
 
 		if not nearest then
-			set_mob_anim("idle")
+			if mob_base == "ranged" then
+				local direction = m.spawn_side == "left" and 1 or -1
+				if direction > 0 then
+					m.pos.x = math.min(SCREEN_W - m.radius, m.pos.x + combat.MOB_SPEED * dt)
+				else
+					m.pos.x = math.max(m.radius, m.pos.x - combat.MOB_SPEED * dt)
+				end
+				m.facing = direction > 0 and 0 or 4
+			else
+				set_mob_anim("idle")
+			end
 		else
 			m.facing = combat.facing_from_delta(nearest.pos.x - m.pos.x, nearest.pos.y - m.pos.y)
 
 			if mob_base == "ranged" then
-				if nearest_dist <= combat.MOB_RANGED_FIRE_RANGE then
+				if inside_gameplay and nearest_dist <= combat.MOB_RANGED_FIRE_RANGE then
 					if m.attack_cooldown <= 0 then
 						s.projectiles_new = s.projectiles_new or {}
 						still_flying[#still_flying + 1] = {
@@ -866,7 +884,7 @@ function M.update(s, dt)
 				end
 			else
 				local contact = combat.MOB_ATTACK_RANGE + (m.radius - combat.MOB_RADIUS)
-				if nearest_dist <= contact then
+				if inside_gameplay and nearest_dist <= contact then
 					if m.attack_cooldown <= 0 then
 						if nearest.kind == "player" then
 							damage_to_player = damage_to_player + m.damage
@@ -1057,9 +1075,26 @@ function M.update(s, dt)
 							math.min(PLAY_H - combat.ALLY_RADIUS, a.pos.y + dy * ratio)),
 					}
 				end
+			elseif a.home_pos then
+				local d = combat.dist(a.pos, a.home_pos)
+				if d > 2 then
+					local dx = a.home_pos.x - a.pos.x
+					local dy = a.home_pos.y - a.pos.y
+					local ratio = math.min(1, combat.ALLY_SPEED * dt / d)
+					a.pos = {
+						x = math.max(combat.ALLY_RADIUS,
+							math.min(SCREEN_W - combat.PLAYER_RIGHT_BUFFER - combat.ALLY_RADIUS, a.pos.x + dx * ratio)),
+						y = math.max(combat.ALLY_RADIUS + combat.PLAYER_TOP_BUFFER,
+							math.min(PLAY_H - combat.ALLY_RADIUS, a.pos.y + dy * ratio)),
+					}
+				else
+					a.pos = { x = a.home_pos.x, y = a.home_pos.y }
+				end
 			end
 		end
 	end
+
+	M.resolve_body_collisions(s)
 
 	-- The wave delivers the cone's blows as it reaches each enemy.
 	if #s.cone_hits > 0 then
@@ -1420,6 +1455,7 @@ function M.update(s, dt)
 						s.route_column = 2
 					end
 					s.route_pending = true
+					emit(s, { type = "checkpoint_reward", wave = w })
 				end
 				grant_wave_clear_xp(s)
 			else
@@ -1427,24 +1463,15 @@ function M.update(s, dt)
 			end
 		end
 		s.loot_owed = still_owed
-		if wave_just_cleared then
-			-- Begin the countdown to the next wave (held below until any boss
-			-- upgrade offer is answered).
-			s.wave_countdown = M.WAVE_COUNTDOWN
-		end
+		if wave_just_cleared then s.wave_countdown = M.WAVE_COUNTDOWN end
 	end
 
-	-- Auto-advance: once the intro is done, a cleared wave (or the start of the
-	-- run) counts down and then launches the next wave on its own. It holds
-	-- while a wave is live, the player is dying, or an upgrade offer is still
-	-- unanswered; the player can always tap Next Wave to go early.
+	-- Auto-advance immediately, including wave one during the entrance walk.
+	-- Checkpoint rewards, route choices, death, and upgrade offers still hold.
 	if s.wave_countdown ~= nil and not s.game_over and not s.wave_active and #s.mobs == 0
-		and s.die_timer == nil and s.player.intro_phase == "done"
+		and s.die_timer == nil
 		and not s.route_pending and #s.pending_upgrade_offers == 0 and s.upgrade_offer_timer == nil then
-		s.wave_countdown = s.wave_countdown - dt
-		if s.wave_countdown <= 0 then
-			M.start_next_wave(s)
-		end
+		M.start_next_wave(s)
 	end
 
 	for k = 1, 3 do
@@ -1488,25 +1515,60 @@ function M.update(s, dt)
 		s.game_over_cause = s.girl.hp <= 0 and "girl" or "player"
 		s.game_over = true
 		emit(s, { type = "game_over", cause = s.game_over_cause })
-	elseif wave_just_cleared and not s.is_test_run and s.run_id then
-		emit(s, {
-			type = "autosave",
-			save = {
-				id = s.run_id,
-				saved_at = os.time(),
-				wave = s.wave,
-				hp = p.hp,
-				max_hp = p.max_hp,
-				abilities = s.abilities,
-				upgrades = s.upgrades,
-				map_index = s.map_index,
-				route_column = s.route_column,
-				route_history = s.route_history,
-				route_grid = s.route_grid,
-				route_pending = s.route_pending,
-				upgrade_owed = false,
-			},
-		})
+	end
+end
+
+-- Resolve small feet circles after AI movement. This is simulation-only
+-- separation rather than a combat hitbox: characters can still stand close
+-- enough to use their existing melee ranges, but no longer stack visually.
+function M.resolve_body_collisions(s)
+	local bodies = {}
+	local function in_field(pos)
+		return pos.x >= 0 and pos.x <= SCREEN_W and pos.y >= 0 and pos.y <= PLAY_H
+	end
+	local function add(entity)
+		if entity.hp > 0 and in_field(entity.pos) then
+			bodies[#bodies + 1] = entity
+		end
+	end
+	add(s.player)
+	for _, mob in ipairs(s.mobs) do add(mob) end
+	for _, ally in ipairs(s.allies) do
+		-- A flying seagull has no feet on the field and passes overhead.
+		if not ally.flying then add(ally) end
+	end
+
+	local min_distance = combat.FEET_COLLISION_RADIUS * 2
+	-- A few cheap relaxation passes handle clustered spawns without the harsh
+	-- teleporting produced by resolving the whole overlap in one direction.
+	for _ = 1, 6 do
+		for i = 1, #bodies - 1 do
+			for j = i + 1, #bodies do
+				local a, b = bodies[i], bodies[j]
+				local dx, dy = b.pos.x - a.pos.x, b.pos.y - a.pos.y
+				local d2 = dx * dx + dy * dy
+				if d2 < min_distance * min_distance then
+					local d = math.sqrt(d2)
+					if d < 0.001 then
+						dx, dy, d = ((i + j) % 2 == 0) and 1 or -1, 0, 1
+					end
+					local push = (min_distance - d) * 0.5
+					local nx, ny = dx / d, dy / d
+					a.pos.x = a.pos.x - nx * push
+					a.pos.y = a.pos.y - ny * push
+					b.pos.x = b.pos.x + nx * push
+					b.pos.y = b.pos.y + ny * push
+				end
+			end
+		end
+	end
+
+	for _, entity in ipairs(bodies) do
+		local r = combat.FEET_COLLISION_RADIUS
+		entity.pos.x = math.max(r,
+			math.min(SCREEN_W - combat.PLAYER_RIGHT_BUFFER - r, entity.pos.x))
+		entity.pos.y = math.max(r + combat.PLAYER_TOP_BUFFER,
+			math.min(PLAY_H - r, entity.pos.y))
 	end
 end
 

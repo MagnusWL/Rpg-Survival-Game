@@ -1,4 +1,4 @@
--- Persistent equipment, deliberately independent from the retired bag/item code.
+-- Run-specific equipment, deliberately independent from the retired bag/item code.
 -- A character owns exactly one equipped item per RPG slot; chest offers are
 -- compared directly against that slot and are never stored in a loose bag.
 local M = {}
@@ -49,12 +49,22 @@ function M.item_level(waves_cleared)
 	return math.max(1, math.floor((waves_cleared or 0) / 5))
 end
 
+function M.stat_multiplier(level)
+	level = math.max(1, math.floor(level or 1))
+	return 4 + (level - 1) * 2
+end
+
 function M.roll(level)
 	level = math.max(1, math.floor(level or 1))
 	local slot = M.SLOTS[math.random(#M.SLOTS)]
 	local base = BASES[slot][math.random(#BASES[slot])]
 	local stats = {}
-	for stat, per_level in pairs(base.stats) do stats[stat] = per_level * level end
+	-- iLvl 1 begins at the old iLvl 4 strength. Each level after that adds
+	-- twice the former per-level scaling: multipliers 4, 6, 8, 10, ...
+	local stat_multiplier = M.stat_multiplier(level)
+	for stat, per_level in pairs(base.stats) do
+		stats[stat] = per_level * stat_multiplier
+	end
 	return { id = ("%d-%d-%d"):format(os.time(), math.random(999999), level), slot = slot,
 		name = base.name, level = level, stats = stats }
 end

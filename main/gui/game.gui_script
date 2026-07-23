@@ -229,8 +229,10 @@ function init(self)
 	self.go_chest_body = ui.overlay(ui.button_frame(W / 2, H / 2 - 4, 76, 38, "btn_gold"))
 	self.go_chest_lid = ui.overlay(ui.button_frame(W / 2, H / 2 + 19, 84, 18, "btn_gold"))
 	self.go_chest_lock = ui.overlay(ui.box(W / 2, H / 2 + 2, 12, 15, { 0.95, 0.76, 0.18 }, 1))
-	self.go_btn = ui.overlay(ui.plaque_button(W / 2, H / 2 - 60, 140, 44))
-	self.go_btn_text = ui.overlay(ui.text(W / 2, H / 2 - 60, "Try Again", 13, { 1, 1, 1 }))
+	self.go_respawn_btn = ui.overlay(ui.plaque_button(W / 2 - 120, H / 2 - 60, 220, 44))
+	self.go_respawn_text = ui.overlay(ui.text(W / 2 - 120, H / 2 - 60, "Respawn at Start of Map", 11, { 1, 1, 1 }))
+	self.go_btn = ui.overlay(ui.plaque_button(W / 2 + 120, H / 2 - 60, 140, 44))
+	self.go_btn_text = ui.overlay(ui.text(W / 2 + 120, H / 2 - 60, "Try Again", 13, { 1, 1, 1 }))
 	self.reward_open = false
 	self.reward_lid_y = H / 2 + 19
 	self.reward_shade = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.45))
@@ -248,10 +250,11 @@ function init(self)
 	self.reward_item_btn = ui.overlay(ui.box(W / 2, H / 2 - 42, reward_w - 54, 70, { 0.14, 0.105, 0.072 }, 1))
 	self.reward_item_icon = ui.overlay(ui.tex_box(W / 2 - reward_w / 2 + 62, H / 2 - 42, 54, 54, "item_weapon"))
 	self.reward_item_text = ui.overlay(ui.text(W / 2 + 18, H / 2 - 42, "", 11, { 0.95, 0.86, 0.62 }))
-	local back_x, back_y = W / 2 - reward_w / 2 + 27, H / 2 + reward_h / 2 - 27
-	self.reward_back = ui.overlay(ui.plaque_button(back_x, back_y, 38, 38))
-	self.reward_back_icon = ui.overlay(ui.tex_box(back_x, back_y, 18, 18, "arrow_up"))
-	gui.set_rotation(self.reward_back_icon, vmath.quat_rotation_z(math.rad(90)))
+	local back_x, back_y = W / 2 + reward_w / 2 - 75, H / 2 - reward_h / 2 + 27
+	self.reward_back = ui.overlay(ui.plaque_button(back_x, back_y, 124, 38))
+	self.reward_back_text = ui.overlay(ui.text(back_x - 11, back_y, "Continue", 11, { 0.878, 0.831, 0.729 }))
+	self.reward_back_icon = ui.overlay(ui.tex_box(back_x + 43, back_y, 16, 16, "arrow_up"))
+	gui.set_rotation(self.reward_back_icon, vmath.quat_rotation_z(math.rad(-90)))
 	local compare_w, compare_h = 650, 270
 	self.reward_compare_panel = ui.overlay(ui.plaque_button(W / 2, H / 2, compare_w, compare_h))
 	self.reward_compare_title = ui.overlay(ui.text(W / 2, H / 2 + 105, "Compare Equipment", 16, { 1, 1, 1 }))
@@ -260,18 +263,21 @@ function init(self)
 	gui.set_size(self.reward_compare_text, vmath.vector3(570, 150, 0))
 	self.reward_compare_icon = ui.overlay(ui.tex_box(W / 2 + 255, H / 2 + 48, 72, 72, "item_weapon"))
 	-- Match Try Again and every other primary action: carved plaque, pale text.
-	self.reward_equip = ui.overlay(ui.plaque_button(W / 2, H / 2 - 100, 180, 46))
-	self.reward_equip_text = ui.overlay(ui.text(W / 2, H / 2 - 100, "Equip Item", 12, { 0.878, 0.831, 0.729 }))
+	self.reward_equip = ui.overlay(ui.plaque_button(W / 2 - 95, H / 2 - 100, 170, 46))
+	self.reward_equip_text = ui.overlay(ui.text(W / 2 - 95, H / 2 - 100, "Equip Item", 12, { 0.878, 0.831, 0.729 }))
+	self.reward_trash = ui.overlay(ui.plaque_button(W / 2 + 95, H / 2 - 100, 170, 46))
+	self.reward_trash_text = ui.overlay(ui.text(W / 2 + 95, H / 2 - 100, "Trash Item", 12, { 0.878, 0.831, 0.729 }))
 	local compare_back_x, compare_back_y = W / 2 - compare_w / 2 + 27, H / 2 + compare_h / 2 - 27
 	self.reward_compare_back = ui.overlay(ui.plaque_button(compare_back_x, compare_back_y, 38, 38))
 	self.reward_compare_back_icon = ui.overlay(ui.tex_box(compare_back_x, compare_back_y, 18, 18, "arrow_up"))
 	gui.set_rotation(self.reward_compare_back_icon, vmath.quat_rotation_z(math.rad(90)))
 	self.reward_compare_nodes = { self.reward_compare_panel, self.reward_compare_title, self.reward_compare_text, self.reward_compare_icon,
-		self.reward_equip, self.reward_equip_text, self.reward_compare_back, self.reward_compare_back_icon }
+		self.reward_equip, self.reward_equip_text, self.reward_trash, self.reward_trash_text,
+		self.reward_compare_back, self.reward_compare_back_icon }
 	self.reward_nodes = { self.reward_shade, self.reward_panel, self.reward_grain,
 		self.reward_title, self.reward_coin, self.reward_gold, self.reward_sp_glow, self.reward_sp_core,
 		self.reward_skill_points, self.reward_item_btn, self.reward_item_icon, self.reward_item_text,
-		self.reward_back, self.reward_back_icon }
+		self.reward_back, self.reward_back_text, self.reward_back_icon }
 	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, false) end
 	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, false) end
 	self.reward_compare = false
@@ -291,6 +297,7 @@ local function clear_overlay(self)
 	self.upgrades_scroll = nil
 	self.upg_drag = nil
 	self.mobstats_back = nil
+	self.mobstats_panel = nil
 end
 
 -- Every dynamically-built overlay node (upgrades list, mob stats) goes on
@@ -373,16 +380,19 @@ local function build_mobstats(self)
 	local s = session.sim
 	local global_wave = s.wave_active and s.wave or s.wave + 1
 	local shown_wave = ((global_wave - 1) % 5) + 1
+	local composition = combat.wave_composition(global_wave)
+	local panel_w = math.min(W - 40, 460)
+	local panel_h = 88 + #composition * 60
 	add(self, ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 0.55))
-	add(self, ui.plaque_button(W / 2, H / 2, W - 40, 350))
-	add(self, ui.grain(W / 2, H / 2, W - 40, 350, 0.16, "overlay"))
-	add(self, ui.text(W / 2, H / 2 + 150,
+	self.mobstats_panel = add(self, ui.plaque_button(W / 2, H / 2, panel_w, panel_h))
+	add(self, ui.grain(W / 2, H / 2, panel_w, panel_h, 0.16, "overlay"))
+	add(self, ui.text(W / 2, H / 2 + panel_h / 2 - 24,
 		("Map %d - Wave %d"):format(s.map_index or 1, shown_wave), 17, { 1, 1, 1 }))
 	self.mobstats_back = add(self, ui.plaque_button(27, H - 26, 34, 34))
 	local back_icon = add(self, ui.tex_box(27, H - 26, 17, 17, "arrow_up"))
 	gui.set_rotation(back_icon, vmath.quat_rotation_z(math.rad(90)))
-	local y = H / 2 + 108
-	for _, row in ipairs(combat.wave_composition(global_wave)) do
+	local y = H / 2 + panel_h / 2 - 66
+	for _, row in ipairs(composition) do
 		local meta = combat.mob_type_meta(row.type)
 		local stats = combat.mob_type_stats(row.type, global_wave)
 		local base, level = combat.base_mob_type(row.type)
@@ -535,8 +545,6 @@ local function sync_hud(self, s)
 		gui.set_text(self.wave_btn_text, "Upgrade...")
 	elseif #s.pending_upgrade_offers > 0 then
 		gui.set_text(self.wave_btn_text, "Choose Upgrade")
-	elseif s.wave_countdown ~= nil then
-		gui.set_text(self.wave_btn_text, ("Next Wave  %d"):format(math.max(0, math.ceil(s.wave_countdown))))
 	else
 		gui.set_text(self.wave_btn_text, "Next Wave")
 	end
@@ -546,8 +554,7 @@ local function sync_hud(self, s)
 	gui.set_color(self.wave_btn, wave_enabled and vmath.vector4(1, 1, 1, 1) or vmath.vector4(0.42, 0.42, 0.42, 1))
 	gui.set_color(self.wave_btn_text, wave_enabled and vmath.vector4(0.965, 0.86, 0.6, 1) or vmath.vector4(0.55, 0.55, 0.55, 1))
 
-	-- Quick-cast slots. Every slot shows its ring: a filled skill, an empty
-	-- unlocked slot, or a locked slot (lock icon) past the unlocked count.
+	-- Only unlocked quick-cast slots exist visually in the in-game HUD.
 	local slots_unlocked = (session.meta and session.meta.slots_unlocked) or 1
 	for i = 1, 3 do
 		local slot = self.qc_slots[i]
@@ -556,8 +563,8 @@ local function sync_hud(self, s)
 		local filled = not locked and ab.skill ~= nil and ab.level > 0
 		-- The ring and disc are always visible so an empty/locked slot still
 		-- reads as a slot; only a filled slot carries the label/xp text.
-		gui.set_enabled(slot.icon_ui.rim, true)
-		gui.set_enabled(slot.icon_ui.disc, true)
+		gui.set_enabled(slot.icon_ui.rim, not locked)
+		gui.set_enabled(slot.icon_ui.disc, not locked)
 		skill_icon_ui.set_lit(slot.icon_ui, filled)
 		gui.set_enabled(slot.cd, filled)
 		-- Text below circular buttons would collide along the arc. Rank details
@@ -581,9 +588,7 @@ local function sync_hud(self, s)
 			end
 		elseif locked then
 			skill_icon_ui.set_rank(slot.icon_ui, nil)
-			skill_icon_ui.set_alpha(slot.icon_ui, 0.6)
-			gui.set_enabled(slot.icon_ui.icon, true)
-			gui.play_flipbook(slot.icon_ui.icon, "lock")
+			gui.set_enabled(slot.icon_ui.icon, false)
 		else
 			skill_icon_ui.set_rank(slot.icon_ui, nil)
 			-- Unlocked but empty: just the dim ring, no icon.
@@ -726,7 +731,7 @@ end
 -- Shadows the earlier compact route renderer: the current UI is the complete
 -- scrollable 3x10 grid.
 local function sync_route_map(self, s)
-	local visible = s.route_pending
+	local visible = s.route_pending and not session.checkpoint_reward_open
 	for _, n in ipairs(self.route_nodes) do gui.set_enabled(n, visible) end
 	for _, n in ipairs(self.route_grid_nodes) do gui.set_enabled(n, visible) end
 	if not visible then return end
@@ -789,13 +794,15 @@ local function sync_field(self, s)
 		gui.set_enabled(self.aim_cone, false)
 	end
 
-	-- HP bars over mobs and allies.
-	local player_frac = p.hp / p.max_hp
-	local bars = {
-		{ id = "player", x = p.pos.x,
+	-- The knight and girl enter as a cinematic pair; their health UI appears
+	-- only once that entrance has completed.
+	local bars = {}
+	if p.intro_phase == "done" then
+		local player_frac = p.hp / p.max_hp
+		bars[#bars + 1] = { id = "player", x = p.pos.x,
 			y = p.pos.y - (combat.PLAYER_SPRITE_SIZE - combat.PLAYER_SPRITE_FOOT_OFFSET) + 18,
-			w = 44, frac = player_frac, color = hp_bar_color(player_frac) },
-	}
+			w = 44, frac = player_frac, color = hp_bar_color(player_frac) }
+	end
 	for _, m in ipairs(s.mobs) do
 		local base = combat.base_mob_type(m.type)
 		-- Zombies use a tall 128px sprite whose feet sit at m.pos; anchor their
@@ -811,9 +818,11 @@ local function sync_field(self, s)
 		bars[#bars + 1] = { id = "a" .. a.id, x = a.pos.x, y = a.pos.y - combat.ALLY_RADIUS - 8,
 			w = combat.ALLY_RADIUS * 2, frac = frac, color = hp_bar_color(frac) }
 	end
-	local girl_frac = s.girl.hp / s.girl.max_hp
-	bars[#bars + 1] = { id = "girl", x = s.girl.pos.x, y = s.girl.pos.y - 68,
-		w = 42, frac = girl_frac, color = hp_bar_color(girl_frac) }
+	if p.intro_phase == "done" then
+		local girl_frac = s.girl.hp / s.girl.max_hp
+		bars[#bars + 1] = { id = "girl", x = s.girl.pos.x, y = s.girl.pos.y - 28,
+			w = 42, frac = girl_frac, color = hp_bar_color(girl_frac) }
+	end
 	pool_sync(self.pool_hp, bars, function(n, e)
 		-- A mob at the arena's top edge can place its overhead bar above the
 		-- playfield; keep all actor bars just beneath the top UI boundary.
@@ -968,41 +977,49 @@ function update(self, dt)
 
 	-- Game over overlay.
 	local over = s.game_over and session.game_over_shown
-	for _, n in ipairs({ self.go_shade, self.go_text, self.go_chest_body, self.go_chest_lid,
-		self.go_chest_lock, self.go_btn, self.go_btn_text }) do
+	local checkpoint_reward = session.checkpoint_reward_open
+	for _, n in ipairs({ self.go_shade, self.go_text, self.go_respawn_btn,
+		self.go_respawn_text, self.go_btn, self.go_btn_text }) do
 		gui.set_enabled(n, over)
 	end
+	gui.set_enabled(self.go_chest_body, false)
+	gui.set_enabled(self.go_chest_lid, false)
+	gui.set_enabled(self.go_chest_lock, false)
 	if over then
 		local ending = s.game_over_cause == "girl" and "You lost all hope"
 			or (s.game_over_cause == "exit" and "Run ended" or "She's all alone now")
 		gui.set_text(self.go_text, ending)
-		if session.is_test_run then
-			gui.set_text(self.reward_gold, "No rewards earned")
-			gui.set_text(self.reward_skill_points, "")
-		else
-			gui.set_text(self.reward_gold, tostring(session.last_run_gold))
-			gui.set_text(self.reward_skill_points, "+" .. tostring(session.last_run_skill_points))
-		end
-		local item = session.reward_item
-		if item then
-			gui.play_flipbook(self.reward_item_icon, item_icons.for_slot(item.slot, true))
-			gui.play_flipbook(self.reward_compare_icon, item_icons.for_slot(item.slot, true))
-		end
-		gui.set_text(self.reward_item_text, item and (("iLvl %d %s\n%s - tap to compare"):format(
-			item.level, item.name, inventory.SLOT_LABELS[item.slot])) or "Item equipped")
 	elseif self.reward_open then
 		self.reward_open = false
 		gui.set_position(self.go_chest_lid, vmath.vector3(W / 2, self.reward_lid_y, 0))
 	end
-	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, over and self.reward_open) end
-	local show_currency_icons = over and self.reward_open and not session.is_test_run
-	gui.set_enabled(self.reward_coin, show_currency_icons)
-	gui.set_enabled(self.reward_sp_glow, show_currency_icons)
-	gui.set_enabled(self.reward_sp_core, show_currency_icons)
-	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, over and self.reward_open and self.reward_compare) end
-	gui.set_enabled(self.reward_item_icon, over and self.reward_open and session.reward_item ~= nil)
-	gui.set_enabled(self.reward_compare_icon, over and self.reward_open and self.reward_compare and session.reward_item ~= nil)
-	if over and self.reward_open and self.reward_compare and session.reward_item then
+	if checkpoint_reward then
+		gui.set_text(self.reward_title, "Checkpoint Chest")
+		gui.set_text(self.reward_gold, "10")
+		gui.set_text(self.reward_skill_points, "+1")
+		local item = session.reward_item
+		if item then
+			gui.play_flipbook(self.reward_item_icon, item_icons.for_slot(item.slot, true))
+			gui.play_flipbook(self.reward_compare_icon, item_icons.for_slot(item.slot, true))
+			gui.set_text(self.reward_item_text, ("iLvl %d %s\n%s - tap to consider"):format(
+				item.level, item.name, inventory.SLOT_LABELS[item.slot]))
+		else
+			gui.set_text(self.reward_item_text, "Item resolved - continue")
+		end
+	end
+	local reward_visible = checkpoint_reward
+	for _, n in ipairs(self.reward_nodes) do gui.set_enabled(n, reward_visible) end
+	local can_continue_reward = checkpoint_reward and session.reward_item == nil
+	gui.set_enabled(self.reward_back, can_continue_reward)
+	gui.set_enabled(self.reward_back_text, can_continue_reward)
+	gui.set_enabled(self.reward_back_icon, can_continue_reward)
+	gui.set_enabled(self.reward_coin, checkpoint_reward)
+	gui.set_enabled(self.reward_sp_glow, checkpoint_reward)
+	gui.set_enabled(self.reward_sp_core, checkpoint_reward)
+	for _, n in ipairs(self.reward_compare_nodes) do gui.set_enabled(n, reward_visible and self.reward_compare) end
+	gui.set_enabled(self.reward_item_icon, reward_visible and session.reward_item ~= nil)
+	gui.set_enabled(self.reward_compare_icon, reward_visible and self.reward_compare and session.reward_item ~= nil)
+	if reward_visible and self.reward_compare and session.reward_item then
 		local item = session.reward_item
 		local old = session.meta.equipment and session.meta.equipment[item.slot]
 		local lines = { ("NEW ITEM   iLvl %d   %s"):format(item.level, item.name) }
@@ -1045,7 +1062,8 @@ function on_input(self, action_id, action)
 	if session.screen ~= "game" then return false end
 	local s = session.sim
 	if not s then return false end
-	if s.route_pending and (action_id == hash("route_scroll_up") or action_id == hash("route_scroll_down")) then
+	if s.route_pending and not session.checkpoint_reward_open
+		and (action_id == hash("route_scroll_up") or action_id == hash("route_scroll_down")) then
 		local sim = require("game.sim")
 		local view_h = H - ROUTE_VIEW_TOP_GAP - ROUTE_VIEW_BOTTOM
 		local max_scroll = math.max(0, (sim.MAPS_PER_ROUTE - 1) * ROUTE_ROW_GAP - view_h)
@@ -1058,24 +1076,33 @@ function on_input(self, action_id, action)
 	-- Game over screen swallows everything but its button.
 	if s.game_over and session.game_over_shown then
 		if action.pressed then
-			if self.reward_open then
-				if self.reward_compare and gui.pick_node(self.reward_equip, action.x, action.y) then
-					session.equip_reward()
-					self.reward_compare = false
-				elseif self.reward_compare and gui.pick_node(self.reward_compare_back, action.x, action.y) then
-					self.reward_compare = false
-				elseif not self.reward_compare and gui.pick_node(self.reward_back, action.x, action.y) then
-					self.reward_open = false
-				elseif session.reward_item and gui.pick_node(self.reward_item_btn, action.x, action.y) then
-					self.reward_compare = true
-				end
-			elseif gui.pick_node(self.go_chest_body, action.x, action.y)
-				or gui.pick_node(self.go_chest_lid, action.x, action.y) then
-				self.reward_open = true
-				self.reward_compare = false
-				gui.set_position(self.go_chest_lid, vmath.vector3(W / 2, self.reward_lid_y + 12, 0))
+			if gui.pick_node(self.go_respawn_btn, action.x, action.y) then
+				session.actions.respawn_from_map()
 			elseif gui.pick_node(self.go_btn, action.x, action.y) then
 				session.actions.leave_game_over()
+			end
+		end
+		return true
+	end
+
+	-- A checkpoint item must be explicitly equipped or trashed before the
+	-- player may continue to skills and the route map.
+	if session.checkpoint_reward_open then
+		if action.pressed then
+			if self.reward_compare and gui.pick_node(self.reward_equip, action.x, action.y) then
+				session.equip_reward()
+				self.reward_compare = false
+			elseif self.reward_compare and gui.pick_node(self.reward_trash, action.x, action.y) then
+				session.trash_reward()
+				self.reward_compare = false
+			elseif self.reward_compare and gui.pick_node(self.reward_compare_back, action.x, action.y) then
+				self.reward_compare = false
+			elseif not self.reward_compare and not session.reward_item
+				and gui.pick_node(self.reward_back, action.x, action.y) then
+				session.checkpoint_reward_open = false
+				session.actions.open_skilltree()
+			elseif session.reward_item and gui.pick_node(self.reward_item_btn, action.x, action.y) then
+				self.reward_compare = true
 			end
 		end
 		return true
@@ -1111,10 +1138,15 @@ function on_input(self, action_id, action)
 		return true
 	end
 	if session.overlay == "mobstats" then
-		if action.pressed and self.mobstats_back
-			and gui.pick_node(self.mobstats_back, action.x, action.y) then
-			session.overlay = nil
-			clear_overlay(self)
+		if action.pressed then
+			local back_pressed = self.mobstats_back
+				and gui.pick_node(self.mobstats_back, action.x, action.y)
+			local outside_panel = self.mobstats_panel
+				and not gui.pick_node(self.mobstats_panel, action.x, action.y)
+			if back_pressed or outside_panel then
+				session.overlay = nil
+				clear_overlay(self)
+			end
 		end
 		return true
 	end

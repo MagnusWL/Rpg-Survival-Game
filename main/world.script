@@ -144,7 +144,7 @@ local function sync_girl(self, s)
 	if alive then
 		-- Sort from her feet, exactly like the knight and mobs, so whichever
 		-- actor stands lower on the field naturally draws in front.
-		place("girl", s.girl.pos.x, s.girl.pos.y - 32, actor_z(s.girl.pos.y))
+		place("girl", s.girl.pos.x, s.girl.pos.y + combat.GIRL_RENDER_OFFSET_Y, actor_z(s.girl.pos.y))
 	end
 end
 

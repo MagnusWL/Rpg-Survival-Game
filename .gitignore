@@ -1,14 +1,33 @@
-# Defold editor and build output
-.internal/
-build/
+# Defold editor state and compiled resources
+/.editor_settings
+/.internal/
+/build/
 
-# Local Defold editor downloaded for this workspace
-Defold-x86_64-win32.zip
-tools/Defold/
+# Defold bundle output (desktop and Android)
+/bundle/
+/dist/
+/dist-*/
+/run-android*/
+*.apk
+*.aab
+*.aab.sig
+*.aab.orig
+build_input_data.json
 
-# OS files
+# Local Android signing credentials
+/debug.keystore
+/debug.keystore.pass.txt
+
+# Locally downloaded Defold tools
+/Defold-x86_64-win32.zip
+/tools/Defold/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Operating-system files
 .DS_Store
 Thumbs.db
-/.editor_settings
-/.internal
-/build
+Desktop.ini
