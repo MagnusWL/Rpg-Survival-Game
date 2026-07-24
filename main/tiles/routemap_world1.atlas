@@ -1,0 +1,5 @@
+images {
+  image: "/assets/sprites/routemap/world1.jpg"
+}
+margin: 2
+extrude_borders: 2
