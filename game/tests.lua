@@ -366,19 +366,39 @@ function M.run()
 	check("route ends in centre choice", sim.route_choice_count(converging) == 1
 		and sim.route_choices(converging)[1] == 2)
 
-	-- The opening: three short maps, single file, paying gold and gear only.
-	check("opening maps are three waves", sim.waves_in_map(1) == 3
+	-- The opening: stage 0 is a doorstep, stages 1-3 are three short maps in
+	-- a single file, and they pay gold and gear only.
+	check("stage zero has no waves", sim.waves_in_map(1) == 0)
+	check("opening stages are three waves", sim.waves_in_map(2) == 3
 		and sim.waves_in_map(sim.OPENING_MAPS) == 3)
 	check("maps after the opening are five waves",
 		sim.waves_in_map(sim.OPENING_MAPS + 1) == sim.UPGRADE_EVERY_WAVES)
+	check("stage one closes on wave three", sim.map_last_wave(2) == 3)
 	check("the heart is won on wave nine", sim.map_last_wave(sim.OPENING_MAPS) == 9)
-	check("first map closes on wave three", sim.map_last_wave(1) == 3)
+	check("stage numbering trails the map by one", sim.stage_of_map(1) == 0
+		and sim.stage_of_map(sim.OPENING_MAPS) == 3)
 
+	-- A fresh run opens standing on stage 0 with a step owed: pressing the
+	-- next stage is what starts the fighting.
 	local opening = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	opening.player.intro_phase = "done"
-	opening.wave = 3
+	opening.route_pending = true
+	check("the run opens on stage zero", opening.map_index == 1 and opening.wave == 0)
+	check("nothing launches while the road is up", not sim.can_start_next_wave(opening))
+	check("opening road is single file", sim.route_choice_count(opening) == 1
+		and sim.route_choices(opening)[1] == opening.route_column)
+	local upgrades_before_opening = #opening.upgrades
+	check("pressing stage one sets out",
+		sim.choose_route(opening, opening.route_column) and opening.map_index == 2)
+	check("setting out grants no upgrade card",
+		#opening.upgrades == upgrades_before_opening)
+	opening.wave_countdown = nil
+	check("stage one starts at its own first wave", sim.start_next_wave(opening)
+		and opening.wave == 1 and sim.local_wave(opening) == 1)
+
 	opening.loot_owed = { 3 }
-	check("third wave closes the first map", not sim.start_next_wave(opening)
+	opening.wave = 3
+	check("third wave closes stage one", not sim.start_next_wave(opening)
 		and opening.wave == 3)
 	sim.update(opening, 0.5)
 	local opening_flagged = false
@@ -388,16 +408,6 @@ function M.run()
 		end
 	end
 	check("opening checkpoint says it is the opening", opening_flagged)
-	check("opening road is single file", sim.route_choice_count(opening) == 1
-		and sim.route_choices(opening)[1] == opening.route_column)
-	local upgrades_before_opening = #opening.upgrades
-	check("stepping through the opening advances the map",
-		sim.choose_route(opening, opening.route_column) and opening.map_index == 2)
-	check("opening grants no upgrade card",
-		#opening.upgrades == upgrades_before_opening)
-	opening.wave_countdown = nil
-	check("second map starts at its own first wave", sim.start_next_wave(opening)
-		and opening.wave == 4 and sim.local_wave(opening) == 1)
 
 	-- Past the heart the road opens up again and pays cards as before.
 	local awakened = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })

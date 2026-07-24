@@ -24,18 +24,27 @@ M.MAPS_PER_ROUTE = 10
 
 -- The opening: the road in before the princess wakes.
 --
--- The first three maps are the story's beginning, so they are shorter and
--- narrower than the rest -- three waves each, no fork in the road -- and they
--- pay in gold and gear only. Skill points and upgrade cards are held back
--- until the awakening heart is won on map three, which is also the first
--- moment the player has a skill tree to spend a point in.
-M.OPENING_MAPS = 3
+-- The route's first four maps are the story's beginning. Map 1 is stage 0 --
+-- the doorstep the run opens on, where nothing is fought; the knight simply
+-- stands there while the road is laid out. Stages 1 to 3 follow, three waves
+-- each instead of five and single-file, with no fork until the awakening
+-- heart is won at the end of stage 3. Through all of them the checkpoint
+-- pays gold and gear only: a skill point would have nowhere to go until the
+-- heart opens the skill tree.
+--
+-- So map_index and stage differ by exactly one, and stage is what the player
+-- is shown.
+M.OPENING_MAPS = 4
 M.OPENING_WAVES_PER_MAP = 3
+
+function M.stage_of_map(map_index) return map_index - 1 end
 
 -- How long a given map is. Everything else derives from this, so a map's
 -- length is stated in exactly one place.
 function M.waves_in_map(map_index)
-	return map_index <= M.OPENING_MAPS and M.OPENING_WAVES_PER_MAP or M.UPGRADE_EVERY_WAVES
+	if map_index <= 1 then return 0 end -- stage 0: a doorstep, not a battle
+	if map_index <= M.OPENING_MAPS then return M.OPENING_WAVES_PER_MAP end
+	return M.UPGRADE_EVERY_WAVES
 end
 
 -- Waves cleared before a map begins. Derived from map_index rather than
@@ -607,8 +616,8 @@ end
 function M.route_choice_count(s) return #M.route_choices(s) end
 
 function M.route_node_upgrade(s, row, column)
-	-- Opening maps hold no upgrade, so the card face stays blank there and
-	-- the map reads as a road rather than a shop.
+	-- Opening maps hold no upgrade, so the node face names the stage instead
+	-- of a card and the road reads as a road rather than a shop.
 	if M.is_opening_map(row) and s.map_index <= M.MAPS_PER_ROUTE then return nil end
 	return s.route_grid and s.route_grid[row] and s.route_grid[row][column] or nil
 end
