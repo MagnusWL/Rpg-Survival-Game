@@ -175,6 +175,10 @@ function init(self)
 	self.pool_text = make_pool(function(e)
 		return ui.text(0, 0, e.text, 11, e.color)
 	end)
+	-- Drain Life's channel: a plain red line to each enemy it's sapping.
+	self.pool_drain = make_pool(function()
+		return ui.box(0, 0, 10, 2, { 0.85, 0.1, 0.1 }, 0.8)
+	end)
 
 	-- Rain and ripples, box nodes driven off the clock each frame.
 	self.rain_nodes = {}
@@ -898,6 +902,15 @@ local function sync_field(self, s)
 			gui.set_rotation(n, vmath.quat_rotation_z(math.atan2(sy, sx)))
 			ui.set_alpha(n, alpha)
 		end
+	end)
+
+	pool_sync(self.pool_drain, s.drain_links, function(n, e)
+		local x1, y1 = e.from.x, gy(e.from.y)
+		local x2, y2 = e.to.x, gy(e.to.y)
+		local dx, dy = x2 - x1, y2 - y1
+		gui.set_position(n, vmath.vector3((x1 + x2) / 2, (y1 + y2) / 2, 0))
+		gui.set_size(n, vmath.vector3(math.sqrt(dx * dx + dy * dy) + 2, 2, 0))
+		gui.set_rotation(n, vmath.quat_rotation_z(math.atan2(dy, dx)))
 	end)
 
 	pool_sync(self.pool_text, s.floating_texts, function(n, e)

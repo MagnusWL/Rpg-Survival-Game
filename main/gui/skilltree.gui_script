@@ -30,22 +30,28 @@ local STAR_RADIUS = 400
 -- the star -- 1 the roots, 2 their children.
 local FLOWER = {
 	ranged   = { icon = "airblade",     name = "Berserker", angle = -90,  ring = 0.6, wave = 1 },
-	cone     = { icon = "judgement",    name = "Shockwave", angle = 30,   ring = 0.6, wave = 1 },
-	summon   = { icon = "ancestor",     name = "Wild Boar", angle = 150,  ring = 0.6, wave = 1 },
+	burn     = { icon = "hellfire",     name = "Fireball",  angle = 30,   ring = 0.6, wave = 1 },
+	summon   = { icon = "ancestor",     name = "Dead Again", angle = 150,  ring = 0.6, wave = 1 },
 	-- Each child sits directly outward from its required parent (same angle,
 	-- farther ring) so the vine reads as a branch off it: Air Blade -> Push,
-	-- Judgement -> Burn/Chain Lightning, Air Blade -> Push/Sword Throw, and
-	-- Ancestor -> Fire Enrage/Seagull.
+	-- Fireball -> Shockwave/Chain Lightning, Air Blade -> Push/Sword Throw,
+	-- and Dead Again -> Fire Enrage/The Cure. Fireball and Shockwave swapped
+	-- places; Chain Lightning moved with them to sit directly under Fireball
+	-- alongside Shockwave. Shockwave, Sword Throw and The Cure each grow a
+	-- third-tier node of their own (Drain Life, Stomp, Monster Zombie).
 	push     = { icon = "shieldcharge", name = "Push",      angle = -70,  ring = 1.0, wave = 2 },
 	swordthrow = { icon = "cleave",     name = "Sword Throw", angle = -110, ring = 1.0, wave = 2 },
-	burn     = { icon = "hellfire",     name = "Burn",      angle = 10,   ring = 1.0, wave = 2 },
+	cone     = { icon = "judgement",    name = "Shockwave", angle = 10,   ring = 1.0, wave = 2 },
 	chainlightning = { icon = "chain",  name = "Chain Lightning", angle = 50, ring = 1.0, wave = 2 },
 	fireball = { icon = "meteor",       name = "Fire Enrage", angle = 130, ring = 1.0, wave = 2 },
-	seagull  = { icon = "nightswarm",   name = "Seagull",     angle = 170, ring = 1.0, wave = 2 },
+	seagull  = { icon = "nightswarm",   name = "The Cure",     angle = 170, ring = 1.0, wave = 2 },
+	stomp    = { icon = "gravevortex",  name = "Stomp",      angle = -110, ring = 1.4, wave = 3 },
+	drainlife = { icon = "soulharvest", name = "Drain Life", angle = 10,  ring = 1.4, wave = 3 },
+	monsterzombie = { icon = "raisedead", name = "Monster Zombie", angle = 170, ring = 1.4, wave = 3 },
 }
 local ORDER = {
-	"ranged", "cone", "summon", "push", "swordthrow", "burn", "chainlightning",
-	"fireball", "seagull",
+	"ranged", "burn", "summon", "push", "swordthrow", "cone",
+	"fireball", "seagull", "stomp", "chainlightning", "drainlife", "monsterzombie",
 }
 local MAX_AWAKENING = 1
 
@@ -86,8 +92,15 @@ local function skill_shown(self, sid)
 	if self.awakening < 1 then return false end
 	if FLOWER[sid].wave <= 1 then return true end
 	local m = session.meta
+	if m == nil then return false end
+	-- Every ancestor up the chain must be unlocked, not just the immediate
+	-- parent -- a third-tier node also needs its grandparent.
 	local parent = skills.SKILL_PARENT[sid]
-	return m ~= nil and parent ~= nil and (m.skill_levels[parent] or 0) >= 1
+	while parent ~= nil do
+		if (m.skill_levels[parent] or 0) < 1 then return false end
+		parent = skills.SKILL_PARENT[parent]
+	end
+	return true
 end
 
 -- ===== Node builders =======================================================

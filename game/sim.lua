@@ -29,7 +29,7 @@ M.CLIP_LEAD = {
 	gore = { 0.1029, 0.1193, 0.129 },
 }
 
-local id_counters = { projectile = 0, flash = 0, mark = 0, lightning = 0, explosion = 0, blood = 0, corpse = 0, zone = 0 }
+local id_counters = { projectile = 0, flash = 0, mark = 0, lightning = 0, explosion = 0, blood = 0, corpse = 0, zone = 0, zcorpse = 0 }
 local function next_id(kind)
 	id_counters[kind] = id_counters[kind] + 1
 	return id_counters[kind]
@@ -85,6 +85,9 @@ function M.new(game_state, opts)
 		explosions = {},
 		blood = {},
 		corpses = {},
+		zombie_corpses = {},
+		drain_channel = nil,
+		drain_links = {},
 		cone_zones = {},
 		cone_hits = {},
 		floating_texts = {},
@@ -231,6 +234,10 @@ function M.cast_cone_aimed(s, slot, point)
 	s.aiming_slot = nil
 	s.aim_point = nil
 	if s.die_timer ~= nil or ab.skill ~= "cone" then return end
+	if s.drain_channel then
+		s.drain_channel = nil
+		s.drain_links = {}
+	end
 	s.pending_cast_anim = "rupture"
 	-- The cast plants him: a cone loosed on the move stops the walk so the
 	-- pose (and the shockwave under it) fire from where he stood.
@@ -249,30 +256,86 @@ function M.press_ability(s, slot)
 	local p = s.player
 	local skill = ab.skill
 	if not skill or ab.level <= 0 or ab.cooldown > 0 then return end
+	-- Casting anything (Drain Life's own recast included) breaks a channel.
+	if s.drain_channel then
+		s.drain_channel = nil
+		s.drain_links = {}
+	end
 
 	if skill == "summon" then
-		s.pending_cast_anim = "ancestor"
-		-- Summoner upgrade: every summon rolls off with extra health.
+		-- Dead Again: resummon the oldest corpse within range as a weaker,
+		-- time-limited zombie -- consuming it.
 		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health + s.gear_bonus.summon_health
 		local ap = ability_power(s)
-		local spawned = combat.make_allies_for_level(ab.level, p.pos, function(l)
-			local st = skills.ability1_stats(l)
-			st.hp = math.floor(st.hp * sh)
-			st.damage = st.damage * ap
-			return st
-		end)
-		for _, a in ipairs(spawned) do s.allies[#s.allies + 1] = a end
+		local best, best_i = nil, nil
+		for i, c in ipairs(s.zombie_corpses) do
+			if combat.dist(p.pos, c.pos) <= skills.DEAD_AGAIN_RANGE then
+				if not best or c.age > best.age then best, best_i = c, i end
+			end
+		end
+		if not best then return end
+		table.remove(s.zombie_corpses, best_i)
+		s.pending_cast_anim = "ancestor"
+		local st = skills.ability1_stats(ab.level)
+		local ally = combat.make_custom_ally(best.pos, {
+			hp = math.floor(st.hp / 2 * sh),
+			damage = st.damage / 2 * ap,
+			level = ab.level,
+			source_skill = "summon",
+			expire_timer = skills.DEAD_AGAIN_DURATION,
+		})
+		s.allies[#s.allies + 1] = ally
 	elseif skill == "seagull" then
+		-- The Cure: charm the nearest non-boss enemy to fight for you a while.
+		local candidates = {}
+		for _, m in ipairs(s.mobs) do
+			if m.hp > 0 and combat.base_mob_type(m.type) ~= "boss" then
+				candidates[#candidates + 1] = { kind = "mob", id = m.id, pos = m.pos }
+			end
+		end
+		local target = skills.nearest_target(p.pos, candidates, skills.CURE_RANGE)
+		if not target then return end
+		local mob
+		local survivors = {}
+		for _, m in ipairs(s.mobs) do
+			if m.id == target.id then mob = m else survivors[#survivors + 1] = m end
+		end
+		s.mobs = survivors
 		s.pending_cast_anim = "ancestor"
-		local sh = 1 + upgrades.bonuses(s.upgrades).summon_health + s.gear_bonus.summon_health
-		local ap = ability_power(s)
-		local bird = combat.make_seagull(ab.level, p.pos, function(l)
-			local st = skills.seagull_stats(l)
-			st.hp = math.floor(st.hp * sh)
-			st.damage = st.damage * ap
-			return st
-		end)
-		s.allies[#s.allies + 1] = bird
+		local charmed = combat.make_custom_ally(mob.pos, {
+			hp = mob.hp,
+			max_hp = mob.max_hp,
+			damage = mob.damage,
+			source_skill = "seagull",
+			expire_timer = skills.CURE_DURATION,
+		})
+		s.allies[#s.allies + 1] = charmed
+	elseif skill == "monsterzombie" then
+		-- Fuse every Dead Again zombie into one, briefly, at their combined
+		-- current HP and attack damage.
+		local total_hp, total_dmg = 0, 0
+		local survivors = {}
+		local any = false
+		for _, a in ipairs(s.allies) do
+			if a.source_skill == "summon" and a.hp > 0 then
+				total_hp = total_hp + a.hp
+				total_dmg = total_dmg + a.damage
+				any = true
+			else
+				survivors[#survivors + 1] = a
+			end
+		end
+		if not any then return end
+		s.allies = survivors
+		s.pending_cast_anim = "ancestor"
+		local fused = combat.make_custom_ally(p.pos, {
+			hp = total_hp,
+			damage = total_dmg,
+			level = ab.level,
+			source_skill = "summon",
+			expire_timer = skills.MONSTER_ZOMBIE_DURATION,
+		})
+		s.allies[#s.allies + 1] = fused
 	elseif skill == "cone" then
 		s.pending_cast_anim = "rupture"
 		-- Same rule as the aimed cast: casting the shockwave stops the walk.
@@ -316,23 +379,53 @@ function M.press_ability(s, slot)
 		end
 		if not any then return end
 	elseif skill == "burn" then
-		local candidates = {}
+		-- Fireball: a projectile at the nearest enemy that explodes on impact.
+		local target, best = nil, math.huge
 		for _, m in ipairs(s.mobs) do
-			if m.hp > 0 then candidates[#candidates + 1] = { kind = "mob", id = m.id, pos = m.pos } end
-		end
-		local target = skills.nearest_target(p.pos, candidates, math.huge)
-		if not target then return end
-		for _, m in ipairs(s.mobs) do
-			if m.id == target.id then
-				m.burn_blast = skills.burn_explode_damage(ab.level) * ability_power(s)
-				m.burn_dps = skills.burn_damage_per_sec(ab.level) * ability_power(s)
+			if m.hp > 0 then
+				local d = combat.dist(p.pos, m.pos)
+				if d < best then target, best = m, d end
 			end
 		end
-		s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text("afire", target.pos, { 1, 0.439, 0.263 }, s.now)
-		s.skill_marks[#s.skill_marks + 1] = {
-			id = next_id("mark"), pos = { x = target.pos.x, y = target.pos.y },
-			radius = 18, color = skills.SKILL_META.burn.color, created_at = s.now,
+		if not target then return end
+		s.projectiles[#s.projectiles + 1] = {
+			id = next_id("projectile"),
+			from = { x = p.pos.x, y = p.pos.y },
+			to = { x = target.pos.x, y = target.pos.y },
+			created_at = s.now,
+			duration = math.max(0.08, best / combat.PROJECTILE_SPEED),
+			color = skills.SKILL_META.burn.color,
+			damage = 0,
+			friendly = true,
+			target_kind = "mob",
+			target_id = target.id,
+			skill = "burn",
+			explode_damage = skills.burn_explode_damage(ab.level) * ability_power(s),
 		}
+	elseif skill == "drainlife" then
+		-- Channel: no target needed, just plants him for the duration.
+		p.target = nil
+		s.pending_cast_anim = nil
+		s.drain_channel = { time_left = skills.DRAIN_LIFE_DURATION, level = ab.level }
+		s.drain_links = {}
+	elseif skill == "stomp" then
+		local dmg = skills.stomp_damage(ab.level) * ability_power(s)
+		local any = false
+		for _, m in ipairs(s.mobs) do
+			if m.hp > 0 and combat.dist(p.pos, m.pos) <= skills.STOMP_RADIUS + m.radius then
+				m.hp = m.hp - dmg
+				m.last_hit_skill = "stomp"
+				m.stun_timer = skills.STOMP_STUN_DURATION
+				s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = s.now }
+				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(dmg + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, s.now)
+				any = true
+			end
+		end
+		s.skill_marks[#s.skill_marks + 1] = {
+			id = next_id("mark"), pos = { x = p.pos.x, y = p.pos.y },
+			radius = skills.STOMP_RADIUS, color = skills.SKILL_META.stomp.color, created_at = s.now,
+		}
+		if not any then return end
 	elseif skill == "chainlightning" then
 		local origin = { x = p.pos.x, y = p.pos.y }
 		local hit_ids = {}
@@ -397,7 +490,7 @@ function M.press_ability(s, slot)
 			target_kind = "mob",
 			target_id = target.id,
 			skill = "swordthrow",
-			refresh_slot = slot,
+			bounce_hit_ids = { [target.id] = true },
 		}
 	elseif skill == "push" then
 		local dmg = skills.push_damage_percent(ab.level)
@@ -470,9 +563,11 @@ local function reset_map_field(s)
 	}
 	for _, key in ipairs({
 		"mobs", "allies", "projectiles", "hit_flashes", "skill_marks",
-		"lightning_links", "explosions", "blood", "corpses", "cone_zones",
+		"lightning_links", "explosions", "blood", "corpses", "zombie_corpses",
+		"drain_links", "cone_zones",
 		"cone_hits", "floating_texts", "ground_items", "wave_queues", "loot_owed",
 	}) do s[key] = {} end
+	s.drain_channel = nil
 	for _, ability in ipairs(s.abilities) do ability.cooldown = 0 end
 	s.wave_active = false
 	s.aiming_slot = nil
@@ -643,7 +738,6 @@ function M.update(s, dt)
 	local bonus = upgrades.bonuses(s.upgrades)
 	local damage_to_player = 0
 	local damage_to_girl = 0
-	local pending_recasts = {}
 
 	-- Resolve in-flight projectiles. Two kinds:
 	--  - the ordinary shot: a straight line from->to, damage lands the
@@ -678,21 +772,71 @@ function M.update(s, dt)
 				still_flying[#still_flying + 1] = pr
 			end
 		elseif now - pr.created_at >= pr.duration then
-			if pr.friendly and pr.target_kind == "mob" then
+			local resolved = false
+			if pr.friendly and pr.target_kind == "mob" and pr.skill == "burn" then
+				resolved = true
 				local target
 				for _, m in ipairs(s.mobs) do
 					if m.id == pr.target_id then target = m break end
 				end
-				local pos = pr.to
-				if target and target.hp > 0 then
-					pos = { x = target.pos.x, y = target.pos.y }
-					local target_was_killed = target.hp <= pr.damage
-					friendly_splash(s, pos, pr.damage, pr.skill, now)
-					if pr.refresh_slot and target_was_killed and s.abilities[pr.refresh_slot] then
-						s.abilities[pr.refresh_slot].cooldown = 0
-						pending_recasts[#pending_recasts + 1] = pr.refresh_slot
+				local pos = target and target.hp > 0 and { x = target.pos.x, y = target.pos.y } or pr.to
+				local burn_radius = skills.BURN_EXPLODE_RADIUS * (1 + bonus.splash)
+				s.explosions[#s.explosions + 1] = {
+					id = next_id("explosion"), pos = { x = pos.x, y = pos.y },
+					radius = burn_radius, created_at = now,
+				}
+				for _, m in ipairs(s.mobs) do
+					if m.hp > 0 and combat.dist(m.pos, pos) <= burn_radius then
+						m.hp = m.hp - pr.explode_damage
+						m.last_hit_skill = "burn"
+						s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
+						s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.explode_damage + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
 					end
 				end
+			elseif pr.friendly and pr.target_kind == "mob" and pr.skill == "swordthrow" then
+				resolved = true
+				local target
+				for _, m in ipairs(s.mobs) do
+					if m.id == pr.target_id then target = m break end
+				end
+				if target and target.hp > 0 then
+					local pos = { x = target.pos.x, y = target.pos.y }
+					friendly_splash(s, pos, pr.damage, pr.skill, now)
+					if target.hp <= 0 then
+						-- Bounces to the next living target it can reach, in the
+						-- same throw, rather than being thrown again.
+						local next_target, best = nil, math.huge
+						for _, m in ipairs(s.mobs) do
+							if m.hp > 0 and not pr.bounce_hit_ids[m.id] then
+								local d = combat.dist(pos, m.pos)
+								if d <= skills.SWORD_THROW_RANGE + m.radius and d < best then
+									next_target, best = m, d
+								end
+							end
+						end
+						if next_target then
+							pr.bounce_hit_ids[next_target.id] = true
+							pr.from = pos
+							pr.to = { x = next_target.pos.x, y = next_target.pos.y }
+							pr.target_id = next_target.id
+							pr.created_at = now
+							pr.duration = math.max(0.08, best / combat.PROJECTILE_SPEED)
+							still_flying[#still_flying + 1] = pr
+						end
+					end
+				end
+			elseif pr.friendly and pr.target_kind == "mob" then
+				resolved = true
+				local target
+				for _, m in ipairs(s.mobs) do
+					if m.id == pr.target_id then target = m break end
+				end
+				if target and target.hp > 0 then
+					friendly_splash(s, { x = target.pos.x, y = target.pos.y }, pr.damage, pr.skill, now)
+				end
+			end
+			if resolved then
+				-- handled above
 			elseif not pr.friendly and pr.target_kind == "player" then
 				damage_to_player = damage_to_player + pr.damage
 				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(pr.damage + 0.5)), pr.to, combat.TAKEN_TEXT_COLOR, now)
@@ -750,6 +894,35 @@ function M.update(s, dt)
 	p.attack_cooldown = math.max(0, p.attack_cooldown - dt)
 	p.haste_timer = math.max(0, p.haste_timer - dt)
 
+	-- Drain Life: channels while planted, breaks the instant he moves.
+	if s.drain_channel then
+		if moving then
+			s.drain_channel = nil
+			s.drain_links = {}
+		else
+			local dc = s.drain_channel
+			dc.time_left = dc.time_left - dt
+			local dps = skills.drain_life_dps(dc.level) * ability_power(s)
+			local links = {}
+			local healed = 0
+			for _, m in ipairs(s.mobs) do
+				if m.hp > 0 and combat.dist(p.pos, m.pos) <= skills.DRAIN_LIFE_RADIUS then
+					local amount = dps * dt
+					m.hp = m.hp - amount
+					m.last_hit_skill = "drainlife"
+					healed = healed + amount
+					links[#links + 1] = { id = m.id, from = { x = p.pos.x, y = p.pos.y }, to = { x = m.pos.x, y = m.pos.y } }
+				end
+			end
+			if healed > 0 then p.hp = math.min(p.max_hp, p.hp + healed) end
+			s.drain_links = links
+			if dc.time_left <= 0 then
+				s.drain_channel = nil
+				s.drain_links = {}
+			end
+		end
+	end
+
 	-- The basic attack is a plain short-range swing; Berserker changes it only
 	-- for the duration of its activated buff.
 	local pierce_extra = 0
@@ -771,10 +944,7 @@ function M.update(s, dt)
 		m.anim_time = m.anim_time + dt
 		m.flash_time = math.max(0, m.flash_time - dt)
 		m.hurt_gap = math.max(0, m.hurt_gap - dt)
-		if (m.burn_dps or 0) > 0 and m.hp > 0 then
-			m.hp = m.hp - m.burn_dps * dt
-			m.last_hit_skill = "burn"
-		end
+		m.stun_timer = math.max(0, (m.stun_timer or 0) - dt)
 
 		-- The shove from the last blow, bleeding off. Held inside the field.
 		if m.knock.x ~= 0 or m.knock.y ~= 0 then
@@ -801,6 +971,7 @@ function M.update(s, dt)
 			end
 		end
 
+		if m.stun_timer <= 0 then
 		local mob_busy = (not combat.MOB_ANIMS[m.anim].loop) and m.anim_time < combat.anim_duration(combat.MOB_ANIMS[m.anim])
 		local function set_mob_anim(next_anim)
 			if mob_busy then return end
@@ -898,6 +1069,7 @@ function M.update(s, dt)
 				end
 			end
 		end
+		end
 	end
 	for _, m in ipairs(s.mobs) do
 		m.pos = keep_outside(m.pos, s.girl.pos, m.radius + s.girl.radius,
@@ -919,7 +1091,7 @@ function M.update(s, dt)
 	local player_attacked = false
 	local attack_targets = {}
 	local any_mob_died_this_swing = false
-	if p.attack_cooldown <= 0 and s.die_timer == nil then
+	if p.attack_cooldown <= 0 and s.die_timer == nil and not s.drain_channel then
 		if is_ranged_attack then
 			local target, best = nil, math.huge
 			for _, m in ipairs(s.mobs) do
@@ -1001,10 +1173,16 @@ function M.update(s, dt)
 			if ally_regen > 0 and a.hp < a.max_hp then
 				a.hp = math.min(a.max_hp, a.hp + ally_regen * dt)
 			end
-			-- Fire Enrage: faster swings and bonus fire damage on each attack.
+			-- Fire Enrage: faster swings and bonus fire damage on each attack;
+			-- it also keeps a borrowed-time summon (Dead Again/The Cure/
+			-- Monster Zombie) from expiring while it's up.
 			local enraged = (a.enrage_timer or 0) > 0
 			if enraged then
 				a.enrage_timer = a.enrage_timer - dt
+			end
+			if a.expire_timer and not enraged then
+				a.expire_timer = a.expire_timer - dt
+				if a.expire_timer <= 0 then a.hp = 0 end
 			end
 			local attack_damage = a.damage + (enraged and (a.enrage_damage or 0) or 0)
 			local attack_skill = enraged and "fireball" or (a.source_skill or "summon")
@@ -1085,39 +1263,6 @@ function M.update(s, dt)
 		s.cone_hits = still_carried
 	end
 
-	-- Burning enemies blow up when they die, in a chain.
-	do
-		local pending = {}
-		for _, m in ipairs(s.mobs) do
-			if m.hp <= 0 and (m.burn_blast or 0) > 0 then pending[#pending + 1] = m end
-		end
-		local exploded = {}
-		while #pending > 0 do
-			local src = table.remove(pending, 1)
-			if not exploded[src.id] then
-				exploded[src.id] = true
-				local blast = src.burn_blast or 0
-				local burn_radius = skills.BURN_EXPLODE_RADIUS * (1 + bonus.splash)
-				s.explosions[#s.explosions + 1] = {
-					id = next_id("explosion"), pos = { x = src.pos.x, y = src.pos.y },
-					radius = burn_radius, created_at = now,
-				}
-				s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text("boom!", src.pos, { 1, 0.439, 0.263 }, now)
-				for _, m in ipairs(s.mobs) do
-					if m.id ~= src.id and m.hp > 0 and combat.dist(m.pos, src.pos) <= burn_radius then
-						m.hp = m.hp - blast
-						m.last_hit_skill = "burn"
-						s.hit_flashes[#s.hit_flashes + 1] = { id = next_id("flash"), pos = { x = m.pos.x, y = m.pos.y }, created_at = now }
-						s.floating_texts[#s.floating_texts + 1] = combat.make_floating_text(("-%d"):format(math.floor(blast + 0.5)), m.pos, combat.DAMAGE_TEXT_COLOR, now)
-						if m.hp <= 0 and (m.burn_blast or 0) > 0 and not exploded[m.id] then
-							pending[#pending + 1] = m
-						end
-					end
-				end
-			end
-		end
-	end
-
 	-- Deaths: corpses, blood, XP, coins.
 	local survivor_mobs = {}
 	local any_mob_died = false
@@ -1132,6 +1277,10 @@ function M.update(s, dt)
 				s.corpses[#s.corpses + 1] = {
 					id = next_id("corpse"), pos = { x = m.pos.x, y = m.pos.y }, facing = m.facing,
 					anim = math.random() < 0.5 and "die" or "die2", age = 0,
+				}
+				-- Dead Again's resummon pool: tracked but invisible.
+				s.zombie_corpses[#s.zombie_corpses + 1] = {
+					id = next_id("zcorpse"), pos = { x = m.pos.x, y = m.pos.y }, age = 0,
 				}
 			end
 			s.blood[#s.blood + 1] = {
@@ -1453,9 +1602,6 @@ function M.update(s, dt)
 	end
 
 	s.projectiles = still_flying
-	-- Sword Throw's lethal effect is a true recast: it immediately seeks the
-	-- next nearest opponent and throws again, rather than merely refreshing.
-	for _, slot in ipairs(pending_recasts) do M.press_ability(s, slot) end
 
 	-- Sweep up spent transients.
 	local function sweep(list, keep)
@@ -1471,6 +1617,8 @@ function M.update(s, dt)
 	s.corpses = sweep(s.corpses, function(c)
 		return c.age < combat.anim_duration(combat.MOB_DIE_ANIMS[c.anim]) + combat.CORPSE_LINGER + combat.CORPSE_FADE
 	end)
+	for _, c in ipairs(s.zombie_corpses) do c.age = c.age + dt end
+	s.zombie_corpses = sweep(s.zombie_corpses, function(c) return c.age < skills.ZOMBIE_CORPSE_LIFETIME end)
 	local cone_zone_life = skills.CONE_RANGE / skills.CONE_ZONE.sweep_speed + skills.CONE_ZONE.cell_life + 0.08
 	s.cone_zones = sweep(s.cone_zones, function(z) return now < z.start_at + cone_zone_life end)
 	s.skill_marks = sweep(s.skill_marks, function(m) return now - m.created_at < combat.SKILL_MARK_DURATION end)

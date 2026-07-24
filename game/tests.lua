@@ -30,10 +30,45 @@ end
 function M.run()
 	math.randomseed(42)
 
-	-- persistent equipment: one fixed slot, level per cleared checkpoint, and
+	-- run equipment: one fixed slot, level per cleared checkpoint, and
 	-- additive stat aggregation without a loose-item bag.
 	check("item level starts at one", inventory.item_level(0) == 1)
+	do
+		local collision_state = sim.new(meta_mod.build_fresh_state(meta_mod.default_meta()), {
+			is_test_run = true,
+		})
+		collision_state.player.intro_phase = "done"
+		collision_state.player.pos = { x = 300, y = 200 }
+		collision_state.mobs = {
+			{ id = 1, hp = 10, pos = { x = 300, y = 200 } },
+			{ id = 2, hp = 10, pos = { x = 302, y = 200 } },
+		}
+		collision_state.allies = {
+			{ id = 1, hp = 10, pos = { x = 301, y = 200 } },
+		}
+		sim.resolve_body_collisions(collision_state)
+		local bodies = {
+			collision_state.player,
+			collision_state.mobs[1],
+			collision_state.mobs[2],
+			collision_state.allies[1],
+		}
+		local separated = true
+		for i = 1, #bodies - 1 do
+			for j = i + 1, #bodies do
+				if combat.dist(bodies[i].pos, bodies[j].pos)
+					< combat.FEET_COLLISION_RADIUS * 2 - 0.01 then
+					separated = false
+				end
+			end
+		end
+		check("feet collisions separate player mobs and summons", separated)
+	end
 	check("item level follows five-wave checkpoints", inventory.item_level(5) == 1 and inventory.item_level(10) == 2)
+	check("item stats have strong base and double scaling",
+		inventory.stat_multiplier(1) == 4
+			and inventory.stat_multiplier(2) == 6
+			and inventory.stat_multiplier(4) == 10)
 	local item = inventory.roll(3)
 	check("rolled item has valid slot and level", inventory.SLOT_LABELS[item.slot] ~= nil and item.level == 3)
 	local raw_gear = { [item.slot] = item }
@@ -157,16 +192,22 @@ function M.run()
 	-- skills: catalog and per-skill xp curve. No passives here any more --
 	-- Haste/Summon Regen/Pierce moved to game.upgrades.
 	check("cone range", near(skills.CONE_RANGE, math.sqrt(layout.SCREEN_W ^ 2 + layout.PLAY_H ^ 2)))
-	check("wild boar lvl3", skills.ability1_stats(3).hp == 150 and skills.ability1_stats(3).damage == 30)
-	check("wild boar health curve", skills.ability1_stats(1).hp == 50 and skills.ability1_stats(4).hp == 200)
-	check("seagull lvl4 stats", skills.seagull_stats(4).hp == 120 and skills.seagull_stats(4).damage == 80)
-	check("seagull requires wild boar", skills.SKILL_PARENT.seagull == "summon")
+	check("dead again cooldown is halved", skills.SKILL_META.summon.cooldown == 6)
+	check("dead again base stats lvl3", skills.ability1_stats(3).hp == 150 and skills.ability1_stats(3).damage == 30)
+	check("dead again health curve", skills.ability1_stats(1).hp == 50 and skills.ability1_stats(4).hp == 200)
+	check("the cure requires dead again", skills.SKILL_PARENT.seagull == "summon")
+	check("monster zombie requires the cure", skills.SKILL_PARENT.monsterzombie == "seagull")
 	check("fire enrage damage curve", skills.fireball_attack_damage(1) == 20 and skills.fireball_attack_damage(4) == 50)
+	check("fire enrage duration", skills.FIREBALL_ENRAGE_DURATION == 10)
 	check("chain lightning curve", skills.chain_lightning_hits(1) == 3 and skills.chain_lightning_hits(4) == 6
 		and skills.chain_lightning_damage(1) == 25 and skills.chain_lightning_damage(4) == 100)
-	check("chain lightning requires shockwave", skills.SKILL_PARENT.chainlightning == "cone")
-	check("sword throw curve", near(skills.sword_throw_percent(1), 2.0) and near(skills.sword_throw_percent(4), 3.5))
+	check("chain lightning requires fireball", skills.SKILL_PARENT.chainlightning == "burn")
+	check("shockwave requires fireball (swapped roots)", skills.SKILL_PARENT.cone == "burn")
+	check("fireball is now a root", skills.SKILL_PARENT.burn == nil)
+	check("sword throw curve", near(skills.sword_throw_percent(1), 2.5) and near(skills.sword_throw_percent(4), 4.0))
 	check("sword throw requires berserker", skills.SKILL_PARENT.swordthrow == "ranged")
+	check("stomp requires sword throw", skills.SKILL_PARENT.stomp == "swordthrow")
+	check("drain life requires shockwave", skills.SKILL_PARENT.drainlife == "cone")
 	check("burn flat damage lvl4", skills.burn_explode_damage(4) == 100)
 	check("xp to next lvl1", skills.skill_xp_to_next(1) == 100)
 	check("xp curve", skills.skill_xp_to_next(2) == 200 and skills.skill_xp_to_next(3) == 300)
@@ -190,14 +231,14 @@ function M.run()
 	check("cone hits ahead only", #hits == 1 and hits[1].id == 1)
 	check("cone damage is flat", near(hits[1].amount, 10))
 
-	-- meta defaults: every skill starts locked (level 0), 5 starting gold
+	-- meta defaults: every skill starts locked (level 0), no starting gold
 	local dm = meta_mod.default_meta()
 	local all_locked = true
 	for _, sid in ipairs(skills.ALL_SKILLS) do
 		if dm.skill_levels[sid] ~= 0 then all_locked = false end
 	end
 	check("every skill starts locked", all_locked)
-	check("starts with 5 gold", dm.gold == 5)
+	check("starts with 0 gold", dm.gold == 0)
 	check("default loadout empty", #dm.loadout == 0)
 	check("default one slot unlocked", dm.slots_unlocked == 1)
 
@@ -222,13 +263,17 @@ function M.run()
 	})
 	check("sanitize clamps loadout to slots", #clamped.loadout == 1)
 	check("sanitize keeps skill xp", sanitized.skill_xp.summon == 40)
-	check("gold for waves", meta_mod.gold_for_waves_cleared(4) == 10)
-	check("gold for zero waves", meta_mod.gold_for_waves_cleared(0) == 0)
 
 	-- abilities built from loadout
 	local ab = meta_mod.make_abilities({ "cone" }, { cone = 3 })
 	check("ability slot 1", ab[1].skill == "cone" and ab[1].level == 3)
 	check("ability slot 2 empty", ab[2].skill == nil and ab[2].level == 0)
+
+	local opening_wave = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	check("opening wave starts during entrance", opening_wave.player.intro_phase == "enter")
+	sim.update(opening_wave, 1 / 60)
+	check("wave one launches before entrance completes",
+		opening_wave.wave == 1 and opening_wave.player.intro_phase ~= "done")
 
 	-- sim: fresh state walks through the entrance and draws
 	local gs = meta_mod.build_fresh_state(dm)
@@ -262,7 +307,7 @@ function M.run()
 		sim.update(s, 1 / 60)
 		for _, mob in ipairs(s.mobs) do mob.hp = 0 end
 		sim.take_events(s)
-		if #s.loot_owed == 0 and not s.wave_active then break end
+		if s.highest_wave_cleared >= 1 then break end
 	end
 	check("wave 1 cleared", s.highest_wave_cleared == 1)
 	check("player survived wave 1", s.player.hp > 0)
@@ -278,6 +323,13 @@ function M.run()
 	sim.update(milestone, 0.5)
 	check("checkpoint opens route immediately", milestone.route_pending
 		and #milestone.pending_upgrade_offers == 0 and milestone.upgrade_offer_timer == nil)
+	local checkpoint_events = 0
+	for _, ev in ipairs(sim.take_events(milestone)) do
+		if ev.type == "checkpoint_reward" and ev.wave == 5 then
+			checkpoint_events = checkpoint_events + 1
+		end
+	end
+	check("checkpoint reward emitted exactly once", checkpoint_events == 1)
 	check("route blocks next map", not sim.can_start_next_wave(milestone))
 	check("early route offers three paths", sim.route_choice_count(milestone) == 3)
 	milestone.allies = { { id = 99 } }
@@ -401,7 +453,8 @@ function M.run()
 	s10.player.hp = 100
 	s10.abilities = { { skill = "ranged", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
 	sim.update(s10, 1)
-	check("player has two health regen per second", near(s10.player.hp, 102))
+	check("player has configured health regen per second",
+		near(s10.player.hp, 100 + combat.PLAYER_HEALTH_REGEN))
 	local berserker_mob = combat.spawn_mob("melee", 1)
 	berserker_mob.pos = { x = s10.player.pos.x + 10, y = s10.player.pos.y }
 	berserker_mob.hp, berserker_mob.max_hp = 9999, 9999
@@ -418,7 +471,8 @@ function M.run()
 	no_clear_heal.player.hp = 50
 	no_clear_heal.loot_owed = { 1 }
 	sim.update(no_clear_heal, 1)
-	check("wave clear does not heal to full", near(no_clear_heal.player.hp, 52))
+	check("wave clear does not heal to full",
+		near(no_clear_heal.player.hp, 50 + combat.PLAYER_HEALTH_REGEN))
 
 	-- sim: enemies enter from the right, outside the top exclusion zone, and
 	-- march left until a target enters their detection range.
@@ -430,11 +484,32 @@ function M.run()
 	local spawn_x, spawn_y = top_ranged.pos.x, top_ranged.pos.y
 	sim.update(ranged_exit, 0.1)
 	check("mob spawns at right edge", spawn_x > layout.SCREEN_W - 40)
+	check("mob starts fully offscreen", spawn_x > layout.SCREEN_W + top_ranged.radius)
 	check("mob spawns below top buffer",
 		spawn_y >= top_ranged.radius + combat.PLAYER_TOP_BUFFER)
 	check("ranged mob marches left before attacking",
 		top_ranged.pos.x < spawn_x and near(top_ranged.pos.y, spawn_y)
 		and #ranged_exit.projectiles == 0)
+	local left_ranged_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	left_ranged_state.player.intro_phase = "done"
+	left_ranged_state.player.pos = { x = layout.SCREEN_W - combat.PLAYER_RADIUS,
+		y = layout.PLAY_H - combat.PLAYER_RADIUS }
+	local left_ranged = combat.spawn_mob("ranged", 1, "left")
+	left_ranged_state.mobs = { left_ranged }
+	local left_spawn_x = left_ranged.pos.x
+	sim.update(left_ranged_state, 0.1)
+	check("left-side ranged mob marches right toward middle",
+		left_ranged.pos.x > left_spawn_x and #left_ranged_state.projectiles == 0)
+	local gated_ranged = combat.spawn_mob("ranged", 1, "right")
+	gated_ranged.pos.y = ranged_exit.player.pos.y
+	ranged_exit.player.pos = { x = layout.SCREEN_W - 20, y = gated_ranged.pos.y }
+	ranged_exit.mobs = { gated_ranged }
+	sim.update(ranged_exit, 1 / 60)
+	check("offscreen ranged mob cannot attack", #ranged_exit.projectiles == 0)
+	gated_ranged.pos.x = layout.SCREEN_W - gated_ranged.radius - 1
+	gated_ranged.attack_cooldown = 0
+	sim.update(ranged_exit, 1 / 60)
+	check("ranged attack enables inside gameplay area", #ranged_exit.projectiles == 1)
 
 	-- sim: Chain Lightning follows nearest-neighbour order with 20% falloff.
 	local chain_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -448,8 +523,10 @@ function M.run()
 		chain_state.mobs[#chain_state.mobs + 1] = mob
 	end
 	sim.press_ability(chain_state, 1)
-	check("chain lightning hits configured count", near(chain_state.mobs[1].hp, 950)
-		and near(chain_state.mobs[2].hp, 960) and near(chain_state.mobs[3].hp, 968)
+	local chain_damage = skills.chain_lightning_damage(1)
+	check("chain lightning hits configured count", near(chain_state.mobs[1].hp, 1000 - chain_damage)
+		and near(chain_state.mobs[2].hp, 1000 - chain_damage * skills.CHAIN_LIGHTNING_FALLOFF)
+		and near(chain_state.mobs[3].hp, 1000 - chain_damage * skills.CHAIN_LIGHTNING_FALLOFF ^ 2)
 		and near(chain_state.mobs[4].hp, 1000))
 	check("chain lightning creates one visual link per hit", #chain_state.lightning_links == 3)
 
@@ -476,7 +553,8 @@ function M.run()
 	check("chain lightning respects cast range",
 		#chain_out.lightning_links == 0 and chain_out.abilities[1].cooldown == 0)
 
-	-- sim: a lethal Sword Throw immediately recasts at the next target.
+	-- sim: a lethal Sword Throw bounces to another target in range, in the
+	-- same throw, rather than being recast -- the cooldown is untouched.
 	local sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	sword_state.player.intro_phase = "done"
 	sword_state.player.target = nil
@@ -489,10 +567,12 @@ function M.run()
 	sword_next.hp, sword_next.max_hp, sword_next.damage = 1000, 1000, 0
 	sword_state.mobs = { sword_target, sword_next }
 	sim.press_ability(sword_state, 1)
-	check("sword throw starts cooldown", sword_state.abilities[1].cooldown > 0)
+	local sword_cooldown_after_cast = sword_state.abilities[1].cooldown
+	check("sword throw starts cooldown", sword_cooldown_after_cast > 0)
 	for _ = 1, 60 do sim.update(sword_state, 1 / 60) end
-	check("lethal sword throw recasts at next opponent",
-		sword_next.hp < sword_next.max_hp and sword_state.abilities[1].cooldown > 0)
+	check("lethal sword throw bounces to the next opponent", sword_next.hp < sword_next.max_hp)
+	check("bouncing does not touch the ability's own cooldown",
+		near(sword_state.abilities[1].cooldown, math.max(0, sword_cooldown_after_cast - 1)))
 	local far_sword_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	far_sword_state.player.intro_phase = "done"
 	far_sword_state.abilities = { { skill = "swordthrow", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
@@ -509,13 +589,39 @@ function M.run()
 	check("higher-rank summons attack faster",
 		combat.ally_attack_cooldown(4) < combat.ally_attack_cooldown(1))
 
+	-- Dead Again resummons the oldest corpse in range as a weaker, timed
+	-- zombie -- consuming the corpse. No corpse in range, no cast.
 	local summon_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	summon_state.player.intro_phase = "done"
 	summon_state.abilities = { { skill = "summon", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
 	sim.press_ability(summon_state, 1)
-	summon_state.abilities[1].cooldown = 0
+	check("dead again does nothing without a corpse in range", #summon_state.allies == 0
+		and summon_state.abilities[1].cooldown == 0)
+	summon_state.zombie_corpses = {
+		{ id = 1, pos = { x = summon_state.player.pos.x + 5, y = summon_state.player.pos.y }, age = 3 },
+		{ id = 2, pos = { x = summon_state.player.pos.x + 8, y = summon_state.player.pos.y }, age = 6 },
+	}
 	sim.press_ability(summon_state, 1)
-	check("recasting summon keeps existing allies", #summon_state.allies == 2)
+	check("dead again consumes the oldest corpse in range", #summon_state.zombie_corpses == 1
+		and summon_state.zombie_corpses[1].id == 1)
+	check("dead again spawns one ally at half the base stats",
+		#summon_state.allies == 1
+			and summon_state.allies[1].hp == math.floor(skills.ability1_stats(1).hp / 2)
+			and near(summon_state.allies[1].damage, skills.ability1_stats(1).damage / 2))
+	check("dead again's zombie expires after its own duration", summon_state.allies[1].expire_timer == skills.DEAD_AGAIN_DURATION)
+	local far_summon_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	far_summon_state.player.intro_phase = "done"
+	far_summon_state.abilities = { { skill = "summon", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	far_summon_state.zombie_corpses = {
+		{ id = 1, pos = { x = far_summon_state.player.pos.x + skills.DEAD_AGAIN_RANGE + 50, y = far_summon_state.player.pos.y }, age = 1 },
+	}
+	sim.press_ability(far_summon_state, 1)
+	check("dead again respects its maximum range", #far_summon_state.allies == 0
+		and #far_summon_state.zombie_corpses == 1)
+	local expiring_ally = summon_state.allies[1]
+	expiring_ally.expire_timer = 0.05
+	sim.update(summon_state, 0.1)
+	check("an expired summon is removed", #summon_state.allies == 0)
 
 	local objective_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	objective_state.player.intro_phase = "done"
@@ -529,23 +635,25 @@ function M.run()
 	check("mob cannot overlap girl", combat.dist(objective_mob.pos, objective_state.girl.pos)
 		>= objective_mob.radius + objective_state.girl.radius - 0.01)
 
-	-- sim: burn explosion chain
+	-- sim: Fireball throws a projectile at the nearest enemy that explodes on
+	-- impact, damaging everyone nearby -- including the target itself.
 	local s3 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	s3.player.intro_phase = "done"
 	s3.player.target = nil
+	s3.player.pos = { x = 45, y = 50 }
 	local a = combat.spawn_mob("melee", 1)
 	local b = combat.spawn_mob("melee", 1)
-	a.pos = { x = 50, y = 50 }
+	a.pos = { x = 50, y = 50 } -- nearest to the player
 	b.pos = { x = 90, y = 50 } -- inside BURN_EXPLODE_RADIUS of a
-	a.burn_blast = 50
-	a.hp = 0
-	b.hp = 200
-	b.max_hp = 200
+	a.hp, a.max_hp = 10, 10
+	b.hp, b.max_hp = 200, 200
 	s3.mobs = { a, b }
-	s3.player.pos = { x = 350, y = 600 } -- far away, no melee interference
-	sim.update(s3, 1 / 60)
-	check("burn blast damaged neighbour by flat amount", s3.mobs[1] ~= nil and s3.mobs[1].hp <= 150)
-	check("burn blast creates range-matched explosion", #s3.explosions == 1
+	s3.abilities = { { skill = "burn", level = 4, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	sim.press_ability(s3, 1)
+	check("fireball launches a projectile at the nearest enemy", #s3.projectiles == 1)
+	for _ = 1, 60 do sim.update(s3, 1 / 60) end
+	check("fireball explosion damaged the neighbour by a flat amount", b.hp <= 100)
+	check("fireball explosion creates a range-matched blast", #s3.explosions >= 1
 		and near(s3.explosions[1].radius, skills.BURN_EXPLODE_RADIUS))
 
 	-- sim: push shoves and damages everyone, using upgrades instead of items
@@ -566,6 +674,101 @@ function M.run()
 	sim.press_ability(s4, 1)
 	check("push has a maximum range", far_push.hp == far_push.max_hp and far_push.knock.x == 0)
 
+	-- sim: Stomp stuns and damages everyone nearby; a stunned mob does not
+	-- advance or attack until the stun wears off.
+	local stomp_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	stomp_state.player.intro_phase = "done"
+	stomp_state.player.target = nil
+	stomp_state.abilities = { { skill = "stomp", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local stomp_mob = combat.spawn_mob("melee", 1)
+	stomp_mob.pos = { x = stomp_state.player.pos.x + 30, y = stomp_state.player.pos.y }
+	stomp_mob.hp, stomp_mob.max_hp = 1000, 1000
+	stomp_state.mobs = { stomp_mob }
+	sim.press_ability(stomp_state, 1)
+	check("stomp damages nearby enemies", stomp_mob.hp < 1000)
+	check("stomp stuns nearby enemies", stomp_mob.stun_timer == skills.STOMP_STUN_DURATION)
+	local stomp_pos_before = { x = stomp_mob.pos.x, y = stomp_mob.pos.y }
+	sim.update(stomp_state, 1 / 60)
+	check("a stunned mob does not move", near(stomp_mob.pos.x, stomp_pos_before.x) and near(stomp_mob.pos.y, stomp_pos_before.y))
+
+	-- sim: Drain Life channels, saps nearby enemies into the player's own
+	-- health, and is broken by moving or casting another skill.
+	local drain_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	drain_state.player.intro_phase = "done"
+	drain_state.player.target = nil
+	drain_state.player.max_hp = 200
+	drain_state.player.hp = 100
+	drain_state.abilities = { { skill = "drainlife", level = 1, cooldown = 0 }, { skill = "push", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local drain_mob = combat.spawn_mob("melee", 1)
+	drain_mob.pos = { x = drain_state.player.pos.x + 30, y = drain_state.player.pos.y }
+	drain_mob.hp, drain_mob.max_hp, drain_mob.damage = 1000, 1000, 0
+	drain_state.mobs = { drain_mob }
+	sim.press_ability(drain_state, 1)
+	check("drain life starts a channel", drain_state.drain_channel ~= nil)
+	sim.update(drain_state, 1 / 60)
+	check("drain life damages nearby enemies", drain_mob.hp < 1000)
+	check("drain life heals the player", drain_state.player.hp > 100)
+	check("drain life draws a link to the enemy it's sapping", #drain_state.drain_links == 1)
+	drain_state.player.target = { x = drain_state.player.pos.x + 100, y = drain_state.player.pos.y }
+	sim.update(drain_state, 1 / 60)
+	check("moving breaks the drain life channel", drain_state.drain_channel == nil and #drain_state.drain_links == 0)
+	drain_state.abilities[1].cooldown = 0
+	sim.press_ability(drain_state, 1)
+	drain_state.player.target = nil
+	check("drain life restarted", drain_state.drain_channel ~= nil)
+	sim.press_ability(drain_state, 2)
+	check("casting another skill breaks the drain life channel", drain_state.drain_channel == nil)
+
+	-- sim: The Cure charms a non-boss mob to fight for the player.
+	local cure_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	cure_state.player.intro_phase = "done"
+	cure_state.player.target = nil
+	cure_state.abilities = { { skill = "seagull", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local cure_boss = combat.spawn_mob("boss", 1)
+	cure_boss.pos = { x = cure_state.player.pos.x + 20, y = cure_state.player.pos.y }
+	local cure_mob = combat.spawn_mob("melee", 1)
+	cure_mob.pos = { x = cure_state.player.pos.x + 40, y = cure_state.player.pos.y }
+	cure_mob.hp, cure_mob.max_hp, cure_mob.damage = 42, 42, 5
+	cure_state.mobs = { cure_boss, cure_mob }
+	sim.press_ability(cure_state, 1)
+	check("the cure ignores bosses", #cure_state.mobs == 1 and cure_state.mobs[1] == cure_boss)
+	check("the cure charms the nearest non-boss mob", #cure_state.allies == 1
+		and cure_state.allies[1].hp == 42 and cure_state.allies[1].damage == 5)
+	check("the charmed unit expires after the cure's duration",
+		cure_state.allies[1].expire_timer == skills.CURE_DURATION)
+
+	-- sim: Monster Zombie fuses every Dead Again zombie's current HP and
+	-- attack damage into one, briefly.
+	local mz_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	mz_state.player.intro_phase = "done"
+	mz_state.player.target = nil
+	mz_state.abilities = { { skill = "monsterzombie", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	mz_state.allies = {
+		combat.make_custom_ally(mz_state.player.pos, { hp = 30, damage = 4, source_skill = "summon" }),
+		combat.make_custom_ally(mz_state.player.pos, { hp = 20, damage = 6, source_skill = "summon" }),
+		combat.make_custom_ally(mz_state.player.pos, { hp = 99, damage = 1, source_skill = "seagull" }),
+	}
+	sim.press_ability(mz_state, 1)
+	check("monster zombie fuses only dead again zombies", #mz_state.allies == 2)
+	local fused
+	for _, ally in ipairs(mz_state.allies) do
+		if ally.source_skill == "summon" then fused = ally end
+	end
+	check("monster zombie sums hp and damage", fused ~= nil and fused.hp == 50 and fused.damage == 10)
+	check("monster zombie's fusion expires after its own duration", fused.expire_timer == skills.MONSTER_ZOMBIE_DURATION)
+
+	-- sim: Fire Enrage keeps a borrowed-time summon from expiring while active.
+	local enrage_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	enrage_state.player.intro_phase = "done"
+	enrage_state.player.target = nil
+	enrage_state.abilities = { { skill = "fireball", level = 1, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 }, { skill = nil, level = 0, cooldown = 0 } }
+	local timed_ally = combat.make_custom_ally(enrage_state.player.pos, { hp = 10, damage = 1, source_skill = "summon", expire_timer = 0.05 })
+	enrage_state.allies = { timed_ally }
+	sim.press_ability(enrage_state, 1)
+	sim.update(enrage_state, 0.1)
+	check("fire enrage keeps an enraged summon from expiring", #enrage_state.allies == 1
+		and near(timed_ally.expire_timer, 0.05))
+
 	local held_autostart = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	held_autostart.player.intro_phase = "done"
 	held_autostart.wave_countdown = 0
@@ -580,7 +783,9 @@ function M.run()
 	check("player state has no mana field", s4b.player.mana == nil)
 	check("player state has no level/xp fields", s4b.player.level == nil and s4b.player.xp == nil)
 
-	-- save/load roundtrip (uses the real save file path)
+	-- save/load roundtrip uses isolated in-memory storage. Tests must never
+	-- overwrite the player's real debug-build progression.
+	meta_mod.set_test_storage({})
 	local test_meta = meta_mod.default_meta()
 	test_meta.gold = 77
 	test_meta.skill_levels.summon = 3
@@ -590,7 +795,6 @@ function M.run()
 	check("meta roundtrip gold", loaded.gold == 77)
 	check("meta roundtrip skill level", loaded.skill_levels.summon == 3)
 	check("meta roundtrip skill xp", loaded.skill_xp.summon == 42)
-	meta_mod.persist_meta(meta_mod.default_meta()) -- leave a clean default behind
 
 	local runs = {
 		{
@@ -605,6 +809,7 @@ function M.run()
 	local restored = meta_mod.build_state_from_save(loaded_runs[1])
 	check("state from save", restored.player.hp == 50 and restored.wave == 3 and #restored.upgrades == 1)
 	meta_mod.persist_runs({})
+	meta_mod.set_test_storage(nil)
 
 	-- sim: dying plays the fall, then reports game over exactly once
 	local s5 = sim.new(meta_mod.build_fresh_state(dm), { run_id = "r-go", is_test_run = false })
@@ -624,7 +829,8 @@ function M.run()
 	check("die timer delays game over", saw_over and s5.game_over)
 	check("die anim chosen", s5.player.anim == "die")
 
-	-- sim: clearing a wave with a run id emits an autosave with upgrades
+	-- Normal wave clears do not move the safe restore point. Saving happens
+	-- only after entering a new map.
 	local s6 = sim.new(meta_mod.build_fresh_state(dm), { run_id = "r-save", is_test_run = false })
 	s6.player.intro_phase = "done"
 	s6.player.target = nil
@@ -638,10 +844,9 @@ function M.run()
 		for _, ev in ipairs(sim.take_events(s6)) do
 			if ev.type == "autosave" then saw_save = ev.save end
 		end
-		if saw_save then break end
+		if s6.highest_wave_cleared >= 1 then break end
 	end
-	check("autosave after wave clear", saw_save ~= nil and saw_save.wave == 1 and saw_save.id == "r-save")
-	check("autosave carries upgrades field", saw_save ~= nil and saw_save.upgrades ~= nil)
+	check("ordinary wave clear does not autosave", saw_save == nil)
 
 	-- session: a pending upgrade choice pauses the field, same as an overlay
 	local s8 = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
@@ -654,6 +859,73 @@ function M.run()
 	s8.pending_upgrade_offers = {}
 	check("session resumes once answered", not session.paused())
 	session.sim = nil
+
+	-- Run-specific progression is saved with an unfinished run and is fully
+	-- discarded when that run ends.
+	meta_mod.set_test_storage({})
+	session.saved_runs = {}
+	session.current_run_id = "run-progress-test"
+	session.run_active = true
+	session.is_test_run = false
+	session.meta = session.new_run_meta()
+	session.sim = sim.new(meta_mod.build_fresh_state(session.meta), {
+		run_id = session.current_run_id,
+		skill_levels = session.meta.skill_levels,
+		skill_xp = session.meta.skill_xp,
+		equipment = session.meta.equipment,
+	})
+	session.store_run(sim.make_save(session.sim))
+	session.meta.skill_levels.summon = 1
+	session.meta.skill_xp.summon = 7
+	session.meta.loadout = { "summon" }
+	session.commit_meta(session.meta)
+	session.sync_run_abilities()
+	check("skill choice syncs complete live state",
+		session.sim.abilities[1].skill == "summon"
+			and session.sim.skill_levels.summon == 1
+			and session.sim.skill_xp.summon == 7)
+	session.grant_checkpoint_reward(5)
+	check("checkpoint grants only configured currency",
+		session.meta.gold == 10 and session.meta.skill_points == 2)
+	check("map-start snapshot is not mutated during map",
+		not session.saved_runs[1].checkpoint_reward_open
+			and session.saved_runs[1].reward_item == nil
+			and session.saved_runs[1].run_meta.gold == 0)
+	local offered_item = session.reward_item
+	session.equip_reward()
+	local expected_gear = inventory.bonuses(session.meta.equipment)
+	check("equipped checkpoint item updates live gear",
+		offered_item ~= nil and session.reward_item == nil
+			and near(session.sim.gear_bonus.max_health, expected_gear.max_health)
+			and near(session.sim.gear_bonus.attack_damage, expected_gear.attack_damage))
+	session.store_run(sim.make_save(session.sim))
+	local saved_progress = session.saved_runs[1]
+	check("next map snapshot captures run progression",
+		saved_progress.run_meta.gold == 10
+			and saved_progress.run_meta.skill_levels.summon == 1)
+	session.meta.gold = 999
+	check("stored map snapshot is isolated from live tables",
+		saved_progress.run_meta.gold == 10)
+	session.store_run({
+		id = "replacement-save", wave = 5, saved_at = os.time(),
+		abilities = {}, upgrades = {}, route_history = {}, route_grid = {},
+	})
+	check("storing a map keeps exactly one save",
+		#session.saved_runs == 1 and session.saved_runs[1].id == "replacement-save")
+	saved_progress = session.saved_runs[1]
+	session.discard_run_progress()
+	check("ending run resets all progression",
+		session.meta.gold == 0 and session.meta.skill_points == 1
+			and #session.meta.loadout == 0 and next(session.meta.equipment) == nil)
+	session.restore_run_progress(saved_progress)
+	check("continue restores run progression",
+		session.meta.gold == 999 and session.meta.skill_levels.summon == 1
+			and session.meta.loadout[1] == "summon")
+	session.sim = nil
+	session.current_run_id = nil
+	session.discard_run_progress()
+	session.saved_runs = {}
+	meta_mod.set_test_storage(nil)
 
 	print(("PORT TESTS: %d passed, %d failed"):format(passed, failed))
 	return failed == 0

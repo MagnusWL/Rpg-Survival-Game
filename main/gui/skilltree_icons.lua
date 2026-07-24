@@ -10,4 +10,7 @@ return {
 	seagull = "nightswarm",
 	chainlightning = "chain",
 	swordthrow = "cleave",
+	drainlife = "soulharvest",
+	stomp = "gravevortex",
+	monsterzombie = "raisedead",
 }
