@@ -667,6 +667,37 @@ local function clear_route_grid(self)
 	self.route_grid_cards = {}
 end
 
+-- Where the painting lands on screen: as large as it can be while staying
+-- whole, because the map is meant to be read at a glance rather than
+-- scrolled around.
+local function route_map_rect()
+	local routemap = require("game.routemap")
+	local scale = math.min(W / routemap.art.w, H / routemap.art.h)
+	local w, h = routemap.art.w * scale, routemap.art.h * scale
+	return { x = (W - w) / 2, y = (H - h) / 2, w = w, h = h }
+end
+
+-- The drawing measures y downward from the top; the GUI measures it upward.
+local function route_point(rect, nx, ny)
+	return rect.x + nx * rect.w, rect.y + (1 - ny) * rect.h
+end
+
+-- A road he has already travelled, drawn brighter: both its ends are steps
+-- he took, one after the other.
+local function road_was_walked(s, road)
+	local h = s.route_history
+	for i = 1, #h - 1 do
+		if (h[i] == road.from and h[i + 1] == road.to)
+			or (h[i] == road.to and h[i + 1] == road.from) then return true end
+	end
+	return false
+end
+
+local function route_signature(s)
+	return ("%d:%d:%d:%s"):format(s.map_index, s.route_node or 1, #s.upgrades,
+		tostring(s.route_pending))
+end
+
 local function route_add(self, node)
 	ui.overlay(node)
 	self.route_grid_nodes[#self.route_grid_nodes + 1] = node
@@ -686,148 +717,97 @@ end
 local function build_route_grid(self, s)
 	clear_route_grid(self)
 	local sim = require("game.sim")
-	local current_row = sim.route_row(s)
+	local routemap = require("game.routemap")
+	local rect = route_map_rect()
 	local allowed = {}
-	for _, column in ipairs(sim.route_choices(s)) do allowed[column] = true end
-	local target_row = current_row == sim.MAPS_PER_ROUTE and 1 or current_row + 1
-	local xs = { W / 2 - 205, W / 2, W / 2 + 205 }
-	for row = 1, sim.MAPS_PER_ROUTE - 1 do
-		for from = 1, 3 do
-			for to = math.max(1, from - 1), math.min(3, from + 1) do
-				if route_node_exists(sim, row, from) and route_node_exists(sim, row + 1, to)
-					and (row ~= sim.MAPS_PER_ROUTE - 1 or to == 2) then
-					local line = route_add(self, ui.box(0, 0, 10, 2, { 0.30, 0.27, 0.22 }, 0.72))
-					local selected = s.route_history[row] == from and s.route_history[row + 1] == to
-					if selected then gui.set_color(line, vmath.vector4(0.95, 0.72, 0.25, 1)) end
-					self.route_grid_cards[#self.route_grid_cards + 1] = {
-						kind = "line", node = line, row = row, from = from, to = to, selected = selected,
-					}
-				end
-			end
+	for _, id in ipairs(sim.route_choices(s)) do allowed[id] = true end
+	local here = s.route_node or 1
+
+	-- The painting first, then the roads over it, then the places on top of
+	-- those: drawing order is depth here, and the map is read as a picture.
+	local bg = route_add(self, gui.new_box_node(
+		vmath.vector3(W / 2, H / 2, 0), vmath.vector3(rect.w, rect.h, 0)))
+	gui.set_texture(bg, "routemap")
+	gui.play_flipbook(bg, "world1")
+
+	-- Roads are chains of short segments, so a curve bends the way it was
+	-- drawn rather than being straightened into the nearest line.
+	for _, road in ipairs(routemap.roads) do
+		local walked = s.route_history and road_was_walked(s, road) or false
+		local pts = road.points
+		for i = 1, #pts - 3, 2 do
+			local x1, y1 = route_point(rect, pts[i], pts[i + 1])
+			local x2, y2 = route_point(rect, pts[i + 2], pts[i + 3])
+			local dx, dy = x2 - x1, y2 - y1
+			local seg = route_add(self, ui.box((x1 + x2) / 2, (y1 + y2) / 2,
+				math.sqrt(dx * dx + dy * dy) + 2, walked and 4 or 2,
+				walked and { 0.95, 0.72, 0.25 } or { 0.42, 0.47, 0.38 },
+				walked and 1 or 0.75))
+			gui.set_rotation(seg, vmath.quat_rotation_z(math.atan2(dy, dx)))
 		end
 	end
-	for row = 1, sim.MAPS_PER_ROUTE do
-		for column = 1, 3 do
-			local neutral = row == 1 and column == 2
-			local up = not neutral and sim.route_node_upgrade(s, row, column) or nil
-			local def = up and upgrades.DEFS[up.kind]
-			local box = route_add(self, ui.plaque_button(0, 0, 184, 76))
-			local icon = route_add(self, up
-				and atlas_icon("skilltree", upgrade_icons[up.kind], 0, 0, 28)
-				or ui.tex_box(0, 0, 18, 18, "circle"))
-			-- The opening's nodes are stages rather than places: stage 0 is
-			-- where the run opens, and the third is the awakening heart.
-			local opening_node = sim.is_opening_map(row)
-			local stage = sim.stage_of_map(row)
-			local place_text
-			if opening_node then
-				place_text = stage == 0 and "Stage 0"
-					or (stage == sim.OPENING_MAPS - 1 and "The Awakening Heart"
-						or ("Stage %d"):format(stage))
-			else
-				place_text = ROUTE_PLACE_NAMES[row][column]
-			end
-			local place = route_add(self, ui.text(0, 0, place_text,
-				10, { 0.94, 0.88, 0.74 }, gui.PIVOT_W))
-			local upgrade_name = route_add(self, ui.text(0, 0,
-				def and def.name or (opening_node and stage > 0 and "Gold and gear" or ""),
-				8, { 0.58, 0.78, 0.96 }, gui.PIVOT_W))
-			local description = route_add(self, ui.text(0, 0,
-				def and def.desc
-					or (opening_node and (stage == 0 and "Where the road begins"
-						or ("%d waves - the road in, before she wakes"):format(
-							sim.waves_in_map(row))) or ""),
-				6, { 0.70, 0.70, 0.68 }, gui.PIVOT_W))
-			gui.set_line_break(description, true)
-			gui.set_size(description, vmath.vector3(520, 110, 0))
-			-- The corner number counts stages, so stage 0 shows a 0 rather
-			-- than nothing: the player is standing on it.
-			local row_text = route_add(self, ui.text(0, 0, tostring(sim.stage_of_map(row)),
-				7, { 0.58, 0.64, 0.58 }))
-			local selected = s.route_history[row] == column
-			local reachable = s.route_pending and row == target_row and allowed[column]
-			-- Where the knight is standing right now: the last step taken.
-			-- A ring for now, so the road reads before his walking animation
-			-- exists; that animation replaces this marker, not the layout.
-			local here = selected and row == #s.route_history
-			local marker = here and route_add(self, ui.tex_box(0, 0, 26, 26, "ring")) or nil
-			if marker then gui.set_color(marker, vmath.vector4(0.98, 0.86, 0.42, 1)) end
-			gui.set_color(box, reachable and vmath.vector4(1, 1, 1, 1)
-				or (selected and vmath.vector4(0.95, 0.75, 0.35, 1) or vmath.vector4(0.48, 0.48, 0.48, 1)))
-			self.route_grid_cards[#self.route_grid_cards + 1] = {
-				kind = "node", row = row, column = column, x = xs[column],
-				box = box, icon = icon, place = place, upgrade_name = upgrade_name,
-				description = description, row_text = row_text, marker = marker,
-				reachable = reachable,
-				exists = route_node_exists(sim, row, column),
-			}
+
+	for id, node in ipairs(routemap.nodes) do
+		local x, y = route_point(rect, node.x, node.y)
+		local size = math.max(30, node.size * rect.w)
+		local up = sim.route_node_upgrade(s, id)
+		local def = up and upgrades.DEFS[up.kind]
+		local reachable = s.route_pending and allowed[id] or false
+		local visited = false
+		for _, seen_id in ipairs(s.route_history or {}) do
+			if seen_id == id then visited = true end
 		end
+
+		local ring = route_add(self, ui.tex_box(x, y, size + 8, size + 8, "ring"))
+		gui.set_color(ring, reachable and vmath.vector4(0.98, 0.90, 0.45, 1)
+			or (visited and vmath.vector4(0.95, 0.72, 0.25, 0.9)
+				or vmath.vector4(0.40, 0.44, 0.38, 0.75)))
+		local face = route_add(self, ui.tex_box(x, y, size, size, "circle"))
+		gui.set_color(face, reachable and vmath.vector4(0.16, 0.15, 0.10, 0.85)
+			or vmath.vector4(0.06, 0.07, 0.06, 0.7))
+		local icon = nil
+		if def then
+			icon = route_add(self, atlas_icon("skilltree", upgrade_icons[up.kind], x, y, size * 0.62))
+			ui.set_alpha(icon, reachable and 1 or 0.55)
+		end
+		-- Only what he can walk to is named, and the doorstep says so once.
+		local label = route_add(self, ui.text(x, y - size / 2 - 9,
+			reachable and (def and def.name or ("Stage %d"):format(node.stage)) or "",
+			8, { 0.94, 0.88, 0.74 }))
+		local marker = nil
+		if id == here then
+			marker = route_add(self, ui.tex_box(x, y + size / 2 + 10, 12, 12, "circle"))
+			gui.set_color(marker, vmath.vector4(0.98, 0.86, 0.42, 1))
+		end
+		self.route_grid_cards[#self.route_grid_cards + 1] = {
+			kind = "node", id = id, box = face, reachable = reachable,
+			ring = ring, icon = icon, label = label, marker = marker,
+		}
 	end
-	local view_h = H - ROUTE_VIEW_TOP_GAP - ROUTE_VIEW_BOTTOM
-	self.route_scroll = math.max(0, math.min((current_row - 2) * ROUTE_ROW_GAP,
-		(sim.MAPS_PER_ROUTE - 1) * ROUTE_ROW_GAP - view_h))
-	self.route_grid_signature = ("%d:%d:%d"):format(s.map_index, s.route_column, #s.upgrades)
+	self.route_grid_signature = route_signature(s)
 end
 
 -- Shadows the earlier compact route renderer: the current UI is the complete
 -- scrollable 3x10 grid.
 local function sync_route_map(self, s)
-	-- Two ways the map is up: the road read before the first wave (Start
-	-- closes it), and the choice at a checkpoint (a node closes it).
 	local visible = s.route_pending and not session.checkpoint_reward_open
 	for _, n in ipairs(self.route_nodes) do gui.set_enabled(n, visible) end
 	for _, n in ipairs(self.route_grid_nodes) do gui.set_enabled(n, visible) end
+	-- The painted map fills the screen, so the panel frame and the scrollbar
+	-- the ladder needed have nothing left to do.
+	for _, n in ipairs({ self.route_panel, self.route_scroll_track,
+		self.route_scroll_thumb, self.route_hint }) do gui.set_enabled(n, false) end
 	if not visible then return end
 	local sim = require("game.sim")
-	local signature = ("%d:%d:%d"):format(s.map_index, s.route_column, #s.upgrades)
-	if self.route_grid_signature ~= signature then build_route_grid(self, s) end
-	local chapter = math.floor((s.map_index - 1) / sim.MAPS_PER_ROUTE) + 1
-	-- Through the opening the road is single-file, so the map is read rather
-	-- than chosen from: press the next stage to walk to it.
+	if self.route_grid_signature ~= route_signature(s) then build_route_grid(self, s) end
+	local stage = sim.stage_of_map(s.map_index)
+	-- Through the opening there is only one way on, so the map is read
+	-- rather than chosen from.
 	local walking = sim.is_opening_map(s.map_index + 1)
 	gui.set_text(self.route_title, walking and "Your Road" or "Choose a Map")
-	gui.set_text(self.route_progress, ("Journey %d - Stage %d of %d - %s"):format(
-		chapter, sim.stage_of_map(s.map_index), sim.MAPS_PER_ROUTE - 1,
-		walking and "press the next stage to set out"
-			or "choose a connected upgrade"))
-	local top, bottom = H - ROUTE_VIEW_TOP_GAP, ROUTE_VIEW_BOTTOM
-	local xs = { W / 2 - 205, W / 2, W / 2 + 205 }
-	for _, entry in ipairs(self.route_grid_cards) do
-		if entry.kind == "line" then
-			local y1 = top - (entry.row - 1) * ROUTE_ROW_GAP + self.route_scroll
-			local y2 = top - entry.row * ROUTE_ROW_GAP + self.route_scroll
-			local x1, x2 = xs[entry.from], xs[entry.to]
-			local dx, dy = x2 - x1, y2 - y1
-			gui.set_position(entry.node, vmath.vector3((x1 + x2) / 2, (y1 + y2) / 2, 0))
-			gui.set_size(entry.node, vmath.vector3(math.sqrt(dx * dx + dy * dy), entry.selected and 4 or 2, 0))
-			gui.set_rotation(entry.node, vmath.quat_rotation_z(math.atan2(dy, dx)))
-			gui.set_enabled(entry.node, y1 >= bottom and y2 <= top)
-		else
-			local y = top - (entry.row - 1) * ROUTE_ROW_GAP + self.route_scroll
-			local shown = entry.exists and y >= bottom and y <= top
-			gui.set_position(entry.box, vmath.vector3(entry.x, y, 0))
-			gui.set_position(entry.icon, vmath.vector3(entry.x - 76, y + 12, 0))
-			gui.set_position(entry.place, vmath.vector3(entry.x - 56, y + 23, 0))
-			gui.set_position(entry.upgrade_name, vmath.vector3(entry.x - 56, y + 5, 0))
-			gui.set_position(entry.description, vmath.vector3(entry.x - 76, y - 15, 0))
-			gui.set_position(entry.row_text, vmath.vector3(entry.x + 78, y + 27, 0))
-			for _, n in ipairs({ entry.box, entry.icon, entry.place, entry.upgrade_name,
-				entry.description, entry.row_text }) do gui.set_enabled(n, shown) end
-			if entry.marker then
-				gui.set_position(entry.marker, vmath.vector3(entry.x + 78, y - 20, 0))
-				gui.set_enabled(entry.marker, shown)
-			end
-		end
-	end
-	local view_h = top - bottom
-	local content_h = (sim.MAPS_PER_ROUTE - 1) * ROUTE_ROW_GAP
-	local max_scroll = math.max(1, content_h - view_h)
-	local track_h = H - 150
-	local thumb_h = math.max(46, track_h * math.min(1, view_h / content_h))
-	local travel = track_h - thumb_h
-	gui.set_size(self.route_scroll_thumb, vmath.vector3(8, thumb_h, 0))
-	gui.set_position(self.route_scroll_thumb, vmath.vector3(W / 2 + 342,
-		H / 2 + travel / 2 - travel * (self.route_scroll / max_scroll), 0))
+	gui.set_text(self.route_progress, walking
+		and ("Stage %d - press the next place to set out"):format(stage)
+		or ("Stage %d - choose where the road goes"):format(stage))
 end
 
 local function sync_field(self, s)
@@ -1124,13 +1104,11 @@ function on_input(self, action_id, action)
 	if session.screen ~= "game" then return false end
 	local s = session.sim
 	if not s then return false end
+	-- The wheel scrolled the old ten-row ladder. The painted map is drawn
+	-- whole, so the wheel has nothing to move; the bindings stay in case the
+	-- world grows past one screenful.
 	if s.route_pending and not session.checkpoint_reward_open
 		and (action_id == hash("route_scroll_up") or action_id == hash("route_scroll_down")) then
-		local sim = require("game.sim")
-		local view_h = H - ROUTE_VIEW_TOP_GAP - ROUTE_VIEW_BOTTOM
-		local max_scroll = math.max(0, (sim.MAPS_PER_ROUTE - 1) * ROUTE_ROW_GAP - view_h)
-		local delta = action_id == hash("route_scroll_down") and 72 or -72
-		self.route_scroll = math.max(0, math.min(max_scroll, self.route_scroll + delta))
 		return true
 	end
 	if action_id ~= hash("touch") then return false end
@@ -1183,24 +1161,17 @@ function on_input(self, action_id, action)
 	if s.route_pending then
 		local sim = require("game.sim")
 		if action.pressed then
-			self.route_drag_y = action.y
 			for _, entry in ipairs(self.route_grid_cards) do
-				if entry.kind == "node" and entry.reachable
-					and gui.is_enabled(entry.box) and gui.pick_node(entry.box, action.x, action.y) then
-					self.route_drag_y = nil
-					sim.choose_route(s, entry.column)
+				-- The ring is the generous part of the target, so a place is
+				-- easy to hit at the size the whole world is drawn at.
+				if entry.reachable and gui.is_enabled(entry.ring)
+					and gui.pick_node(entry.ring, action.x, action.y) then
+					sim.choose_route(s, entry.id)
 					self.route_grid_signature = nil
+					if session.actions then session.actions.menu_press() end
 					return true
 				end
 			end
-		elseif self.route_drag_y and not action.released then
-			local dy = action.y - self.route_drag_y
-			self.route_drag_y = action.y
-			local view_h = H - ROUTE_VIEW_TOP_GAP - ROUTE_VIEW_BOTTOM
-			local max_scroll = math.max(0, (sim.MAPS_PER_ROUTE - 1) * ROUTE_ROW_GAP - view_h)
-			self.route_scroll = math.max(0, math.min(max_scroll, self.route_scroll - dy))
-		elseif action.released then
-			self.route_drag_y = nil
 		end
 		return true
 	end

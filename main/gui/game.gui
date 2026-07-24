@@ -12,6 +12,10 @@ textures {
   texture: "/main/tiles/skilltree.atlas"
 }
 textures {
+  name: "routemap"
+  texture: "/main/tiles/routemap_world1.atlas"
+}
+textures {
   name: "zombie_walk"
   texture: "/main/tiles/zombie_walk.tilesource"
 }

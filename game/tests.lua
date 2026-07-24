@@ -313,12 +313,19 @@ function M.run()
 	check("player survived wave 1", s.player.hp > 0)
 	check("no upgrade offer on a non-boss wave", #s.pending_upgrade_offers == 0)
 
-	-- Every fifth wave opens the route grid; selecting a connected map grants
-	-- that node's upgrade instead of showing a separate three-card choice.
+	-- Clearing a map's last wave opens the drawn world map; walking to a place
+	-- grants what that place holds.
+	local routemap = require("game.routemap")
+	-- The first place past the awakening heart: five waves wide, and the
+	-- roads out of it fork again. The opening has its own block below.
+	local past_heart
+	for id, node in ipairs(routemap.nodes) do
+		if node.stage == sim.OPENING_MAPS and not past_heart then past_heart = id end
+	end
 	local milestone = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	milestone.player.intro_phase = "done"
-	-- Start past the opening, where maps are the usual five waves wide and
-	-- the road forks again. The opening has its own block further down.
+	milestone.route_node = past_heart
+	milestone.route_history = { past_heart }
 	milestone.map_index = sim.OPENING_MAPS + 1
 	milestone.wave = sim.map_last_wave(milestone.map_index)
 	milestone.loot_owed = { milestone.wave }
@@ -338,14 +345,16 @@ function M.run()
 	check("checkpoint reward emitted exactly once", checkpoint_events == 1)
 	check("reward past the opening carries no opening flag", opening_flag == false)
 	check("route blocks next map", not sim.can_start_next_wave(milestone))
-	check("route past the opening offers three paths", sim.route_choice_count(milestone) == 3)
+	check("the road past the heart forks", sim.route_choice_count(milestone) >= 2)
 	milestone.allies = { { id = 99 } }
 	milestone.player.hp = 1
 	milestone.abilities[1].cooldown = 9
 	local upgrades_before_route = #milestone.upgrades
 	local map_before_route = milestone.map_index
-	check("choosing route advances map", sim.choose_route(milestone, 2)
-		and milestone.map_index == map_before_route + 1 and not milestone.route_pending)
+	local step_to = sim.route_choices(milestone)[1]
+	check("walking a road advances the stage", sim.choose_route(milestone, step_to)
+		and milestone.map_index == map_before_route + 1 and not milestone.route_pending
+		and milestone.route_node == step_to)
 	check("chosen map grants its upgrade", #milestone.upgrades == upgrades_before_route + 1)
 	check("new map resets combat field", #milestone.allies == 0
 		and milestone.player.hp == milestone.player.max_hp
@@ -356,15 +365,21 @@ function M.run()
 	milestone.wave_countdown = nil
 	check("new map can launch", sim.start_next_wave(milestone)
 		and milestone.wave == milestone_wave + 1 and sim.local_wave(milestone) == 1)
-	local converging = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
-	converging.map_index = 8
-	converging.route_pending = true
-	converging.route_column = 1
-	check("left edge cannot jump to right", sim.route_choice_count(converging) == 2
-		and not sim.choose_route(converging, 3))
-	converging.map_index = 9
-	check("route ends in centre choice", sim.route_choice_count(converging) == 1
-		and sim.route_choices(converging)[1] == 2)
+	-- Only roads that exist may be walked, and only forward ones.
+	local edge = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	edge.route_node = past_heart
+	edge.map_index = sim.OPENING_MAPS + 1
+	edge.route_pending = true
+	local reachable_here = {}
+	for _, c in ipairs(sim.route_choices(edge)) do reachable_here[c] = true end
+	local unreachable
+	for id = 1, #routemap.nodes do
+		if not reachable_here[id] and id ~= past_heart and not unreachable then unreachable = id end
+	end
+	check("a place with no road from here cannot be walked to",
+		not sim.choose_route(edge, unreachable))
+	check("the drawn world ends where the drawing does",
+		not sim.route_has_next({ route_node = #routemap.nodes }))
 
 	-- The opening: stage 0 is a doorstep, stages 1-3 are three short maps in
 	-- a single file, and they pay gold and gear only.
@@ -385,11 +400,10 @@ function M.run()
 	opening.route_pending = true
 	check("the run opens on stage zero", opening.map_index == 1 and opening.wave == 0)
 	check("nothing launches while the road is up", not sim.can_start_next_wave(opening))
-	check("opening road is single file", sim.route_choice_count(opening) == 1
-		and sim.route_choices(opening)[1] == opening.route_column)
+	check("opening road is single file", sim.route_choice_count(opening) == 1)
 	local upgrades_before_opening = #opening.upgrades
 	check("pressing stage one sets out",
-		sim.choose_route(opening, opening.route_column) and opening.map_index == 2)
+		sim.choose_route(opening, sim.route_choices(opening)[1]) and opening.map_index == 2)
 	check("setting out grants no upgrade card",
 		#opening.upgrades == upgrades_before_opening)
 	opening.wave_countdown = nil
@@ -411,11 +425,14 @@ function M.run()
 
 	-- Past the heart the road opens up again and pays cards as before.
 	local awakened = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	awakened.route_node = 4
+	awakened.route_history = { 4 }
 	awakened.map_index = sim.OPENING_MAPS
 	awakened.route_pending = true
-	check("the fork returns after the heart", sim.route_choice_count(awakened) == 3)
+	check("the heart offers three ways on", sim.route_choice_count(awakened) == 3)
 	local cards_before = #awakened.upgrades
-	check("stepping past the heart advances", sim.choose_route(awakened, 2))
+	check("stepping past the heart advances",
+		sim.choose_route(awakened, sim.route_choices(awakened)[1]))
 	check("the first map past the heart pays a card",
 		#awakened.upgrades == cards_before + 1)
 

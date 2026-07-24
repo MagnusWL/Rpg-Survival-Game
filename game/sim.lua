@@ -7,6 +7,9 @@ local combat = require("game.combat")
 local skills = require("game.skills")
 local upgrades = require("game.upgrades")
 local inventory = require("game.inventory")
+-- The world as Nicolai drew it: places and the roads between them, read out
+-- of the guide by tools/build-routemap.mjs.
+local routemap = require("game.routemap")
 
 local M = {}
 
@@ -81,10 +84,19 @@ local function next_id(kind)
 	return id_counters[kind]
 end
 
-local function make_route_grid(start_wave)
+-- One upgrade per place on the drawn map. Nodes that share a stage are rolled
+-- together so the three roads out of a fork offer three different things,
+-- which is what made the old row of cards worth choosing between.
+local function make_route_grid()
+	local by_stage = {}
+	for i, node in ipairs(routemap.nodes) do
+		by_stage[node.stage] = by_stage[node.stage] or {}
+		table.insert(by_stage[node.stage], i)
+	end
 	local grid = {}
-	for row = 1, M.MAPS_PER_ROUTE do
-		grid[row] = upgrades.roll_offers((start_wave or 0) + (row - 1) * M.UPGRADE_EVERY_WAVES)
+	for stage, ids in pairs(by_stage) do
+		local offers = upgrades.roll_offers(stage * M.UPGRADE_EVERY_WAVES)
+		for k, id in ipairs(ids) do grid[id] = offers[((k - 1) % #offers) + 1] end
 	end
 	return grid
 end
@@ -112,11 +124,14 @@ function M.new(game_state, opts)
 		skill_xp = opts.skill_xp or {},
 		wave = game_state.wave,
 		map_index = game_state.map_index or math.floor((game_state.wave or 0) / M.UPGRADE_EVERY_WAVES) + 1,
+		-- Where the knight stands on the drawn map, as an index into
+		-- routemap.nodes. A save from before the map existed carries column
+		-- numbers in its history, which mean nothing here, so it starts over
+		-- on the doorstep rather than being read as a place.
+		route_node = game_state.route_node or 1,
+		route_history = game_state.route_node and game_state.route_history or { 1 },
 		route_column = (game_state.route_column and game_state.route_column >= 1) and game_state.route_column or 2,
-		route_history = game_state.route_history or { 2 },
-		route_grid = game_state.route_grid or make_route_grid(
-			math.floor((game_state.wave or 0) / (M.MAPS_PER_ROUTE * M.UPGRADE_EVERY_WAVES))
-				* M.MAPS_PER_ROUTE * M.UPGRADE_EVERY_WAVES),
+		route_grid = game_state.route_grid or make_route_grid(),
 		route_pending = game_state.route_pending or game_state.upgrade_owed or false,
 		mobs = {},
 		allies = {},
@@ -182,6 +197,7 @@ function M.make_save(s)
 		abilities = s.abilities,
 		upgrades = s.upgrades,
 		map_index = s.map_index,
+		route_node = s.route_node,
 		route_column = s.route_column,
 		route_history = s.route_history,
 		route_grid = s.route_grid,
@@ -599,27 +615,38 @@ function M.route_row(s)
 	return ((s.map_index - 1) % M.MAPS_PER_ROUTE) + 1
 end
 
+-- Which places the knight can walk to from where he stands: the ones a road
+-- reaches that lie one stage further on. The drawing decides -- a single file
+-- through the opening, three ways out of the awakening heart, crossings after
+-- that -- so the shape of the journey is redrawn, never recoded.
 function M.route_choices(s)
-	local row = M.route_row(s)
-	-- The opening road is single-file: the map being stepped onto is still
-	-- part of it, so there is nothing to choose but forward.
-	if M.is_opening_map(s.map_index + 1) then return { s.route_column } end
-	if row == M.MAPS_PER_ROUTE then return { 1, 2, 3 } end
-	if row == M.MAPS_PER_ROUTE - 1 then return { 2 } end
+	local here = s.route_node or 1
+	local node = routemap.nodes[here]
+	if not node then return {} end
 	local out = {}
-	for column = math.max(1, s.route_column - 1), math.min(3, s.route_column + 1) do
-		out[#out + 1] = column
+	for _, road in ipairs(routemap.roads) do
+		local other = (road.from == here and road.to)
+			or (road.to == here and road.from) or nil
+		local n = other and routemap.nodes[other]
+		if n and n.stage == node.stage + 1 then out[#out + 1] = other end
 	end
+	table.sort(out)
 	return out
 end
 
+-- The world ends where the drawing ends: when no road leads on, there is no
+-- map to open and the waves simply keep coming.
+function M.route_has_next(s) return #M.route_choices(s) > 0 end
+
 function M.route_choice_count(s) return #M.route_choices(s) end
 
-function M.route_node_upgrade(s, row, column)
-	-- Opening maps hold no upgrade, so the node face names the stage instead
-	-- of a card and the road reads as a road rather than a shop.
-	if M.is_opening_map(row) and s.map_index <= M.MAPS_PER_ROUTE then return nil end
-	return s.route_grid and s.route_grid[row] and s.route_grid[row][column] or nil
+-- What a place on the map pays when the knight arrives. Opening places hold
+-- nothing, so their faces name the stage instead of a card and the road
+-- reads as a road rather than a shop.
+function M.route_node_upgrade(s, node_id)
+	local node = routemap.nodes[node_id]
+	if not node or M.is_opening_map(node.stage + 1) then return nil end
+	return s.route_grid and s.route_grid[node_id] or nil
 end
 
 local function reset_map_field(s)
@@ -654,24 +681,22 @@ local function reset_map_field(s)
 	s.footstep_step = nil
 end
 
-function M.choose_route(s, target_column)
+function M.choose_route(s, target_node)
 	if not s.route_pending then return false end
 	local allowed = false
-	for _, column in ipairs(M.route_choices(s)) do
-		if column == target_column then allowed = true break end
+	for _, id in ipairs(M.route_choices(s)) do
+		if id == target_node then allowed = true break end
 	end
 	if not allowed then return false end
-	local current_row = M.route_row(s)
-	local target_row = current_row == M.MAPS_PER_ROUTE and 1 or current_row + 1
-	-- Stepping onto an opening map earns no upgrade card: those begin with
-	-- the awakening. The grid leaves those nodes empty to say so.
-	local picked = M.route_node_upgrade(s, target_row, target_column)
-	if picked and not M.is_opening_map(s.map_index + 1) then
-		s.upgrades[#s.upgrades + 1] = picked
-	end
-	s.route_history[#s.route_history + 1] = target_column
-	s.route_column = target_column
-	s.map_index = s.map_index + 1
+	-- Stepping onto an opening place earns no upgrade card: those begin with
+	-- the awakening. The map leaves those nodes empty to say so.
+	local picked = M.route_node_upgrade(s, target_node)
+	if picked then s.upgrades[#s.upgrades + 1] = picked end
+	s.route_history[#s.route_history + 1] = target_node
+	s.route_node = target_node
+	-- The stage is the drawing's, and the map index trails it by one, so all
+	-- the wave arithmetic keeps counting the way it always has.
+	s.map_index = routemap.nodes[target_node].stage + 1
 	s.route_pending = false
 	reset_map_field(s)
 	s.wave_countdown = M.WAVE_COUNTDOWN
@@ -1653,12 +1678,9 @@ function M.update(s, dt)
 				wave_just_cleared = true
 				s.highest_wave_cleared = math.max(s.highest_wave_cleared, w)
 				if w == M.map_last_wave(s.map_index) then
-					if M.route_row(s) == M.MAPS_PER_ROUTE then
-						s.route_grid = make_route_grid(w)
-						s.route_history = {}
-						s.route_column = 2
-					end
-					s.route_pending = true
+					-- Only open the map if the drawing leads anywhere from
+					-- here; past the last place the waves just keep coming.
+					s.route_pending = M.route_has_next(s)
 					-- The opening pays gold and gear only; the skill point
 					-- waits for the heart, and so does the skill tree.
 					emit(s, { type = "checkpoint_reward", wave = w,
