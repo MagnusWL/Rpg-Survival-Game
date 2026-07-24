@@ -317,37 +317,45 @@ function M.run()
 	-- that node's upgrade instead of showing a separate three-card choice.
 	local milestone = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	milestone.player.intro_phase = "done"
-	milestone.wave = 5
-	milestone.loot_owed = { 5 }
-	check("wave 5 blocks wave 6", not sim.start_next_wave(milestone) and milestone.wave == 5)
+	-- Start past the opening, where maps are the usual five waves wide and
+	-- the road forks again. The opening has its own block further down.
+	milestone.map_index = sim.OPENING_MAPS + 1
+	milestone.wave = sim.map_last_wave(milestone.map_index)
+	milestone.loot_owed = { milestone.wave }
+	local milestone_wave = milestone.wave
+	check("closing wave blocks the next", not sim.start_next_wave(milestone)
+		and milestone.wave == milestone_wave)
 	sim.update(milestone, 0.5)
 	check("checkpoint opens route immediately", milestone.route_pending
 		and #milestone.pending_upgrade_offers == 0 and milestone.upgrade_offer_timer == nil)
-	local checkpoint_events = 0
+	local checkpoint_events, opening_flag = 0, nil
 	for _, ev in ipairs(sim.take_events(milestone)) do
-		if ev.type == "checkpoint_reward" and ev.wave == 5 then
+		if ev.type == "checkpoint_reward" and ev.wave == milestone_wave then
 			checkpoint_events = checkpoint_events + 1
+			opening_flag = ev.opening
 		end
 	end
 	check("checkpoint reward emitted exactly once", checkpoint_events == 1)
+	check("reward past the opening carries no opening flag", opening_flag == false)
 	check("route blocks next map", not sim.can_start_next_wave(milestone))
-	check("early route offers three paths", sim.route_choice_count(milestone) == 3)
+	check("route past the opening offers three paths", sim.route_choice_count(milestone) == 3)
 	milestone.allies = { { id = 99 } }
 	milestone.player.hp = 1
 	milestone.abilities[1].cooldown = 9
 	local upgrades_before_route = #milestone.upgrades
+	local map_before_route = milestone.map_index
 	check("choosing route advances map", sim.choose_route(milestone, 2)
-		and milestone.map_index == 2 and not milestone.route_pending)
+		and milestone.map_index == map_before_route + 1 and not milestone.route_pending)
 	check("chosen map grants its upgrade", #milestone.upgrades == upgrades_before_route + 1)
 	check("new map resets combat field", #milestone.allies == 0
 		and milestone.player.hp == milestone.player.max_hp
 		and milestone.abilities[1].cooldown == 0
 		and milestone.player.intro_phase == "enter")
-	check("completed map remains on local wave five", sim.local_wave(milestone) == 5
-		and ((milestone.wave) % sim.UPGRADE_EVERY_WAVES) == 0)
+	check("completed map remains on its closing wave",
+		milestone.wave == sim.map_last_wave(map_before_route))
 	milestone.wave_countdown = nil
 	check("new map can launch", sim.start_next_wave(milestone)
-		and milestone.wave == 6 and sim.local_wave(milestone) == 1)
+		and milestone.wave == milestone_wave + 1 and sim.local_wave(milestone) == 1)
 	local converging = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	converging.map_index = 8
 	converging.route_pending = true
@@ -357,6 +365,49 @@ function M.run()
 	converging.map_index = 9
 	check("route ends in centre choice", sim.route_choice_count(converging) == 1
 		and sim.route_choices(converging)[1] == 2)
+
+	-- The opening: three short maps, single file, paying gold and gear only.
+	check("opening maps are three waves", sim.waves_in_map(1) == 3
+		and sim.waves_in_map(sim.OPENING_MAPS) == 3)
+	check("maps after the opening are five waves",
+		sim.waves_in_map(sim.OPENING_MAPS + 1) == sim.UPGRADE_EVERY_WAVES)
+	check("the heart is won on wave nine", sim.map_last_wave(sim.OPENING_MAPS) == 9)
+	check("first map closes on wave three", sim.map_last_wave(1) == 3)
+
+	local opening = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	opening.player.intro_phase = "done"
+	opening.wave = 3
+	opening.loot_owed = { 3 }
+	check("third wave closes the first map", not sim.start_next_wave(opening)
+		and opening.wave == 3)
+	sim.update(opening, 0.5)
+	local opening_flagged = false
+	for _, ev in ipairs(sim.take_events(opening)) do
+		if ev.type == "checkpoint_reward" and ev.wave == 3 then
+			opening_flagged = ev.opening == true
+		end
+	end
+	check("opening checkpoint says it is the opening", opening_flagged)
+	check("opening road is single file", sim.route_choice_count(opening) == 1
+		and sim.route_choices(opening)[1] == opening.route_column)
+	local upgrades_before_opening = #opening.upgrades
+	check("stepping through the opening advances the map",
+		sim.choose_route(opening, opening.route_column) and opening.map_index == 2)
+	check("opening grants no upgrade card",
+		#opening.upgrades == upgrades_before_opening)
+	opening.wave_countdown = nil
+	check("second map starts at its own first wave", sim.start_next_wave(opening)
+		and opening.wave == 4 and sim.local_wave(opening) == 1)
+
+	-- Past the heart the road opens up again and pays cards as before.
+	local awakened = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
+	awakened.map_index = sim.OPENING_MAPS
+	awakened.route_pending = true
+	check("the fork returns after the heart", sim.route_choice_count(awakened) == 3)
+	local cards_before = #awakened.upgrades
+	check("stepping past the heart advances", sim.choose_route(awakened, 2))
+	check("the first map past the heart pays a card",
+		#awakened.upgrades == cards_before + 1)
 
 	-- sim: movement is withheld until an offer is answered, then resumes.
 	-- Boss waves are what queue offers; inject one here to drive the flow.

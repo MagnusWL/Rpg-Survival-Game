@@ -41,8 +41,13 @@ function update(self, dt)
 		for i, run in ipairs(sorted) do
 			local y = H - 130 - (i - 1) * 64
 			local box = ui.box(W / 2, y, W - 40, 56, { 0.14, 0.14, 0.24 }, 1)
-			local local_wave = (run.wave or 0) > 0 and (((run.wave or 0) - 1) % 5) + 1 or 1
+			-- Maps are not all the same length any more (the opening's three
+			-- are short), so ask the sim where a wave sits rather than
+			-- dividing by a constant that no longer holds everywhere.
+			local sim = require("game.sim")
 			local map_index = run.map_index or math.floor((run.wave or 0) / 5) + 1
+			local local_wave = (run.wave or 0) > 0
+				and sim.local_wave({ map_index = map_index, wave = run.wave }) or 1
 			local title = ui.text(W / 2 - (W - 60) / 2, y + 10,
 				("Map %d - Wave %d"):format(map_index, local_wave), 14, { 1, 1, 1 }, gui.PIVOT_W)
 			local sub = ui.text(W / 2 - (W - 60) / 2, y - 12,

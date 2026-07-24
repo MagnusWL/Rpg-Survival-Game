@@ -636,7 +636,8 @@ local function sync_route_map_legacy(self, s)
 		gui.set_enabled(self.route_merge_lines[i], enabled)
 		if enabled then
 			gui.set_text(card.label, count == 1 and "Final Path" or names[i])
-			gui.set_text(card.sub, ("Map %d  ·  Waves 1-5"):format(s.map_index + 1))
+			gui.set_text(card.sub, ("Map %d  ·  Waves 1-%d"):format(s.map_index + 1,
+				sim.waves_in_map(s.map_index + 1)))
 		end
 	end
 	gui.set_text(self.route_final_text, chapter_pos >= 8 and "The paths are converging"
@@ -705,9 +706,14 @@ local function build_route_grid(self, s)
 				or ui.tex_box(0, 0, 18, 18, "circle"))
 			local place = route_add(self, ui.text(0, 0, neutral and "" or ROUTE_PLACE_NAMES[row][column],
 				10, { 0.94, 0.88, 0.74 }, gui.PIVOT_W))
-			local upgrade_name = route_add(self, ui.text(0, 0, def and def.name or "",
+			-- Opening maps carry no upgrade card, so their faces say what they
+			-- do pay instead of standing blank.
+			local opening_node = not neutral and sim.is_opening_map(row)
+			local upgrade_name = route_add(self, ui.text(0, 0,
+				def and def.name or (opening_node and "Gold and gear" or ""),
 				8, { 0.58, 0.78, 0.96 }, gui.PIVOT_W))
-			local description = route_add(self, ui.text(0, 0, def and def.desc or "",
+			local description = route_add(self, ui.text(0, 0,
+				def and def.desc or (opening_node and "The road in, before she wakes" or ""),
 				6, { 0.70, 0.70, 0.68 }, gui.PIVOT_W))
 			gui.set_line_break(description, true)
 			gui.set_size(description, vmath.vector3(520, 110, 0))
@@ -743,8 +749,10 @@ local function sync_route_map(self, s)
 	local signature = ("%d:%d:%d"):format(s.map_index, s.route_column, #s.upgrades)
 	if self.route_grid_signature ~= signature then build_route_grid(self, s) end
 	local chapter = math.floor((s.map_index - 1) / sim.MAPS_PER_ROUTE) + 1
-	gui.set_text(self.route_progress, ("Journey %d - Map %d of %d - choose a connected upgrade"):format(
-		chapter, sim.route_row(s), sim.MAPS_PER_ROUTE))
+	gui.set_text(self.route_progress, ("Journey %d - Map %d of %d - %s"):format(
+		chapter, sim.route_row(s), sim.MAPS_PER_ROUTE,
+		sim.is_opening_map(s.map_index + 1) and "the road leads on"
+			or "choose a connected upgrade"))
 	local top, bottom = H - ROUTE_VIEW_TOP_GAP, ROUTE_VIEW_BOTTOM
 	local xs = { W / 2 - 205, W / 2, W / 2 + 205 }
 	for _, entry in ipairs(self.route_grid_cards) do

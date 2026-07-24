@@ -154,10 +154,15 @@ function M.equip_reward()
 	return true
 end
 
-function M.grant_checkpoint_reward(wave)
+-- opening: the first three maps, before the princess wakes. They pay gold and
+-- gear only -- a skill point would have nowhere to go, since the skill tree
+-- opens with the awakening heart.
+function M.grant_checkpoint_reward(wave, opening)
 	M.prepare_reward(wave)
 	M.meta.gold = (M.meta.gold or 0) + 10
-	M.meta.skill_points = (M.meta.skill_points or 0) + 1
+	if not opening then
+		M.meta.skill_points = (M.meta.skill_points or 0) + 1
+	end
 	M.checkpoint_reward_open = true
 	M.commit_meta(M.meta)
 end

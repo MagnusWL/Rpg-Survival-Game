@@ -155,7 +155,7 @@ function update(self, dt)
 		elseif ev.type == "game_over" then
 			session.game_over_shown = true
 		elseif ev.type == "checkpoint_reward" then
-			session.grant_checkpoint_reward(ev.wave)
+			session.grant_checkpoint_reward(ev.wave, ev.opening)
 		elseif ev.type == "skill_progress" then
 			session.apply_skill_progress(ev.skill, ev.level, ev.xp)
 		elseif ev.type == "coins" then

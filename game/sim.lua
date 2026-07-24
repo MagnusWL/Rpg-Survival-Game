@@ -22,6 +22,41 @@ M.UPGRADE_EVERY_WAVES = 5
 M.UPGRADE_REVEAL_DELAY = 1
 M.MAPS_PER_ROUTE = 10
 
+-- The opening: the road in before the princess wakes.
+--
+-- The first three maps are the story's beginning, so they are shorter and
+-- narrower than the rest -- three waves each, no fork in the road -- and they
+-- pay in gold and gear only. Skill points and upgrade cards are held back
+-- until the awakening heart is won on map three, which is also the first
+-- moment the player has a skill tree to spend a point in.
+M.OPENING_MAPS = 3
+M.OPENING_WAVES_PER_MAP = 3
+
+-- How long a given map is. Everything else derives from this, so a map's
+-- length is stated in exactly one place.
+function M.waves_in_map(map_index)
+	return map_index <= M.OPENING_MAPS and M.OPENING_WAVES_PER_MAP or M.UPGRADE_EVERY_WAVES
+end
+
+-- Waves cleared before a map begins. Derived from map_index rather than
+-- stored, so old saves keep working and nothing can drift out of step.
+function M.waves_before_map(map_index)
+	local total = 0
+	for m = 1, map_index - 1 do total = total + M.waves_in_map(m) end
+	return total
+end
+
+-- The wave number that completes a map -- the checkpoint.
+function M.map_last_wave(map_index)
+	return M.waves_before_map(map_index) + M.waves_in_map(map_index)
+end
+
+-- Whether this map belongs to the opening, and so withholds the skill point
+-- and the upgrade card.
+function M.is_opening_map(map_index)
+	return map_index <= M.OPENING_MAPS
+end
+
 -- Measured clip lead times (assets/sounds/leads.json): how early each clip
 -- must start so its loudest moment lands on the frame it belongs to.
 M.CLIP_LEAD = {
@@ -539,15 +574,16 @@ end
 
 function M.can_start_next_wave(s)
 	if s.game_over or s.route_pending or s.upgrade_offer_timer ~= nil or #s.pending_upgrade_offers > 0 then return false end
+	local closing = M.map_last_wave(s.map_index)
 	for _, wave in ipairs(s.loot_owed) do
-		if wave % M.UPGRADE_EVERY_WAVES == 0 then return false end
+		if wave == closing then return false end
 	end
 	return true
 end
 
 function M.local_wave(s)
 	if s.wave <= 0 then return 0 end
-	return ((s.wave - 1) % M.UPGRADE_EVERY_WAVES) + 1
+	return s.wave - M.waves_before_map(s.map_index)
 end
 
 function M.route_row(s)
@@ -556,6 +592,9 @@ end
 
 function M.route_choices(s)
 	local row = M.route_row(s)
+	-- The opening road is single-file: the map being stepped onto is still
+	-- part of it, so there is nothing to choose but forward.
+	if M.is_opening_map(s.map_index + 1) then return { s.route_column } end
 	if row == M.MAPS_PER_ROUTE then return { 1, 2, 3 } end
 	if row == M.MAPS_PER_ROUTE - 1 then return { 2 } end
 	local out = {}
@@ -568,6 +607,9 @@ end
 function M.route_choice_count(s) return #M.route_choices(s) end
 
 function M.route_node_upgrade(s, row, column)
+	-- Opening maps hold no upgrade, so the card face stays blank there and
+	-- the map reads as a road rather than a shop.
+	if M.is_opening_map(row) and s.map_index <= M.MAPS_PER_ROUTE then return nil end
 	return s.route_grid and s.route_grid[row] and s.route_grid[row][column] or nil
 end
 
@@ -612,8 +654,12 @@ function M.choose_route(s, target_column)
 	if not allowed then return false end
 	local current_row = M.route_row(s)
 	local target_row = current_row == M.MAPS_PER_ROUTE and 1 or current_row + 1
+	-- Stepping onto an opening map earns no upgrade card: those begin with
+	-- the awakening. The grid leaves those nodes empty to say so.
 	local picked = M.route_node_upgrade(s, target_row, target_column)
-	if picked then s.upgrades[#s.upgrades + 1] = picked end
+	if picked and not M.is_opening_map(s.map_index + 1) then
+		s.upgrades[#s.upgrades + 1] = picked
+	end
 	s.route_history[#s.route_history + 1] = target_column
 	s.route_column = target_column
 	s.map_index = s.map_index + 1
@@ -1597,14 +1643,17 @@ function M.update(s, dt)
 			if done_spawning and not any_alive then
 				wave_just_cleared = true
 				s.highest_wave_cleared = math.max(s.highest_wave_cleared, w)
-				if w % M.UPGRADE_EVERY_WAVES == 0 then
+				if w == M.map_last_wave(s.map_index) then
 					if M.route_row(s) == M.MAPS_PER_ROUTE then
 						s.route_grid = make_route_grid(w)
 						s.route_history = {}
 						s.route_column = 2
 					end
 					s.route_pending = true
-					emit(s, { type = "checkpoint_reward", wave = w })
+					-- The opening pays gold and gear only; the skill point
+					-- waits for the heart, and so does the skill tree.
+					emit(s, { type = "checkpoint_reward", wave = w,
+						opening = M.is_opening_map(s.map_index) })
 				end
 				grant_wave_clear_xp(s)
 			else
