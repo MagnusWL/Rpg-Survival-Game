@@ -12,3 +12,29 @@ Thumbs.db
 /.editor_settings
 /.internal
 /build
+/project.shared_editor_settings
+
+# --- The fence around the workshop ------------------------------------
+# Raw source material, kept out of the history: Raw_Assets/ is the human
+# inbox (Nicolai drops raw art in Grafik/, sound in Lyde/, tracks in
+# Music/) and the mills in tools/ read from here and write game-ready
+# files into assets/. It is 1.9 GB and nothing raw may enter the repo.
+#
+# Anchored with a leading slash on purpose: without it these match at any
+# depth, and a bare "Music/" pattern would swallow assets/music/ as well.
+/Raw_Assets/
+
+# Node lives here for the mills only; the game does not ship it.
+node_modules/
+.expo/
+
+# Generated tuning pages -- rebuilt by the build:eq and build:rain mills,
+# and they embed the audio and the ground, so versioning them is pointless.
+tools/eq-preview.html
+tools/rain-preview.html
+
+# Recordings are mill intermediates: regenerable from the harness pages.
+/tools/recordings/
+
+# Local-only archive: never in git; the tracked arkiv/ entries are enough.
+/arkiv/lokalt/

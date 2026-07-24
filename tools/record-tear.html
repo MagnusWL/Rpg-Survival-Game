@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<!--
+  Films the RESCUE HER tear once, on a virtual clock.
+
+  The kit's own engine draws every frame - nothing is reimplemented - but
+  performance.now, Date.now and requestAnimationFrame are replaced before it
+  is constructed, so time only moves when this page says so. That makes the
+  recording deterministic (the engine seeds its dice from Date.now, which is
+  pinned) and immune to tab throttling: even a hidden tab records perfectly,
+  because nothing here waits for real frames.
+
+  Geometry matches the Defold port's menu exactly (the kit's own layout
+  fractions on a 390x844 screen), so the frames drop onto the plaque with no
+  scaling at all.
+
+  Serve with: node tools/record-server.mjs, open /tools/record-tear.html
+-->
+<body style="background:#111;color:#ddd;font-family:monospace">
+<div id="log">starter...</div>
+<canvas id="c" style="border:1px solid #333"></canvas>
+<script type="module">
+  const log = (m) => { document.getElementById('log').textContent = m; };
+
+  // --- The virtual clock, installed before the engine exists --------------
+  let vnow = 0;
+  const rafQueue = [];
+  performance.now = () => vnow;
+  Date.now = () => 1700000000000; // pinned: the engine seeds its dice from this
+  window.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  window.cancelAnimationFrame = () => {};
+  const pump = () => { const q = rafQueue.splice(0); for (const cb of q) cb(vnow); };
+
+  const { RescueTearButton } = await import('/vendor/rescue-tear/rescue-tear-button.js');
+
+  // --- The port's own geometry: 390x844, the kit's layout fractions -------
+  const W = 390, H = 844;
+  const BUTTON_TOP = 474 / 675, BUTTON_WIDTH = 322 / 380, BUTTON_ASPECT = 322 / 115;
+  const bw = W * BUTTON_WIDTH;
+  const bh = bw / BUTTON_ASPECT;
+  const button = { x: (W - bw) / 2, y: H * BUTTON_TOP, w: bw, h: bh };
+
+  const canvas = document.getElementById('c');
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = W / 2 + 'px'; // just the on-page preview; capture is 1:1
+
+  const tear = new RescueTearButton({
+    canvas,
+    buttonSrc: '/assets/sprites/menu/button.png',
+    mode: 'horizontal',
+    grid: 3,
+    dense: false,
+    width: W,
+    height: H,
+    buttonRect: button,
+    logoRect: null,
+    autoReset: false,
+  });
+
+  // The engine loads the plaque image itself; give it real time for that one
+  // thing (image decode is outside the virtual clock). It calls the picture
+  // `sprite` and flags `spriteReady` when it has arrived.
+  await new Promise((r) => {
+    const wait = () => (tear.spriteReady ? r() : setTimeout(wait, 50));
+    wait();
+  });
+
+  const FPS = 30;
+  const STEP = 1000 / FPS;
+  const TEAR_MS = 1360;
+
+  // A few settled frames so the engine is warm, then fire and film.
+  for (let i = 0; i < 3; i++) { vnow += STEP; pump(); }
+  tear.fire();
+
+  const frames = Math.ceil(TEAR_MS / STEP) + 1; // 42: t=0 through t=1366
+  for (let i = 0; i < frames; i++) {
+    pump(); // draw the frame the engine queued for this moment
+    const data = canvas.toDataURL('image/png');
+    await fetch(`/frame?name=tear&i=${i}`, { method: 'POST', body: data });
+    log(`billede ${i + 1}/${frames}  (t=${Math.round(vnow)}ms)`);
+    vnow += STEP;
+  }
+
+  await fetch('/meta?name=tear', {
+    method: 'POST',
+    body: JSON.stringify({ fps: FPS, frames, tearMs: TEAR_MS, screen: { W, H }, button }, null, 2),
+  });
+  log(`faerdig: ${frames} billeder optaget`);
+</script>
+</body>
+</html>
