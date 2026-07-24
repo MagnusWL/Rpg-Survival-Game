@@ -45,6 +45,22 @@ textures {
   name: "skilltree"
   texture: "/main/tiles/skilltree.atlas"
 }
+textures {
+  name: "story1"
+  texture: "/main/tiles/story_1.atlas"
+}
+textures {
+  name: "story2"
+  texture: "/main/tiles/story_2.atlas"
+}
+textures {
+  name: "story3"
+  texture: "/main/tiles/story_3.atlas"
+}
+textures {
+  name: "story4"
+  texture: "/main/tiles/story_4.atlas"
+}
 adjust_reference: ADJUST_REFERENCE_PARENT
 max_nodes: 1024
 layers {

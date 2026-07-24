@@ -43,6 +43,91 @@ local KB_SECONDS = 5.6 -- the card's five plus the web's cross-dissolve tail
 -- Intro schedule (IntroSequence.tsx): three story cards, no logo card.
 local CARD_MS = 5.0
 
+-- The story told when the plaque is torn: the knight sneaking in, stealing
+-- the statue, fleeing, and looking out over the land. It plays between the
+-- tear and the first wave, so the run begins where the pictures leave off.
+--
+-- Cards are milled by tools/build-story.mjs, one atlas each (they are too
+-- large to share a texture page). Change the count here if the story grows;
+-- the mill prints a reminder to do exactly that.
+local STORY_CARDS = 4
+local STORY_ART_W, STORY_ART_H = 1672, 941
+-- Seconds a card holds before the next begins to arrive, and how long that
+-- arrival takes. Cards are opaque, so a newcomer simply fades in over the one
+-- underneath -- a straight cross-dissolve, the way the web played its intro.
+local STORY_HOLD_S = 4.5
+local STORY_FADE_S = 0.6
+
+-- ===== The story between the tear and the first wave ======================
+-- Built once, on the first telling, and kept: this GUI's init does not run
+-- again between runs, so the cards are hidden rather than deleted and the
+-- next run finds them ready.
+
+local function build_story(self)
+	local nodes = { cards = {} }
+	-- On the overlay layer, and built after everything else, so the telling
+	-- covers the whole menu -- layers beat creation order in Defold's GUI,
+	-- and the inventory panel already lives up there.
+	nodes.black = ui.overlay(ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 1))
+	-- Cover-fit the landscape art (1672x941) over the screen, exactly as the
+	-- menu and the intro cards do with theirs.
+	local scale = math.max(W / STORY_ART_W, H / STORY_ART_H)
+	for i = 1, STORY_CARDS do
+		local card = gui.new_box_node(vmath.vector3(W / 2, H / 2, 0),
+			vmath.vector3(STORY_ART_W * scale, STORY_ART_H * scale, 0))
+		gui.set_texture(card, "story" .. i)
+		gui.play_flipbook(card, "story-" .. i)
+		ui.set_alpha(card, 0)
+		ui.overlay(card)
+		nodes.cards[i] = card
+	end
+	self.story_nodes = nodes
+end
+
+local function set_story_visible(self, on)
+	local nodes = self.story_nodes
+	gui.set_enabled(nodes.black, on)
+	for _, card in ipairs(nodes.cards) do gui.set_enabled(card, on) end
+end
+
+-- Local, not global: game.project runs with shared_state, so a global here
+-- would be visible to every other script in the game.
+local function start_story(self)
+	if not self.story_nodes then build_story(self) end
+	for _, card in ipairs(self.story_nodes.cards) do ui.set_alpha(card, 0) end
+	set_story_visible(self, true)
+	self.story_t = 0
+end
+
+local function end_story(self)
+	set_story_visible(self, false)
+	self.story_t = nil
+	session.actions.start_new_run()
+end
+
+-- Cards are opaque and stacked in order, so each one only has to fade IN over
+-- the one before it; nothing needs to fade out. The telling is over when the
+-- last card has held its time.
+local function story_advance(self, dt)
+	self.story_t = self.story_t + dt
+	if self.story_t >= STORY_CARDS * STORY_HOLD_S then
+		end_story(self)
+		return
+	end
+	for i, card in ipairs(self.story_nodes.cards) do
+		local since = self.story_t - (i - 1) * STORY_HOLD_S
+		local a = math.max(0, math.min(1, since / STORY_FADE_S))
+		ui.set_alpha(card, a)
+	end
+end
+
+-- A tap skips to the next card, and a tap on the last one ends the telling.
+local function story_skip(self)
+	local card = math.floor(self.story_t / STORY_HOLD_S)
+	self.story_t = (card + 1) * STORY_HOLD_S
+	if self.story_t >= STORY_CARDS * STORY_HOLD_S then end_story(self) end
+end
+
 local function build_intro(self)
 	self.intro_nodes = {}
 	local black = ui.box(W / 2, H / 2, W, H, { 0, 0, 0 }, 1)
@@ -133,7 +218,8 @@ function init(self)
 			self.tearing = false
 			gui.set_enabled(self.tear, false)
 			gui.set_enabled(self.plaque, true)
-			session.actions.start_new_run()
+			-- The story stands between the tear and the field.
+			start_story(self)
 		end)
 	end)
 
@@ -242,6 +328,13 @@ function init(self)
 end
 
 function update(self, dt)
+	-- The story owns the screen while it plays: the menu underneath is
+	-- covered anyway, and nothing else should move behind it.
+	if self.story_t then
+		story_advance(self, dt)
+		return
+	end
+
 	-- Run-only Skills/Inventory stay hidden. Continue is available whenever
 	-- the single map-start save exists.
 	local can_continue = #session.saved_runs > 0
@@ -312,6 +405,12 @@ function on_input(self, action_id, action)
 	-- While the plaque tears, the menu is spoken for: no second press, no
 	-- links, no gear. The film's end callback is the only way forward.
 	if self.tearing then return true end
+	-- The story owns the screen the same way: a tap moves it on, nothing
+	-- else can be reached through it.
+	if self.story_t then
+		if action_id == hash("touch") and action.pressed then story_skip(self) end
+		return true
+	end
 	if action_id == hash("touch") and action.pressed then
 		-- A tap during the story advances it a step, as the React intro does:
 		-- card to card, then the last card to the menu.
