@@ -4,6 +4,64 @@ Alt herunder er ikke glemt, men heller ikke færdigt. Filen er kun til os to.
 
 Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
 
+> **BEMÆRK: afsnittene længere nede er fra FØR 23. juli.** De taler om
+> `defold-port/`-stier og portræt-format. Repoet er siden flyttet: Defold
+> ligger i roden, spillet er **liggende 844×390**, og web-projektet er ude af
+> git. Læs dem som historie, ikke som stier.
+
+---
+
+## 24. juli — SPILLETS ÅBNING, bygget efter Nicolais seks steps
+
+Vi arbejder på grenen **`skarni`** (skåret fra master; `feature/defold-assets`
+og `feature/landscape-assets` står urørte som arkiv).
+
+**Kæden fra tryk til kamp, som den er nu:**
+RESCUE HER → plaquen rives over → **fire historiebilleder** → **rutekortet**
+med ridderen på Stage 0 → tryk på Stage 1 → han går ind på banen → bølgerne.
+
+**Step 1 — historien (GJORT).** `tools/build-story.mjs` maler
+`Raw_Assets/Grafik/Story` om til kort + atlasser (ét atlas pr. billede: to
+kort på 1672×941 kan ikke dele én tekstur). Nicolai opdaterer billederne →
+kør møllen. Antallet står som `STORY_CARDS` i menu.gui_script.
+
+**Step 2 — kortet og åbningen (GJORT).**
+- `tools/build-routemap.mjs` **læser hans tegning**: gul firkant = stage 0,
+  lyserøde = stages, grønne streger = veje. Skriver `game/routemap.lua`
+  (16 knuder, 27 veje, buer bevaret) + maleriet til spillet. Vejene bliver
+  GÅET, ikke gættet — derfor kan den læse buer, og derfor narrer vejkryds
+  den ikke. **Fælde: skan firkantens KANT, ikke en cirkel om den** — en vej
+  ud af et hjørne ligger længere ude, og cirklen missede fem diagonaler.
+- Ruten i `sim.lua` er ombygget fra Magnus's 10×3-stige til **tegningens
+  graf**: `route_node` (sted), `route_choices` = veje ét stage frem.
+  `map_index` = stage + 1, så alt wave-regnestykket tæller som før.
+- **Åbningen:** stage 0 er en dørsten uden bølger; stages 1-3 er **3 bølger**
+  hver og enkeltsporede; hjertet vindes på **bølge 9**; derefter 5 bølger og
+  forgrening. Kun **guld + item** i åbningen — skill point og
+  opgraderingskort holdes tilbage.
+- **Skilltræet er lukket** indtil hjertet er vundet; derefter åbner det ved
+  hvert checkpoint som før.
+
+**MANGLER — og hvad der venter på hvad:**
+1. **Historie nr. 2** (efter hjertet, før skilltræet). Pladsen er markeret i
+   `game.gui_script` ved belønningens luk. **Venter på Nicolais grafik** —
+   læg den i `Raw_Assets/Grafik/Story2`, så udvider jeg møllen.
+2. **Stage 8, 9, 10** er ikke tegnet endnu. Hvor tegningen slutter, åbner
+   kortet ikke, og bølgerne fortsætter — ærlig pladsholder. Tegn dem i
+   guiden, kør møllen, så vokser kortet.
+3. **Ridderens gå-animation** på kortet (Nicolai laver den). Der sidder en
+   gylden prik som pladsholder på det sted, han står.
+4. **Statuen til venstre** + ny entré-animation (step 3) — ikke rørt endnu.
+5. F5-øjne på: knudernes størrelse (~27 px på fuld udsigt — for små at
+   ramme?), og hele kæden fra tryk til bølge.
+
+**Bevis-vanen der virker:** hele portens testpakke kan køres UDEN Defold i
+en Lua-maskine (`fengari`) — se `scratchpad/run-port-tests.mjs`. Stub `sys`,
+`msg`, `go`, `hash` og lån `unpack`, `math.atan2`, `math.pow` fra 5.1.
+**229 tests består; 2 fejler både før og efter vores ændringer** (VM'ens
+tilfældige tal er ikke Defolds) — sammenlign altid mod HEAD før du tror,
+en fejl er din.
+
 ---
 
 ## I GANG LIGE NU: skilltræ-blomsten (afventer F5)
