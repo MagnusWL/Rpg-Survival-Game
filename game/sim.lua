@@ -84,6 +84,44 @@ local function next_id(kind)
 	return id_counters[kind]
 end
 
+-- The princess, set down at the left of the field and left to shift her
+-- weight there. drift_to is where she is heading, drift_wait how long she
+-- stands still first; anim is what the view should draw her doing.
+local function make_girl()
+	return {
+		pos = { x = combat.GIRL_POSITION_X, y = combat.GIRL_POSITION_Y },
+		hp = 100, max_hp = 100, radius = 14,
+		anim = "idle", drift_to = combat.GIRL_POSITION_Y, drift_wait = 1,
+	}
+end
+
+-- Her restlessness, one frame's worth. She only moves along the picture's
+-- up-and-down, never sideways: a wizard holding her ground, not walking.
+local function update_girl(s, dt)
+	local g = s.girl
+	if not g or g.hp <= 0 then return end
+	if g.drift_wait > 0 then
+		g.drift_wait = g.drift_wait - dt
+		g.anim = "idle"
+		return
+	end
+	local gap = g.drift_to - g.pos.y
+	if math.abs(gap) < 1 then
+		g.pos.y = g.drift_to
+		g.anim = "idle"
+		local wait = combat.GIRL_DRIFT_WAIT
+		g.drift_wait = wait[1] + math.random() * (wait[2] - wait[1])
+		-- Somewhere else within her patch of ground, chosen fresh each time.
+		g.drift_to = combat.GIRL_POSITION_Y
+			+ (math.random() * 2 - 1) * combat.GIRL_DRIFT_RANGE
+		return
+	end
+	local step = combat.GIRL_DRIFT_SPEED * dt
+	g.pos.y = g.pos.y + (gap > 0 and math.min(step, gap) or math.max(-step, gap))
+	-- She faces the field, so up the picture is her left and down her right.
+	g.anim = gap < 0 and "strafeleft" or "straferight"
+end
+
 -- One upgrade per place on the drawn map. Nodes that share a stage are rolled
 -- together so the three roads out of a fork offer three different things,
 -- which is what made the old row of cards worth choosing between.
@@ -135,10 +173,7 @@ function M.new(game_state, opts)
 		route_pending = game_state.route_pending or game_state.upgrade_owed or false,
 		mobs = {},
 		allies = {},
-		girl = {
-			pos = { x = SCREEN_W / 2, y = combat.GIRL_POSITION_Y },
-			hp = 100, max_hp = 100, radius = 14,
-		},
+		girl = make_girl(),
 		projectiles = {},
 		hit_flashes = {},
 		skill_marks = {},
@@ -654,10 +689,7 @@ local function reset_map_field(s)
 	p.max_hp = p.max_hp + s.gear_bonus.max_health
 	p.hp = p.max_hp
 	s.player = p
-	s.girl = {
-		pos = { x = SCREEN_W / 2, y = combat.GIRL_POSITION_Y },
-		hp = 100, max_hp = 100, radius = 14,
-	}
+	s.girl = make_girl()
 	for _, key in ipairs({
 		"mobs", "allies", "projectiles", "hit_flashes", "skill_marks",
 		"lightning_links", "explosions", "blood", "corpses", "zombie_corpses",
@@ -816,6 +848,8 @@ function M.update(s, dt)
 	s.now = s.now + dt
 	local now = s.now
 	local p = s.player
+
+	update_girl(s, dt)
 
 	local bonus = upgrades.bonuses(s.upgrades)
 	local damage_to_player = 0

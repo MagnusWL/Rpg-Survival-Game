@@ -16,6 +16,15 @@ M.PLAYER_RIGHT_BUFFER = 14
 M.PLAYER_HEALTH_REGEN = 2
 M.GIRL_POSITION_Y = PLAY_H / 2 - 4
 M.GIRL_RENDER_OFFSET_Y = 8
+-- She stands off to the left, halfway up the field: the knight fights out in
+-- front of her, and her spells come in from the flank.
+M.GIRL_POSITION_X = 120
+-- Her restless drift. She only ever moves up and down the picture -- a step
+-- to either side of where she was set down -- and she waits a while between
+-- moves, so it reads as shifting her weight rather than walking anywhere.
+M.GIRL_DRIFT_RANGE = 46
+M.GIRL_DRIFT_SPEED = 26
+M.GIRL_DRIFT_WAIT = { 1.6, 5.2 }
 
 M.SPRITE_CELL = 128
 M.SPRITE_COLS = 15

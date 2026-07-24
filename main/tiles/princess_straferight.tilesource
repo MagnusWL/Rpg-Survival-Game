@@ -1,0 +1,59 @@
+image: "/assets/sprites/princess/straferight.png"
+tile_width: 128
+tile_height: 128
+animations {
+  id: "f0"
+  start_tile: 1
+  end_tile: 15
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f1"
+  start_tile: 16
+  end_tile: 30
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f2"
+  start_tile: 31
+  end_tile: 45
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f3"
+  start_tile: 46
+  end_tile: 60
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f4"
+  start_tile: 61
+  end_tile: 75
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f5"
+  start_tile: 76
+  end_tile: 90
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f6"
+  start_tile: 91
+  end_tile: 105
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}
+animations {
+  id: "f7"
+  start_tile: 106
+  end_tile: 120
+  playback: PLAYBACK_LOOP_FORWARD
+  fps: 12
+}

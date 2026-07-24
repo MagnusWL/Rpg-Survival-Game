@@ -703,7 +703,10 @@ function M.run()
 
 	local objective_state = sim.new(meta_mod.build_fresh_state(dm), { is_test_run = true })
 	objective_state.player.intro_phase = "done"
-	objective_state.player.pos = { x = 20, y = 20 }
+	-- Truly undefended: the knight must be far enough away that the mob
+	-- does not notice him, or it walks to him instead of her. She stands on
+	-- the left now, so a corner near her is not far at all.
+	objective_state.player.pos = { x = layout.SCREEN_W - 30, y = layout.PLAY_H - 30 }
 	local objective_mob = combat.spawn_mob("melee", 1)
 	objective_mob.damage = 7
 	objective_mob.pos = { x = objective_state.girl.pos.x + 20, y = objective_state.girl.pos.y }

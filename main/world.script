@@ -135,16 +135,29 @@ function init(self)
 	msg.post("girl", "disable")
 end
 
+-- Her sheets, one sprite each on the girl object. Only what she does today;
+-- the mill has already cut attack, cast, special1, run and quickshot, and
+-- each is one component here away from being playable.
+local GIRL_ANIM_NAMES = { "idle", "strafeleft", "straferight" }
+
 local function sync_girl(self, s)
 	local alive = s.girl.hp > 0
 	if alive ~= self.girl_shown then
 		self.girl_shown = alive
 		msg.post("girl", alive and "enable" or "disable")
 	end
-	if alive then
-		-- Sort from her feet, exactly like the knight and mobs, so whichever
-		-- actor stands lower on the field naturally draws in front.
-		place("girl", s.girl.pos.x, s.girl.pos.y + combat.GIRL_RENDER_OFFSET_Y, actor_z(s.girl.pos.y))
+	if not alive then return end
+	-- Sort from her feet, exactly like the knight and mobs, so whichever
+	-- actor stands lower on the field naturally draws in front.
+	place("girl", s.girl.pos.x, s.girl.pos.y + combat.GIRL_RENDER_OFFSET_Y, actor_z(s.girl.pos.y))
+
+	-- She always faces the field, so the sheet's east row is the only one
+	-- she needs; the strafes are what carry her up and down the picture.
+	local anim = s.girl.anim or "idle"
+	if self.girl_anim ~= anim then
+		self.girl_anim = anim
+		show_only("girl", GIRL_ANIM_NAMES, anim)
+		sprite.play_flipbook(msg.url(nil, "girl", anim), "f0")
 	end
 end
 
