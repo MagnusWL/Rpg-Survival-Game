@@ -54,7 +54,10 @@ function init(self)
 			session.clear_saved_run()
 			session.begin_fresh_progress()
 			begin_run(meta_mod.build_fresh_state(session.meta), "run-" .. os.time() .. "-" .. math.random(9999), false)
-			show_screen("skilltree")
+			-- The story ends on the road, not in the skill tree: the journey
+			-- is laid out and the run waits on Start. Skills come later, when
+			-- the awakening heart opens the tree.
+			session.map_intro = true
 		end,
 		grant_gold = function()
 			audio.menu_press()

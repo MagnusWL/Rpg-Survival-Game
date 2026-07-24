@@ -18,6 +18,10 @@ local M = {
 	game_over_shown = false,
 	reward_item = nil,
 	checkpoint_reward_open = false,
+	-- The road shown before the first wave: the story ends, the journey is
+	-- laid out, and the run waits on Start. Not saved -- it belongs to the
+	-- opening of a fresh run, not to the run's state.
+	map_intro = false,
 	run_active = false,
 	debug_progress = false,
 	skill_selection_open = false,
@@ -92,6 +96,8 @@ end
 function M.restore_run_progress(save)
 	M.meta = meta_mod.sanitize_meta(save.run_meta)
 	M.run_active = true
+	-- A continued run is already on the road; only a fresh one is shown it.
+	M.map_intro = false
 	M.checkpoint_reward_open = save.checkpoint_reward_open == true
 	M.reward_item = save.reward_item
 	M.skill_selection_open = save.skill_selection_open == true
@@ -104,6 +110,7 @@ function M.discard_run_progress()
 	M.checkpoint_reward_open = false
 	M.reward_item = nil
 	M.skill_selection_open = false
+	M.map_intro = false
 end
 
 function M.set_skill_selection_open(open)
@@ -175,6 +182,8 @@ end
 
 function M.paused()
 	if M.overlay ~= nil or M.tooltip ~= nil then return true end
+	-- The road is being read; nothing walks it yet.
+	if M.map_intro then return true end
 	-- The wave-clear choice pauses the field too, the same as any overlay --
 	-- it just isn't one, since it opens itself rather than being toggled.
 	if M.sim and #M.sim.pending_upgrade_offers > 0 then return true end
