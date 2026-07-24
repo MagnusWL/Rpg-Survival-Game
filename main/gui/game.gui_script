@@ -1162,7 +1162,17 @@ function on_input(self, action_id, action)
 			elseif not self.reward_compare and not session.reward_item
 				and gui.pick_node(self.reward_back, action.x, action.y) then
 				session.checkpoint_reward_open = false
-				session.actions.open_skilltree()
+				-- The skill tree stays shut through the opening: there are no
+				-- points to spend and the princess has not woken. It opens for
+				-- the first time when the awakening heart is won, and at every
+				-- checkpoint after that.
+				--
+				-- THE SECOND STORY GOES HERE, before the tree: three cards, on
+				-- the heart's checkpoint only. Waiting on Nicolai's art.
+				local sim = require("game.sim")
+				if s.map_index >= sim.OPENING_MAPS then
+					session.actions.open_skilltree()
+				end
 			elseif session.reward_item and gui.pick_node(self.reward_item_btn, action.x, action.y) then
 				self.reward_compare = true
 			end
@@ -1170,7 +1180,7 @@ function on_input(self, action_id, action)
 		return true
 	end
 
-	if session.map_intro or s.route_pending then
+	if s.route_pending then
 		local sim = require("game.sim")
 		if action.pressed then
 			self.route_drag_y = action.y
