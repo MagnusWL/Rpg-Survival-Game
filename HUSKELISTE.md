@@ -4,6 +4,36 @@ Alt herunder er ikke glemt, men heller ikke færdigt. Filen er kun til os to.
 
 Sidst gennemgået 21. juli 2026, aften — ved indgangen til Defold-æraen.
 
+> **23. juli, formiddag — STATUS EFTER MAGNUS'S ANDEN BØLGE (9 commits mere:
+> skillpoints, map, guld i run, skills fixes, gitignore).**
+>
+> **Han har ADOPTERET blomsten.** Han skriver direkte i vores
+> `skilltree.gui_script`, i vores FLOWER-tabel og vores stil: nyt TREDJE lag
+> (ring 1.4: Stomp, Drain Life, Monster Zombie), skill points som blå prikker
+> på bælgene, omdøbte skills (Shockwave, Fireball, Dead Again, The Cure) og
+> en strammere gate — et tredje-lags-skill kræver nu hele kæden af forfædre,
+> ikke kun forælderen. Aftalen virker præcis som ønsket: blomsten vores,
+> tallene hans.
+>
+> **VÆRKSTEDET VAR VÆK — nu reddet (commit a5bdac2).** Hans oprydning tog
+> web-projektet ud af git, og vores møller + designernes browser-kits boede
+> inde i det. Alt hentet ordret tilbage fra `9b85e8d`:
+> - `tools/` — optager/pakker til rivning + intro (repointet til den nye rod),
+>   plus web-æraens møller urørt (ikke repointet, intet slettet).
+> - `vendor/rescue-tear/`, `intro-campfire/`, `intro-monster/`, `intro-fog/`,
+>   `cranium-coin-bag/` — **kameraerne**. Uden dem kan filmene ikke bages om.
+> - `arkiv/` — det sporede arkiv.
+> - **Hegnet**: den nye .gitignore kendte kun Defold, så Raw_Assets (1,9 GB),
+>   node_modules og recordings lå åbne. Hegnet er sat igen.
+> - Bevis: `pack-intro.mjs` genkørt efter flytningen → alle 241 billeder
+>   byte-identiske med de pushede.
+>
+> **NÆSTE: liggende format.** Rivningsfilmen (390×413, stående) og
+> intro-kortene er bagt til portræt. Skal de bages om, køres samme studie med
+> ny geometri: `node tools/record-server.mjs` → `/tools/record-tear.html`
+> (ret W/H + knap-brøkerne) → `node tools/pack-tear.mjs`. Afventer Nicolais
+> øjne: hvor galt ser det ud i 844×390?
+
 > **23. juli, morgen — MAGNUS'S NATTEOMLÆGNING (10 commits):** Spillet er nu
 > **LIGGENDE (844×390)**. Web-projektet er fjernet fra git og `defold-port/`
 > flyttet til RODEN — `game.project` ligger nu i projektroden, og Defold
